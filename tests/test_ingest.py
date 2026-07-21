@@ -8,6 +8,7 @@ from ffb.snapshot import SnapshotCache
 from ffb.sources.crosswalk import snapshot_key as xwalk_key
 from ffb.sources.espn import snapshot_key as espn_key
 from ffb.sources.sleeper import snapshot_key
+from ffb.store import Store
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sleeper_projections_sample.json"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
@@ -88,6 +89,25 @@ def test_crosswalk_refresh_preserves_spine_on_empty_pull(store, tmp_path):
     n = ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
     assert n == 0
     assert store.resolve("sleeper", "3198") == "12626"  # spine preserved
+
+
+def test_crosswalk_refresh_keeps_good_snapshot_on_empty_pull(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(xwalk_key(), lambda: json.loads(XWALK.read_text()))  # prime good
+    ensure_crosswalk(store, cache, fetch=_no_network)
+    assert store.resolve("sleeper", "3198") == "12626"
+
+    # A transient bad --refresh returns empty. It must not overwrite the cached
+    # snapshot, or the documented fresh-DB rebuild would replay an empty file and
+    # leave every player unmatched.
+    ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
+
+    # Prove the on-disk snapshot survived by rebuilding a fresh store offline.
+    fresh = Store(tmp_path / "fresh.duckdb")
+    fresh.init_schema()
+    ensure_crosswalk(fresh, cache, fetch=_no_network)  # offline replay only
+    assert fresh.resolve("sleeper", "3198") == "12626"
+    fresh.close()
 
 
 def test_ingest_resolves_matched_players_to_canonical_key(store, tmp_path, crosswalk_rows):

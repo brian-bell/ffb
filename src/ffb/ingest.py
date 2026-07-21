@@ -51,7 +51,15 @@ def ensure_crosswalk(
         return 0
 
     fetch_fn = fetch or crosswalk.fetch_playerids
-    raw = cache.get_json(crosswalk.snapshot_key(), fetch_fn, refresh=refresh)
+    # Gate the snapshot write on a parseable pull so a transient empty/malformed
+    # refresh can't overwrite the known-good cache (which an offline fresh-DB
+    # rebuild would then replay as empty).
+    raw = cache.get_json(
+        crosswalk.snapshot_key(),
+        fetch_fn,
+        refresh=refresh,
+        is_valid=lambda data: bool(crosswalk.parse_crosswalk(data)),
+    )
     rows = crosswalk.parse_crosswalk(raw)
     if not rows:
         # parse_crosswalk drops malformed records without raising, so a transient
