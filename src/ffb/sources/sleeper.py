@@ -79,7 +79,7 @@ def parse_projections(
             full_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
             rows.append(
                 {
-                    "player_id": player_id,
+                    "native_id": player_id,
                     "full_name": full_name,
                     "position": position,
                     "team": player.get("team"),

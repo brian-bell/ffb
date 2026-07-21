@@ -1,0 +1,70 @@
+[
+  {
+    "id": 3043078,
+    "fullName": "Derrick Henry",
+    "defaultPositionId": 2,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {
+          "24": 1075.87, "25": 11.58, "26": 0.45,
+          "42": 192.91, "43": 0.97, "44": 0.06, "53": 23.57,
+          "72": 0.89, "58": 30.92
+        }
+      },
+      {
+        "statSourceId": 0,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {"24": 999.0}
+      }
+    ]
+  },
+  {
+    "id": 3918298,
+    "fullName": "Josh Allen",
+    "defaultPositionId": 1,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {
+          "3": 3752.62, "4": 23.02, "19": 1.22, "20": 12.44,
+          "24": 495.76, "25": 8.57, "72": 4.08, "0": 522.34
+        }
+      }
+    ]
+  },
+  {
+    "id": 4362628,
+    "fullName": "Ja'Marr Chase",
+    "defaultPositionId": 3,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {"42": 1335.25, "43": 8.24, "44": 0.4, "53": 104.87}
+      }
+    ]
+  },
+  {
+    "id": 999901,
+    "fullName": "No Projection Player",
+    "defaultPositionId": 2,
+    "stats": [
+      {"statSourceId": 0, "scoringPeriodId": 0, "stats": {"24": 100.0}}
+    ]
+  },
+  {
+    "id": 999902,
+    "fullName": "Malformed Player",
+    "defaultPositionId": 3,
+    "stats": [
+      {"statSourceId": 1, "scoringPeriodId": 0}
+    ]
+  }
+]

@@ -30,16 +30,22 @@ class SnapshotCache:
         fetch: Callable[[], Any],
         *,
         refresh: bool = False,
+        is_valid: Callable[[Any], bool] | None = None,
     ) -> Any:
         """Return cached JSON for ``key``, or call ``fetch`` and cache it.
 
-        On a hit (and not ``refresh``) ``fetch`` is never called.
+        On a hit (and not ``refresh``) ``fetch`` is never called. ``is_valid``,
+        when given, gates persistence of a freshly fetched result: if it returns
+        false the data is returned to the caller but the existing snapshot is
+        left untouched, so a transient bad ``--refresh`` can't overwrite a
+        known-good cache. Replayed (cached) data is never re-validated.
         """
         path = self._path(key)
         if path.exists() and not refresh:
             return json.loads(path.read_text())
 
         data = fetch()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=0, ensure_ascii=False))
+        if is_valid is None or is_valid(data):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=0, ensure_ascii=False))
         return data
