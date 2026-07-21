@@ -28,7 +28,7 @@ dependencies, commit the updated `uv.lock` or `--frozen` will fail.
 ```
 src/ffb/
   cli.py            # Typer app; `ffb rankings` command + rich tables
-  config.py         # paths, season, PPR scoring weights, ESPN stat/position maps
+  config.py         # paths, season, generic + league scoring weights, ESPN stat/position maps
   paths.py          # db/snapshot dirs, honoring FFB_DB_PATH / FFB_SNAPSHOT_DIR
   snapshot.py       # SnapshotCache: fetch-or-replay raw responses (offline)
   store.py          # THE ONLY module that imports duckdb
@@ -120,12 +120,22 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
   decoded via `config.ESPN_STAT_MAP`. `appliedTotal` is 0 in this view, so ESPN
   rows carry `src_pts_ppr=None` and we score them ourselves. If ESPN drifts, the
   committed fixture keeps CI green; re-verify against a fresh `--refresh` pull.
-- **K/DST are single-source.** Team defenses aren't in `ff_playerids`, and
-  Sleeper labels them `DEF` while ESPN uses `DST`, so defenses don't yet form a
-  consensus. Expected; see DESIGN "Open items".
-- **Schema changes need a fresh DB.** The store uses `CREATE TABLE IF NOT
-  EXISTS`, so it won't migrate an existing `data/ffb.duckdb`. Delete it and
-  re-ingest (offline, from snapshots) after a schema change.
+- **K/DST are scored but effectively single-source.** `LEAGUE_SCORING` includes
+  kicking and defense weights (keyed to Sleeper's stat line), so K/DEF rank on
+  real points, not zero. But cross-source consensus for them is still limited:
+  ESPN's K/DST stat ids aren't in `ESPN_STAT_MAP`, so `espn.parse_projections`
+  drops any row with no scorable stats (self-healing once those ids are mapped —
+  a separate spike) rather than emit 0-point rows that would halve a
+  crosswalk-matched kicker's consensus; and team defenses aren't in
+  `ff_playerids` and Sleeper labels them `DEF` vs ESPN's `DST`, so defenses don't
+  form a consensus. Expected; see DESIGN "Open items".
+- **Schema or parse-logic changes need a fresh DB.** The store uses `CREATE TABLE
+  IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
+  present, so neither a column change nor a parse/normalization change that alters
+  derived-row *content* (e.g. crosswalk `PK`→`K`, or a source dropping unscorable
+  rows) reaches an existing `data/ffb.duckdb`. Delete it and re-ingest (offline,
+  from snapshots) after such a change. The DB is a disposable cache, so this is
+  cheap.
 - **Yahoo isn't wired yet.** The crosswalk carries `yahoo_id` for later, but no
   Yahoo projections are ingested (tasks 2/9).
 ```

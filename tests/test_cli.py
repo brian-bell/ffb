@@ -110,6 +110,33 @@ def test_sources_falls_back_to_sleeper_when_espn_fails(tmp_path, monkeypatch):
     assert "showing Sleeper only" in result.output
 
 
+def test_rankings_scores_with_league_config_not_generic_default(tmp_path, monkeypatch):
+    # Slice 4: the CLI must apply the league's scoring config, not the library
+    # default. Spy on the seam to confirm the league config reaches the compute.
+    import ffb.cli as cli
+    from ffb import config
+
+    captured = {}
+    real = cli.consensus_rows
+
+    def spy(*args, **kwargs):
+        captured["cfg"] = kwargs.get("cfg")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(cli, "consensus_rows", spy)
+    result = runner.invoke(app, ["rankings", "--pos", "RB", "--season", "2024"], env=_env(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert captured["cfg"] is config.LEAGUE_SCORING
+
+
+def test_rankings_notes_placeholder_scoring(tmp_path):
+    # Points come from a placeholder config until Yahoo is connected; a run must
+    # say so rather than look silently league-accurate.
+    result = runner.invoke(app, ["rankings", "--pos", "RB", "--season", "2024"], env=_env(tmp_path))
+    assert result.exit_code == 0, result.output
+    assert "placeholder league settings" in result.output
+
+
 def test_help_lists_rankings(tmp_path):
     result = runner.invoke(app, ["--help"], env=_env(tmp_path))
     assert result.exit_code == 0

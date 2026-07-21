@@ -97,6 +97,15 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
                 log.debug("skip ESPN row with no projection stats: %s", native_id)
                 continue
             native_id = str(native_id)
+            stats = _translate_stats(espn_stats)
+            if not stats:
+                # Nothing scorable decoded — kickers and D/ST report ESPN stat
+                # ids not yet in ESPN_STAT_MAP. Skip rather than emit a 0-point
+                # row: a crosswalk-matched kicker would otherwise consense against
+                # Sleeper at half value. Self-healing — once those ids are mapped
+                # (a separate spike), these rows carry stats and flow through.
+                log.debug("skip ESPN row with no scorable stats (e.g. K/DST): %s", native_id)
+                continue
             if native_id in seen:
                 continue
             seen.add(native_id)
@@ -110,7 +119,7 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
                     "season": season,
                     "source": "espn",
                     "scope": "season",
-                    "stats": _translate_stats(espn_stats),
+                    "stats": stats,
                     "src_pts_ppr": None,
                 }
             )
