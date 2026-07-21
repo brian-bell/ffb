@@ -51,7 +51,43 @@ CREATE TABLE IF NOT EXISTS projections (
     src_pts_ppr DOUBLE,
     PRIMARY KEY (player_key, season, source, scope)
 );
+
+CREATE TABLE IF NOT EXISTS adp (
+    player_key    VARCHAR,             -- canonical, or 'ffc:<player_id>' fallback
+    season        INTEGER,
+    source        VARCHAR,             -- 'ffc' (format/teams live in config)
+    native_id     VARCHAR,             -- FFC player_id (provenance)
+    full_name     VARCHAR,             -- FFC's own name (display for unmatched rows)
+    position      VARCHAR,             -- normalized (PK->K)
+    team          VARCHAR,             -- aliased to nflverse style at parse time
+    bye           INTEGER,
+    adp           DOUBLE,
+    adp_high      INTEGER,
+    adp_low       INTEGER,
+    adp_stdev     DOUBLE,
+    times_drafted INTEGER,
+    matched       BOOLEAN,
+    PRIMARY KEY (player_key, season, source)
+);
 """
+
+# Columns of the adp table, in insert order (also the read column order).
+_ADP_COLUMNS = (
+    "player_key",
+    "season",
+    "source",
+    "native_id",
+    "full_name",
+    "position",
+    "team",
+    "bye",
+    "adp",
+    "adp_high",
+    "adp_low",
+    "adp_stdev",
+    "times_drafted",
+    "matched",
+)
 
 # Which crosswalk column holds each source's native player id.
 _SOURCE_ID_COLUMN = {"sleeper": "sleeper_id", "espn": "espn_id"}
@@ -230,6 +266,57 @@ class Store:
             "DELETE FROM projections WHERE season = ? AND source = ? AND scope = ?",
             [season, source, scope],
         )
+
+    # --- ADP (name-resolved source values, not computed) ------------------
+    def upsert_adp(self, rows: list[dict[str, Any]]) -> None:
+        """Insert-or-replace ADP rows, keyed by ``(player_key, season, source)``.
+
+        ADP is a *source* value (stored), unlike points (computed at read time).
+        Rows carry their own name/position/team so unmatched (``ffc:``-fallback)
+        entries stay displayable without a ``players`` row.
+        """
+        cols = ", ".join(_ADP_COLUMNS)
+        placeholders = ", ".join("?" * len(_ADP_COLUMNS))
+        updates = ", ".join(
+            f"{c} = excluded.{c}"
+            for c in _ADP_COLUMNS
+            if c not in ("player_key", "season", "source")
+        )
+        for row in rows:
+            self.conn.execute(
+                f"""
+                INSERT INTO adp ({cols}) VALUES ({placeholders})
+                ON CONFLICT (player_key, season, source) DO UPDATE SET {updates}
+                """,
+                [row.get(c) for c in _ADP_COLUMNS],
+            )
+
+    def delete_adp(self, season: int, source: str = "ffc") -> None:
+        """Remove a ``(season, source)`` ADP slice so a re-ingest mirrors the
+        source rather than unioning with stale rows."""
+        self.conn.execute(
+            "DELETE FROM adp WHERE season = ? AND source = ?",
+            [season, source],
+        )
+
+    def adp_rows(self, season: int, source: str = "ffc") -> list[dict[str, Any]]:
+        """Return stored ADP rows for a season/source as plain dicts."""
+        cursor = self.conn.execute(
+            f"SELECT {', '.join(_ADP_COLUMNS)} FROM adp WHERE season = ? AND source = ?",
+            [season, source],
+        )
+        cols = [c[0] for c in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
+    def crosswalk_rows(self) -> list[dict[str, Any]]:
+        """Read the crosswalk spine (for name-based ADP resolution).
+
+        Keeps ``duckdb`` confined to this module — the name matcher works over
+        plain dicts.
+        """
+        cursor = self.conn.execute("SELECT player_key, full_name, position, team FROM crosswalk")
+        cols = [c[0] for c in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
 
     # --- reads ------------------------------------------------------------
     def has_season(self, season: int, source: str | None = None, scope: str | None = None) -> bool:

@@ -169,3 +169,43 @@ LEAGUE_ROSTER_SLOTS = {
     "DEF": 1,
     "BN": 6,
 }
+
+# Number of teams in the league. Feeds VORP replacement baselines (§3e: slots to
+# fill = teams × starting slots) and the FFC ADP pull (one format/teams combo per
+# season). Placeholder until slice 2 loads the real Yahoo league; a 10-team or
+# half-PPR league shifts both the baselines and the FFC params, but both are
+# config reads, so the swap is one edit.
+LEAGUE_NUM_TEAMS = 12
+
+# --- FFC ADP source (slice 5, spike-verified 2026-07-21) --------------------
+# Fantasy Football Calculator's free ADP API. We pull one format/teams combo
+# matching the league. `PK` is FFC's kicker label (we normalize to `K`); `DEF`
+# stays `DEF` but rides ADP-only (team defenses aren't in ff_playerids — see
+# AGENTS.md and DESIGN "Open items").
+FFC_FORMAT = "ppr"
+FFC_POSITION_MAP = {"PK": "K", "DEF": "DEF"}
+
+# FFC team codes differ from nflverse/MFL style for a handful of teams. Used only
+# as a TIEBREAK when resolving an ambiguous (name, position) — an imperfect alias
+# degrades to "unmatched", never to a wrong merge (§3b). Verify the full set
+# against a real pull; extend as new differences surface when trimming fixtures.
+FFC_TEAM_ALIASES = {
+    "SF": "SFO",
+    "NO": "NOS",
+    "KC": "KCC",
+    "TB": "TBB",
+    "GB": "GBP",
+    "NE": "NEP",
+    "LV": "LVR",
+}
+
+# --- Cheat sheet: VORP + tiers (slice 5) ------------------------------------
+# Draftable pool depth per position — how deep tiers/board consider a position
+# before overflow. Plain numbers tuned by eye (teams × dedicated starters + flex
+# + bench share), not derived cleverly; revisit only if the board looks wrong on
+# real data.
+POSITION_POOL = {"QB": 16, "RB": 48, "WR": 48, "TE": 16, "K": 12, "DEF": 12}
+
+# Number of tiers per position (largest-gap splits within the pool). Config knobs;
+# tests assert the tiering mechanics, not these specific counts.
+TIER_COUNT = {"QB": 6, "RB": 8, "WR": 8, "TE": 6, "K": 3, "DEF": 3}

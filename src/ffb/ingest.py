@@ -19,8 +19,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ffb import config, names
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, sleeper
+from ffb.sources import crosswalk, espn, ffc, sleeper
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
@@ -199,3 +200,84 @@ def ensure_espn_ingested(
     fetch_fn = fetch or (lambda: espn.fetch_projections(season))
     raw = cache.get_json(espn.snapshot_key(season), fetch_fn, refresh=refresh)
     return _finalize(store, espn.parse_projections(raw, season), season, "espn")
+
+
+def resolve_adp_rows(
+    store: Store, rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], Reconciliation]:
+    """Attach a ``player_key`` + ``matched`` flag to parsed ADP rows by name.
+
+    FFC has no id in the crosswalk, so we resolve by ``(name, position)`` with a
+    team tiebreak (see :mod:`ffb.names`). A miss is never dropped: it keeps an
+    ``ffc:<native_id>`` fallback key (``matched=False``) and is counted in the
+    returned :class:`Reconciliation`.
+    """
+    index = names.build_name_index(store.crosswalk_rows())
+    recon = Reconciliation(source="ffc", n_rows=len(rows))
+    resolved: list[dict[str, Any]] = []
+    for row in rows:
+        key = names.match_by_name(index, row["full_name"], row["position"], team=row.get("team"))
+        if key is not None:
+            recon.matched += 1
+            resolved.append({**row, "player_key": key, "matched": True})
+        else:
+            recon.unmatched += 1
+            if len(recon.unmatched_names) < 20:
+                recon.unmatched_names.append(row.get("full_name") or row["native_id"])
+            resolved.append({**row, "player_key": f"ffc:{row['native_id']}", "matched": False})
+    return resolved, recon
+
+
+def ensure_adp_ingested(
+    store: Store,
+    cache: SnapshotCache,
+    season: int,
+    *,
+    refresh: bool = False,
+    teams: int = config.LEAGUE_NUM_TEAMS,
+    fmt: str = config.FFC_FORMAT,
+    fetch: Callable[[], dict[str, Any]] | None = None,
+) -> Reconciliation:
+    """Ensure ``season`` FFC ADP is stored, name-resolved to ``player_key``.
+
+    Unlike the id-resolved sources, ADP has no staleness detector (its resolution
+    is name-based, invisible to ``has_stale_resolution``). It instead re-parses +
+    re-resolves from the cached snapshot on **every** run (delete-then-insert),
+    which keeps the mirror honest and buys the late-crosswalk self-heal for free
+    (§3c). Network is still only touched on ``refresh`` or the first pull.
+    """
+    fetch_fn = fetch or (lambda: ffc.fetch_adp(season, teams=teams, fmt=fmt))
+    # Gate the snapshot write on a successful parse so a transient bad refresh
+    # can't overwrite the known-good cache (mirrors ensure_crosswalk).
+    raw = cache.get_json(
+        ffc.snapshot_key(season, teams=teams, fmt=fmt),
+        fetch_fn,
+        refresh=refresh,
+        is_valid=lambda data: bool(ffc.parse_adp(data, season)),
+    )
+    rows = ffc.parse_adp(raw, season)
+    if not rows:
+        # An invalid/empty pull (e.g. status != Success) must be surfaced as a
+        # failure, not swallowed: otherwise the CLI would silently serve the
+        # previously persisted slice as current market data. The is_valid gate
+        # above already preserved the good on-disk snapshot, so an offline rerun
+        # re-resolves from it.
+        raise ValueError(f"FFC ADP pull for {season} returned no usable rows")
+
+    resolved, recon = resolve_adp_rows(store, rows)
+    store.delete_adp(season)
+    store.upsert_adp(resolved)
+    log.info(
+        "ingested %d FFC ADP rows for %s (%d matched, %d unmatched)",
+        recon.n_rows,
+        season,
+        recon.matched,
+        recon.unmatched,
+    )
+    if recon.unmatched:
+        log.warning(
+            "%d FFC ADP players unmatched to crosswalk: %s",
+            recon.unmatched,
+            ", ".join(recon.unmatched_names),
+        )
+    return recon

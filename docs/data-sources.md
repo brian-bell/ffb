@@ -18,7 +18,9 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 - **Canonical identity via the crosswalk.** Every source's native player id is
   resolved to a canonical `player_key` (nflverse `mfl_id`) so consensus aligns the
   same player across sources. A miss is never dropped — it falls back to a
-  `source:native_id` key with `matched=False` and is surfaced.
+  `source:native_id` key with `matched=False` and is surfaced. The one exception
+  is FFC ADP, whose id has no crosswalk column: it resolves by **name + position**
+  instead (`names.py`), with the same never-dropped fallback.
 - **Points are computed, never stored.** Sources contribute stat lines;
   `scoring.py` scores them at read time. A source's own point total is kept only
   as `src_pts_ppr` for validation.
@@ -30,8 +32,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **Sleeper projections** | REST JSON (`api.sleeper.com`) | none | Season projections (all offensive + K/DEF stat lines) | **Live** |
 | **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense; K/DST not decoded yet) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
+| **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | League scoring, roster slots, teams, rosters, FAs, matchups | Planned (slice 2) |
-| Fantasy Football Calculator | REST JSON | none | ADP (draft value-vs-cost) | Planned (slice 5) |
 | nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
 | Sleeper trending / player status | REST JSON | none | Trending adds/drops, injury status | Planned (slice 11) |
 | ESPN news / RSS | REST / RSS | none | Headlines for LLM digest (never numeric) | Planned (slice 13) |
@@ -154,6 +156,61 @@ lets consensus align the same player across Sleeper and ESPN (and, later, Yahoo)
   - **Team defenses are not in `ff_playerids`.** DEF/DST rows never match, so they
     fall back to `source:native_id` keys and don't form a cross-source consensus.
 
+### 4. Fantasy Football Calculator — ADP
+
+`src/ffb/sources/ffc.py`. Not a projection source — **average draft position**,
+the market's cost-of-acquisition, joined onto the consensus so the cheat sheet can
+show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
+
+- **Endpoint**
+  ```
+  GET https://fantasyfootballcalculator.com/api/v1/adp/{fmt}?teams={N}&year={season}
+  ```
+  One format/teams combo matching the league: `fmt = config.FFC_FORMAT` (`"ppr"`),
+  `N = config.LEAGUE_NUM_TEAMS` (`12`). Header `User-Agent: ffb/0.1 (personal
+  use)`, `Accept: application/json`, 30s timeout. **No auth.**
+- **Response** — `{"status", "meta": {type, teams, rounds, total_drafts,
+  start_date, end_date}, "players": [{player_id, name, position, team, adp,
+  adp_formatted, times_drafted, high, low, stdev, bye}]}` (~200 players; positions
+  `QB RB WR TE PK DEF`; DEF rows named like `"San Francisco Defense"`).
+- **What we extract** (`parse_adp`, pure): requires `status == "Success"` (anything
+  else, or a non-object payload, returns `[]` so the snapshot `is_valid` gate treats
+  a bad refresh as empty). Per row: stringify `player_id`; normalize position via
+  `config.FFC_POSITION_MAP` (`PK → K`, `DEF` kept); alias the team via
+  `config.FFC_TEAM_ALIASES` (`SF → SFO`, `KC → KCC`, …) to nflverse/MFL style so the
+  name matcher's team tiebreak compares like with like. Rows with a missing or
+  non-string name/position are skipped (a bad value would otherwise crash name
+  resolution). Never raises on a bad row — it logs and skips.
+- **Identity — by name, not id.** FFC's `player_id` is FFC-internal (no column in
+  `ff_playerids`), so `resolve_batch` can't apply. `names.build_name_index` /
+  `match_by_name` resolve each row by `(normalized name, position)`:
+  normalization lowercases and strips punctuation, diacritics, and generational
+  suffixes (`Jr`/`III`); duplicate `(name, pos)` pairs (the crosswalk has ~551,
+  mostly retired players on team `FA`) are disambiguated by dropping `FA`
+  candidates, then a team tiebreak. **Ambiguity resolves to unmatched, never a
+  guess** — a wrong merge silently corrupts the board. A miss falls back to
+  `ffc:<player_id>` (`matched=False`) and is reported in the CLI footer.
+- **Storage** — the `adp` table (keyed by `(player_key, season, source)`), carrying
+  FFC's own name/pos/team plus the ADP fields. ADP is a **source value, so it is
+  stored** (unlike computed points/VORP/tiers).
+- **Ingest** (`ensure_adp_ingested`) — has no id-based staleness detector (its
+  resolution is name-based, invisible to `has_stale_resolution`), so it re-parses +
+  re-resolves from the cached snapshot on **every** run (delete-then-insert mirror).
+  That keeps the mirror honest and buys the late-crosswalk self-heal for free. An
+  invalid/empty pull is surfaced as a failure so the CLI drops ADP rather than
+  serving a stale slice.
+- **Snapshot key** — `ffc/adp_{fmt}_{teams}_{season}` (e.g. `ffc/adp_ppr_12_2024`).
+- **Gotchas**
+  - **Team defenses ride ADP-only.** DEF isn't in `ff_playerids`, so FFC `DEF`
+    rows fall back to `ffc:` keys that can't join Sleeper's `sleeper:` DEF
+    fallbacks — a defense appears on the board with ADP but no projection↔ADP join.
+    Kickers are fine (`PK → K`, kickers are in the crosswalk).
+  - Expect ~a dozen unmatched ADP rows on real data (mostly defenses, plus
+    nickname/ambiguous misses like "Hollywood Brown" or two "Mike Williams");
+    extending `normalize_name`/`FFC_TEAM_ALIASES` is the tuning loop, not a bug.
+  - One format/teams combo per pull — a 10-team or half-PPR league shifts these
+    (and the VORP baselines), but both are config reads.
+
 ---
 
 ## The access layer: snapshot cache
@@ -191,6 +248,12 @@ a fallback key. `consensus.py` groups by `player_key`, scores each source's stat
 line with `config.LEAGUE_SCORING`, and averages the points (carrying `n`, the
 source count).
 
+`ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
+name (`names.py`) into the `adp` table. `ffb cheatsheet` then left-joins that ADP
+onto the consensus in `board.py`, adds VORP (`vorp.py`) and positional tiers
+(`tiers.py`), and renders the board / `board.json` — all computed at read time, so
+a scoring or roster-shape change re-derives everything with no re-ingest.
+
 ---
 
 ## Planned sources (not yet wired)
@@ -204,8 +267,6 @@ today.
   between runs); **read-only** (the pipeline recommends, never sets lineups). The
   crosswalk already carries `yahoo_id` for the join. Its scoring settings will
   replace the placeholder `config.LEAGUE_SCORING`.
-- **Fantasy Football Calculator ADP** (slice 5) — free REST API for average draft
-  position, joined via the crosswalk for value-vs-cost on the cheat sheet.
 - **nflverse stats / injuries / depth charts** via `nflreadpy` (in-season) —
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Same access pattern as the crosswalk.
