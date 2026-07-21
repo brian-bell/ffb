@@ -50,15 +50,22 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
 
 - **store.py** — the single DuckDB gateway. Tables: `crosswalk` (identity spine),
   `players` (canonical/​fallback identity + `matched` flag), `projections` (keyed
-  by `player_key`, carrying `native_id`, `stats_json`, `src_pts_ppr`). Exposes
-  writes (`upsert_crosswalk`, `upsert_projections`), the resolver (`resolve`,
-  `resolve_batch`), and reads (`projection_rows`, `has_season`, `has_crosswalk`).
+  by `(player_key, season, source, scope)` — the `source`/`scope` columns keep
+  weekly projections additive later — carrying `native_id`, `stats_json`,
+  `src_pts_ppr`). Exposes writes (`upsert_crosswalk`, `replace_crosswalk`,
+  `upsert_projections`, `delete_projections`), the resolver (`resolve`,
+  `resolve_batch`), and reads (`projection_rows`, `has_season`, `has_crosswalk`,
+  `has_stale_resolution`).
 - **ingest.py** — `ensure_crosswalk` loads the spine; `ensure_ingested` (Sleeper)
   and `ensure_espn_ingested` load a source, resolving each native id to a
-  canonical `player_key`. Returns a `Reconciliation` (matched/unmatched counts +
+  canonical `player_key`. Each re-ingest replaces the source's `(season, source)`
+  slice (via `delete_projections`) so a refresh mirrors the source instead of
+  unioning with stale rows. Returns a `Reconciliation` (matched/unmatched counts +
   sample names). Idempotent and offline via the snapshot cache.
-- **consensus.py** — groups all sources by `player_key`, scores each source's
-  stat line, and averages the points; carries `n` (source count).
+- **consensus.py** — groups the requested sources by `player_key`, scores each
+  source's stat line, and averages the points; carries `n` (source count). The
+  `sources` argument restricts which sources contribute, so output depends on the
+  request rather than on whatever a prior run happened to persist.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
   `snapshot_key`. No plugin abstraction yet; two concrete sources.
 
@@ -75,6 +82,19 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
   can't clobber another's. A crosswalk **miss is never dropped** — it falls back
   to a `source:native_id` key with `matched=False` and is surfaced in the
   `Reconciliation`, the WARNING logs, and the CLI footer.
+- **Late crosswalk self-heals.** A source ingested before the crosswalk was
+  available is stranded under fallback keys. On the next run, `has_stale_resolution`
+  detects rows that now map to a different (canonical) key and forces an offline
+  re-ingest from the cached snapshot — no `--refresh` needed.
+- **Crosswalk refresh mirrors the source.** `ensure_crosswalk` uses
+  `replace_crosswalk` (clear + reinsert in one transaction), so a `--refresh`
+  that drops or reassigns a native id upstream can't leave a stale row for
+  `resolve` to match. An empty parse is treated as a bad pull and leaves the
+  existing spine untouched.
+- **Best-effort degradation.** The CLI ranks even when pieces are missing: a
+  failed crosswalk load leaves players unmatched (not a crash), and a failed ESPN
+  fetch falls back to Sleeper-only. Both print a yellow notice; only a missing
+  Sleeper snapshot while offline is fatal.
 - **Offline by default.** Every raw pull is snapshotted under `snapshots/` and
   replayed; `--refresh` forces a network re-fetch. Tests/CI use `tests/fixtures/`
   (committed), not `snapshots/` (gitignored).
