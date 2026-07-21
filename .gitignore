@@ -12,3 +12,6 @@ docs/plans/
 # Local DuckDB store (rebuilt from snapshots)
 /data/
 
+# Raw API snapshots — kept local, re-fetched with `ffb ... --refresh`
+/snapshots/
+
