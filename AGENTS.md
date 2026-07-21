@@ -1,10 +1,11 @@
 # AGENTS.md — ffb
 
 Personal fantasy football pipeline for Brian's Yahoo league: pull free
-projection sources, store raw + normalized data in DuckDB, and compute
-league-scored, consensus-ranked output on a CLI. `DESIGN.md` holds the full
-product design and the slice roadmap; this file is the working context for
-agents changing the code.
+projection + ADP sources, store raw + normalized data in DuckDB, and compute
+league-scored, consensus-ranked output on a CLI — rankings plus a draft cheat
+sheet (VORP, tiers, ADP) with a self-contained `board.json` export. `DESIGN.md`
+holds the full product design and the slice roadmap; this file is the working
+context for agents changing the code.
 
 ## Build, test, run
 
@@ -15,7 +16,8 @@ uv sync                      # install deps from uv.lock
 uv run pytest                # test suite (offline, deterministic)
 uv run ruff check .          # lint
 uv run ruff format .         # format  (CI uses --check)
-uv run ffb rankings --pos RB --sources   # run the CLI
+uv run ffb rankings --pos RB --sources   # consensus rankings
+uv run ffb cheatsheet --export           # draft board + board.json export
 ```
 
 CI (`.github/workflows/ci.yml`) runs `uv sync --frozen`, `ruff check`, `ruff
