@@ -24,6 +24,13 @@ def test_parses_canonical_row_with_string_ids():
     assert henry["team"] == "BAL"
 
 
+def test_place_kicker_position_normalized_to_k():
+    # nflverse labels kickers "PK"; we normalize to "K" so matched kickers align
+    # with the sources' and league's vocabulary and `--pos K` finds them.
+    rows = parse_crosswalk([{"mfl_id": 1, "name": "Some Kicker", "position": "PK", "team": "BAL"}])
+    assert rows[0]["position"] == "K"
+
+
 def test_missing_ids_become_none():
     rookie = next(r for r in _rows() if r["full_name"] == "Rookie Wideout")
     assert rookie["sleeper_id"] is None

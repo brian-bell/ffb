@@ -22,6 +22,13 @@ SOURCE = "nflverse"
 # Columns we keep from the (wide) ff_playerids table, mapped to our names.
 _ID_COLS = ("sleeper_id", "espn_id", "yahoo_id", "gsis_id")
 
+# nflverse labels place-kickers "PK"; Sleeper/ESPN and the league use "K". Matched
+# players adopt the crosswalk's canonical position, so without this a matched
+# kicker lands under "PK" and `--pos K` (plus alignment with unmatched, source-
+# labeled kickers) silently misses it. Other nflverse labels (PN punters, IDP
+# positions) are out of league scope and pass through untouched.
+_POSITION_NORMALIZE = {"PK": "K"}
+
 
 def snapshot_key() -> str:
     return "nflverse/ff_playerids"
@@ -76,10 +83,11 @@ def parse_crosswalk(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if player_key is None:
                 log.debug("skip crosswalk row without mfl_id: %s", item.get("name"))
                 continue
+            position = item.get("position")
             row: dict[str, Any] = {
                 "player_key": player_key,
                 "full_name": item.get("name"),
-                "position": item.get("position"),
+                "position": _POSITION_NORMALIZE.get(position, position),
                 "team": item.get("team"),
             }
             for col in _ID_COLS:

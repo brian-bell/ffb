@@ -64,3 +64,24 @@ def test_src_pts_is_none(raw):
     # ESPN's appliedTotal is 0 in this view; we compute points ourselves.
     henry = next(r for r in parse_projections(raw, season=2024) if r["native_id"] == "3043078")
     assert henry["src_pts_ppr"] is None
+
+
+def test_skips_rows_with_no_scorable_stats():
+    # K and D/ST report ESPN stat ids not in ESPN_STAT_MAP, so nothing decodes.
+    # They must be skipped, not emitted as 0-point rows — a crosswalk-matched
+    # kicker would otherwise consense against Sleeper at half value.
+    raw = [
+        {
+            "id": 15000,
+            "fullName": "Some Kicker",
+            "defaultPositionId": 5,  # K
+            "stats": [{"statSourceId": 1, "scoringPeriodId": 0, "stats": {"74": 20.0, "80": 5.0}}],
+        },
+        {
+            "id": 16000,
+            "fullName": "Some D/ST",
+            "defaultPositionId": 16,  # D/ST
+            "stats": [{"statSourceId": 1, "scoringPeriodId": 0, "stats": {"99": 3.0, "120": 10.0}}],
+        },
+    ]
+    assert parse_projections(raw, season=2024) == []
