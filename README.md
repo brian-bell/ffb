@@ -3,25 +3,30 @@
 Personal tooling for Brian's Yahoo league. See [`DESIGN.md`](DESIGN.md) for the
 full design.
 
-## Status: Slice 1 — walking skeleton
+## Status: Slice 3 — multi-source consensus
 
-Proves the **ingest → store → compute → display** spine end to end with one real
-data source (Sleeper season projections):
-
-```
-uv run ffb rankings --pos RB
-```
+Builds on the slice-1 spine by adding a second projection source (ESPN), joining
+it to Sleeper through the nflverse `ff_playerids` **crosswalk**, and averaging
+the sources into a **consensus** ranking:
 
 ```
-                   2024 rankings — RB
-┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━━━━┓
-┃ Rank ┃ Player              ┃ Pos ┃ Team ┃ Proj (PPR) ┃
-┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━━━━┩
-│    1 │ Derrick Henry       │ RB  │ BAL  │      288.0 │
-│    2 │ Breece Hall         │ RB  │ NYJ  │      284.2 │
-│  ... │                     │     │      │            │
-└──────┴─────────────────────┴─────┴──────┴────────────┘
+uv run ffb rankings --pos RB --sources
 ```
+
+```
+                             2024 rankings — RB
+┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━┓
+┃ Rank ┃ Player              ┃ Pos ┃ Team ┃ Sleeper ┃  Espn ┃ Consensus ┃ n ┃
+┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━┩
+│    1 │ Christian McCaffrey │ RB  │ SFO  │   277.9 │ 335.4 │     306.7 │ 2 │
+│    2 │ Breece Hall         │ RB  │ NYJ  │   284.2 │ 289.4 │     286.8 │ 2 │
+│  ... │                     │     │      │         │       │           │   │
+└──────┴─────────────────────┴─────┴──────┴─────────┴───────┴───────────┴───┘
+```
+
+Players are aligned on a canonical `player_key` (nflverse `mfl_id`). Consensus is
+the mean of each source's league-scored points; `n` is the source count.
+Crosswalk misses are never dropped — they rank source-only and are reported.
 
 ## Setup
 
@@ -32,28 +37,37 @@ uv sync
 ## Usage
 
 ```sh
-uv run ffb rankings                    # all positions, default season
+uv run ffb rankings                    # all positions, consensus ranking
 uv run ffb rankings --pos RB           # filter position
+uv run ffb rankings --pos RB --sources # per-source (Sleeper, ESPN) + consensus
 uv run ffb rankings --pos WR --limit 40
 uv run ffb rankings --season 2024      # pick season
-uv run ffb rankings --pos RB --refresh # re-fetch live from Sleeper
+uv run ffb rankings --pos RB --refresh # re-fetch live from all sources
 ```
 
-By default runs are **offline**: the raw Sleeper response is snapshotted under
-`snapshots/` on first fetch and replayed on later runs. `--refresh` forces a new
-network pull and overwrites the snapshot.
+By default runs are **offline**: each raw response (Sleeper, ESPN, the nflverse
+crosswalk) is snapshotted under `snapshots/` on first fetch and replayed on later
+runs. `--refresh` forces a new network pull and overwrites the snapshots. Without
+`--sources`, only Sleeper is fetched (consensus over one source = that source).
 
 ## How it fits together
 
 | Module | Role |
 |---|---|
 | `sources/sleeper.py` | fetch + parse Sleeper projections |
+| `sources/espn.py` | fetch + parse ESPN projections (numeric stat-id decode) |
+| `sources/crosswalk.py` | nflverse `ff_playerids` → canonical identity spine |
 | `snapshot.py` | on-disk raw-response cache (offline replay) |
 | `store.py` | **the only** module that touches DuckDB |
 | `scoring.py` / `config.py` | pure PPR scoring (computed, never stored) |
-| `rankings.py` | join stored projections with scoring → ranked list |
-| `ingest.py` | snapshot → parse → store wiring (idempotent) |
+| `rankings.py` | single-source ranked list |
+| `consensus.py` | per-source points pivoted + averaged per player |
+| `ingest.py` | snapshot → parse → **resolve to player_key** → store |
 | `cli.py` | `ffb` command, rich table output |
+
+Every source's native id resolves to a canonical `player_key` (nflverse
+`mfl_id`) via the crosswalk, so consensus aligns players across sources; misses
+fall back to a `source:native_id` key and are reported, never dropped.
 
 Points are **computed** from stat lines at read time, not stored — so slice 4
 can re-score to exact Yahoo league settings by swapping the scoring config.

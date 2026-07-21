@@ -17,7 +17,7 @@ def raw():
 
 def test_parses_valid_rows(raw):
     rows = parse_projections(raw)
-    henry = next(r for r in rows if r["player_id"] == "3198")
+    henry = next(r for r in rows if r["native_id"] == "3198")
     assert henry["full_name"] == "Derrick Henry"
     assert henry["position"] == "RB"
     assert henry["team"] == "BAL"
@@ -30,17 +30,17 @@ def test_parses_valid_rows(raw):
 
 def test_skips_null_player_rows(raw):
     rows = parse_projections(raw)
-    assert all(r["player_id"] != "9999" for r in rows)
+    assert all(r["native_id"] != "9999" for r in rows)
 
 
 def test_skips_missing_position_rows(raw):
     rows = parse_projections(raw)
-    assert all(r["player_id"] != "8888" for r in rows)
+    assert all(r["native_id"] != "8888" for r in rows)
 
 
 def test_keeps_only_configured_company(raw):
     # Derrick Henry appears twice (rotowire + some_other_company); keep one.
-    henry_rows = [r for r in parse_projections(raw) if r["player_id"] == "3198"]
+    henry_rows = [r for r in parse_projections(raw) if r["native_id"] == "3198"]
     assert len(henry_rows) == 1
     assert henry_rows[0]["src_pts_ppr"] == 288.0  # the rotowire row
 

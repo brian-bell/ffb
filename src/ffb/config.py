@@ -27,6 +27,29 @@ SLEEPER_COMPANY = "rotowire"
 
 SLEEPER_POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
 
+# --- ESPN projections (spike-verified 2026-07-21) ---------------------------
+# The /players endpoint reports stats as {numeric statId: value}. This maps the
+# ids we score to the same stat keys Sleeper uses, so ppr_points scores both
+# sources identically. Verified against known players; covers every DEFAULT_PPR
+# weight. Unmapped ids (attempts, targets, etc.) are ignored at parse time.
+ESPN_STAT_MAP = {
+    3: "pass_yd",
+    4: "pass_td",
+    19: "pass_2pt",
+    20: "pass_int",
+    24: "rush_yd",
+    25: "rush_td",
+    26: "rush_2pt",
+    42: "rec_yd",
+    43: "rec_td",
+    44: "rec_2pt",
+    53: "rec",
+    72: "fum_lost",
+}
+
+# ESPN defaultPositionId -> our position label.
+ESPN_POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DST"}
+
 
 @dataclass(frozen=True)
 class ScoringConfig:

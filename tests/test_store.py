@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from ffb.ingest import resolve_rows
 from ffb.store import Store
 
 
@@ -14,18 +15,22 @@ def test_init_schema_is_idempotent(tmp_path):
 
 def test_upsert_and_read_back(seeded_store):
     rows = seeded_store.projection_rows(season=2024)
-    ids = {r["player_id"] for r in rows}
-    assert "3198" in ids  # Derrick Henry
-    henry = next(r for r in rows if r["player_id"] == "3198")
+    native_ids = {r["native_id"] for r in rows}
+    assert "3198" in native_ids  # Derrick Henry
+    henry = next(r for r in rows if r["native_id"] == "3198")
     assert henry["full_name"] == "Derrick Henry"
     assert henry["position"] == "RB"
     assert henry["stats"]["rush_yd"] == 1575.0
     assert henry["src_pts_ppr"] == 288.0
+    # No crosswalk seeded -> fallback key, matched False.
+    assert henry["player_key"] == "sleeper:3198"
+    assert henry["matched"] is False
 
 
 def test_upsert_is_idempotent_on_primary_key(seeded_store, sample_rows):
+    resolved, _ = resolve_rows(seeded_store, sample_rows, "sleeper")
     before = len(seeded_store.projection_rows(season=2024))
-    seeded_store.upsert_projections(sample_rows)  # same rows again
+    seeded_store.upsert_projections(resolved)  # same rows again
     after = len(seeded_store.projection_rows(season=2024))
     assert before == after
 

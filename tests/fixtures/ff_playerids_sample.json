@@ -1,0 +1,46 @@
+[
+  {
+    "mfl_id": 12626,
+    "sleeper_id": 3198,
+    "espn_id": 3043078,
+    "yahoo_id": "29279",
+    "gsis_id": "00-0032764",
+    "name": "Derrick Henry",
+    "position": "RB",
+    "team": "BAL",
+    "age": 30.0
+  },
+  {
+    "mfl_id": 13971,
+    "sleeper_id": 7564,
+    "espn_id": 4362628,
+    "yahoo_id": "33393",
+    "gsis_id": "00-0036900",
+    "name": "Ja'Marr Chase",
+    "position": "WR",
+    "team": "CIN",
+    "age": 24.0
+  },
+  {
+    "mfl_id": 16000,
+    "sleeper_id": null,
+    "espn_id": 4500000,
+    "yahoo_id": null,
+    "gsis_id": null,
+    "name": "Rookie Wideout",
+    "position": "WR",
+    "team": "FA",
+    "age": 22.0
+  },
+  {
+    "mfl_id": null,
+    "sleeper_id": 9999,
+    "espn_id": 9999999,
+    "yahoo_id": "99999",
+    "gsis_id": "00-0099999",
+    "name": "No Canonical Key",
+    "position": "TE",
+    "team": "FA",
+    "age": 27.0
+  }
+]

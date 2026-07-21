@@ -26,7 +26,7 @@ def ranked(
     rows = store.projection_rows(season=season, position=position)
     scored = [
         {
-            "player_id": r["player_id"],
+            "player_key": r["player_key"],
             "full_name": r["full_name"],
             "position": r["position"],
             "team": r["team"],
