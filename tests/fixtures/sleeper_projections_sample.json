@@ -1,0 +1,106 @@
+[
+  {
+    "player_id": "3198",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "rush_att": 301.0, "rush_yd": 1575.0, "rush_td": 15.0, "rush_2pt": 1.0,
+      "rec": 20.0, "rec_yd": 145.0, "rec_td": 1.0, "fum_lost": 1.0,
+      "pts_ppr": 288.0, "pts_std": 268.0, "pts_half_ppr": 278.0, "adp_ppr": 20.5
+    },
+    "player": {
+      "first_name": "Derrick", "last_name": "Henry",
+      "position": "RB", "team": "BAL", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "4034",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "rush_att": 260.0, "rush_yd": 1300.0, "rush_td": 10.0,
+      "rec": 55.0, "rec_yd": 420.0, "rec_td": 2.0, "fum_lost": 2.0,
+      "pts_ppr": 305.5, "pts_std": 250.5
+    },
+    "player": {
+      "first_name": "Christian", "last_name": "McCaffrey",
+      "position": "RB", "team": "SF", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "6790",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "rush_att": 220.0, "rush_yd": 950.0, "rush_td": 8.0,
+      "rec": 40.0, "rec_yd": 300.0, "rec_td": 1.0, "fum_lost": 1.0,
+      "pts_ppr": 205.0
+    },
+    "player": {
+      "first_name": "Jonathan", "last_name": "Taylor",
+      "position": "RB", "team": "IND", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "4046",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "pass_yd": 4200.0, "pass_td": 30.0, "pass_int": 10.0,
+      "rush_yd": 400.0, "rush_td": 4.0, "fum_lost": 3.0,
+      "pts_ppr": 360.0
+    },
+    "player": {
+      "first_name": "Patrick", "last_name": "Mahomes",
+      "position": "QB", "team": "KC", "fantasy_positions": ["QB"]
+    }
+  },
+  {
+    "player_id": "5849",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "rec": 100.0, "rec_yd": 1400.0, "rec_td": 10.0, "fum_lost": 0.0,
+      "pts_ppr": 320.0
+    },
+    "player": {
+      "first_name": "Justin", "last_name": "Jefferson",
+      "position": "WR", "team": "MIN", "fantasy_positions": ["WR"]
+    }
+  },
+  {
+    "player_id": "9999",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {"rush_yd": 50.0},
+    "player": null
+  },
+  {
+    "player_id": "8888",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {"rec": 12.0},
+    "player": {
+      "first_name": "No", "last_name": "Position",
+      "position": null, "team": "FA", "fantasy_positions": []
+    }
+  },
+  {
+    "player_id": "3198",
+    "company": "some_other_company",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {"rush_yd": 1400.0, "rush_td": 12.0, "rec": 18.0, "rec_yd": 130.0, "pts_ppr": 270.0},
+    "player": {
+      "first_name": "Derrick", "last_name": "Henry",
+      "position": "RB", "team": "BAL", "fantasy_positions": ["RB"]
+    }
+  }
+]
