@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from ffb.config import LEAGUE_SCORING
 from ffb.scoring import ppr_points
 from ffb.sources.sleeper import parse_projections
 
@@ -43,3 +44,24 @@ def test_median_diff_is_negligible(skill_diffs):
 def test_most_players_match_closely(skill_diffs):
     within_2 = sum(d <= 2.0 for d in skill_diffs) / len(skill_diffs)
     assert within_2 >= 0.90, f"only {within_2:.0%} within 2.0 pts of Sleeper"
+
+
+@pytest.fixture(scope="module")
+def kicker_diffs():
+    if not SNAPSHOT.exists():
+        pytest.skip("real snapshot not present")
+    rows = parse_projections(json.loads(SNAPSHOT.read_text()))
+    return [
+        abs(ppr_points(r["stats"], LEAGUE_SCORING) - r["src_pts_ppr"])
+        for r in rows
+        if r["src_pts_ppr"] and r["position"] == "K"
+    ]
+
+
+def test_kicker_scoring_tracks_sleeper(kicker_diffs):
+    # Our league K weights share Sleeper's FG-by-distance + XP model, so kicker
+    # totals track closely — a guard against K stat-key drift. (DEF is not checked
+    # this way: Yahoo D/ST rules legitimately diverge from Sleeper's own total.)
+    kicker_diffs.sort()
+    median = kicker_diffs[len(kicker_diffs) // 2]
+    assert median < 3.0, f"median K diff {median} — likely a K stat-key error"

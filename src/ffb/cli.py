@@ -69,7 +69,16 @@ def rankings(
     # failed ESPN fetch can't leave stale ESPN rows silently feeding the average,
     # and the same command stays deterministic regardless of what a prior run
     # persisted.
-    rows = consensus_rows(store, season=season, position=pos, sources=active_sources)
+    # Score with THIS league's settings, not generic PPR. Placeholder config for
+    # now; slice 2 swaps this one call for a store read (Yahoo settings), keeping
+    # config.LEAGUE_SCORING as the offline fallback.
+    rows = consensus_rows(
+        store,
+        season=season,
+        position=pos,
+        sources=active_sources,
+        cfg=config.LEAGUE_SCORING,
+    )
     store.close()
 
     if not rows:
@@ -80,6 +89,7 @@ def rankings(
     rows = rows[:limit]
     _render(rows, season=season, pos=pos, sources=sources)
     _report_unmatched(rows)
+    _report_placeholder_scoring()
 
 
 def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) -> None:
@@ -109,6 +119,19 @@ def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) ->
             cells.append(f"{row['consensus']:.1f}")
         table.add_row(*cells)
     console.print(table)
+
+
+def _report_placeholder_scoring() -> None:
+    """Note that points come from placeholder league settings, not real Yahoo ones.
+
+    Scoring is applied silently, so without this a run looks league-accurate when
+    it is only typical full-PPR defaults. Slice 2 makes this conditional (shown
+    only when falling back to the placeholder); today it always applies.
+    """
+    console.print(
+        "[dim]Scored with placeholder league settings (typical full-PPR); "
+        "connect the Yahoo league for exact scoring.[/dim]"
+    )
 
 
 def _report_unmatched(rows: list[dict]) -> None:
