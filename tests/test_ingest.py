@@ -62,6 +62,34 @@ def test_ensure_crosswalk_loads_offline_and_is_idempotent(store, tmp_path):
     ensure_crosswalk(store, cache, fetch=_no_network)
 
 
+def test_crosswalk_refresh_mirrors_source(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(xwalk_key(), lambda: json.loads(XWALK.read_text()))  # prime
+    ensure_crosswalk(store, cache, fetch=_no_network)
+    assert store.resolve("sleeper", "3198") == "12626"  # Derrick Henry
+
+    # Next pull no longer carries Henry (id removed/reassigned upstream). A
+    # refresh must mirror the source, not union with the stale snapshot, or the
+    # old mapping keeps resolving to the wrong player.
+    only_chase = [json.loads(XWALK.read_text())[1]]  # Ja'Marr Chase only
+    ensure_crosswalk(store, cache, refresh=True, fetch=lambda: only_chase)
+    assert store.resolve("sleeper", "3198") is None  # stale Henry mapping gone
+    assert store.resolve("sleeper", "7564") == "13971"  # Chase still resolves
+
+
+def test_crosswalk_refresh_preserves_spine_on_empty_pull(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(xwalk_key(), lambda: json.loads(XWALK.read_text()))  # prime
+    ensure_crosswalk(store, cache, fetch=_no_network)
+    assert store.resolve("sleeper", "3198") == "12626"
+
+    # A transient upstream hiccup parses to zero rows. A refresh must not wipe a
+    # usable spine over an empty pull — keep the existing mappings.
+    n = ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
+    assert n == 0
+    assert store.resolve("sleeper", "3198") == "12626"  # spine preserved
+
+
 def test_ingest_resolves_matched_players_to_canonical_key(store, tmp_path, crosswalk_rows):
     store.upsert_crosswalk(crosswalk_rows)
     cache = _prime_snapshot(tmp_path / "snap")

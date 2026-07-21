@@ -53,7 +53,16 @@ def ensure_crosswalk(
     fetch_fn = fetch or crosswalk.fetch_playerids
     raw = cache.get_json(crosswalk.snapshot_key(), fetch_fn, refresh=refresh)
     rows = crosswalk.parse_crosswalk(raw)
-    store.upsert_crosswalk(rows)
+    if not rows:
+        # parse_crosswalk drops malformed records without raising, so a transient
+        # upstream problem can yield zero rows. Never let that empty pull wipe a
+        # usable spine (replace_crosswalk deletes first); keep what we have.
+        log.warning("crosswalk pull parsed to 0 rows; keeping existing spine")
+        return 0
+    # Mirror the source (replace, don't union) so a refresh drops mappings that
+    # disappeared or were reassigned upstream, rather than leaving stale rows
+    # that resolve() could still match.
+    store.replace_crosswalk(rows)
     log.info("loaded %d crosswalk rows", len(rows))
     return len(rows)
 

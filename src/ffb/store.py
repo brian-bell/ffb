@@ -81,6 +81,28 @@ class Store:
     # --- writes -----------------------------------------------------------
     def upsert_crosswalk(self, rows: list[dict[str, Any]]) -> None:
         """Insert-or-replace crosswalk spine rows (the nflverse identity map)."""
+        self._insert_crosswalk_rows(rows)
+
+    def replace_crosswalk(self, rows: list[dict[str, Any]]) -> None:
+        """Mirror the crosswalk source: atomically clear the table, then insert.
+
+        A refresh must not union with the previous snapshot. Upserting alone is
+        keyed on ``player_key``, so a native id (``sleeper_id``/``espn_id``)
+        removed or reassigned upstream would leave its old row behind and
+        ``resolve``/``resolve_batch`` could still match — even duplicate-match
+        nondeterministically — the wrong player. DELETE + insert in one
+        transaction so the table always reflects exactly the fresh pull.
+        """
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute("DELETE FROM crosswalk")
+            self._insert_crosswalk_rows(rows)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
+    def _insert_crosswalk_rows(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             self.conn.execute(
                 """
