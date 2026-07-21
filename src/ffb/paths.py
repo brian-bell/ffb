@@ -18,3 +18,12 @@ def db_path() -> Path:
 
 def snapshot_dir() -> Path:
     return Path(os.environ.get("FFB_SNAPSHOT_DIR", config.SNAPSHOT_DIR))
+
+
+def export_dir() -> Path:
+    """Default directory for ``ffb cheatsheet --export`` output.
+
+    Defaults to ``<repo>/exports/`` (gitignored); ``FFB_EXPORT_DIR`` overrides so
+    tests can point at a temp dir and a user can redirect the board contract.
+    """
+    return Path(os.environ.get("FFB_EXPORT_DIR", config.REPO_ROOT / "exports"))

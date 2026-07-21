@@ -1,0 +1,68 @@
+{
+  "status": "Success",
+  "meta": {
+    "type": "ppr",
+    "teams": 12,
+    "rounds": 15,
+    "total_drafts": 1042,
+    "start_date": "2024-07-01",
+    "end_date": "2024-08-31"
+  },
+  "players": [
+    {
+      "player_id": 2749, "name": "Christian McCaffrey", "position": "RB",
+      "team": "SF", "adp": 1.4, "adp_formatted": "1.01", "times_drafted": 1010,
+      "high": 1, "low": 5, "stdev": 0.7, "bye": 9
+    },
+    {
+      "player_id": 4820, "name": "Ja'Marr Chase", "position": "WR",
+      "team": "CIN", "adp": 2.6, "adp_formatted": "1.03", "times_drafted": 998,
+      "high": 1, "low": 7, "stdev": 1.1, "bye": 12
+    },
+    {
+      "player_id": 4410, "name": "Justin Jefferson", "position": "WR",
+      "team": "MIN", "adp": 3.8, "adp_formatted": "1.04", "times_drafted": 990,
+      "high": 2, "low": 9, "stdev": 1.3, "bye": 6
+    },
+    {
+      "player_id": 2043, "name": "Derrick Henry", "position": "RB",
+      "team": "BAL", "adp": 9.2, "adp_formatted": "1.09", "times_drafted": 970,
+      "high": 5, "low": 16, "stdev": 2.4, "bye": 14
+    },
+    {
+      "player_id": 3110, "name": "Jonathan Taylor", "position": "RB",
+      "team": "IND", "adp": 18.5, "adp_formatted": "2.07", "times_drafted": 940,
+      "high": 11, "low": 27, "stdev": 3.1, "bye": 14
+    },
+    {
+      "player_id": 5310, "name": "Michael Pittman Jr.", "position": "WR",
+      "team": "IND", "adp": 62.3, "adp_formatted": "6.03", "times_drafted": 720,
+      "high": 48, "low": 80, "stdev": 7.9, "bye": 14
+    },
+    {
+      "player_id": 1889, "name": "Patrick Mahomes", "position": "QB",
+      "team": "KC", "adp": 44.1, "adp_formatted": "4.09", "times_drafted": 810,
+      "high": 30, "low": 60, "stdev": 6.2, "bye": 6
+    },
+    {
+      "player_id": 1745, "name": "Travis Kelce", "position": "TE",
+      "team": "KC", "adp": 26.7, "adp_formatted": "3.03", "times_drafted": 880,
+      "high": 16, "low": 40, "stdev": 5.1, "bye": 6
+    },
+    {
+      "player_id": 2210, "name": "Justin Tucker", "position": "PK",
+      "team": "BAL", "adp": 132.5, "adp_formatted": "11.05", "times_drafted": 410,
+      "high": 118, "low": 150, "stdev": 9.4, "bye": 14
+    },
+    {
+      "player_id": 9001, "name": "San Francisco Defense", "position": "DEF",
+      "team": "SF", "adp": 118.0, "adp_formatted": "10.03", "times_drafted": 460,
+      "high": 96, "low": 140, "stdev": 11.2, "bye": 9
+    },
+    {
+      "player_id": 9998, "name": "Undrafted Longshot", "position": "RB",
+      "team": "FA", "adp": 205.0, "adp_formatted": "15.11", "times_drafted": 12,
+      "high": 180, "low": 210, "stdev": 8.0, "bye": 0
+    }
+  ]
+}

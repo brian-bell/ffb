@@ -27,22 +27,28 @@ dependencies, commit the updated `uv.lock` or `--frozen` will fail.
 
 ```
 src/ffb/
-  cli.py            # Typer app; `ffb rankings` command + rich tables
-  config.py         # paths, season, generic + league scoring weights, ESPN stat/position maps
-  paths.py          # db/snapshot dirs, honoring FFB_DB_PATH / FFB_SNAPSHOT_DIR
+  cli.py            # Typer app; `ffb rankings` + `ffb cheatsheet` commands + rich tables
+  config.py         # paths, season, scoring weights, ESPN maps, league shape, FFC/VORP/tier knobs
+  paths.py          # db/snapshot/export dirs, honoring FFB_DB_PATH / FFB_SNAPSHOT_DIR / FFB_EXPORT_DIR
   snapshot.py       # SnapshotCache: fetch-or-replay raw responses (offline)
   store.py          # THE ONLY module that imports duckdb
   scoring.py        # pure PPR scoring (no I/O)
+  names.py          # normalize_name + (name, pos) crosswalk match, team tiebreak (pure)
   rankings.py       # single-source ranked list (pure compute over store)
   consensus.py      # per-source points pivoted + averaged per player (pure)
+  vorp.py           # replacement baselines via greedy starter fill + VORP (pure)
+  tiers.py          # largest-gap positional tiers within a draftable pool (pure)
+  board.py          # consensus ⋈ adp + vorp + tiers -> board rows + md/csv/json serializers (pure)
   ingest.py         # snapshot -> parse -> resolve to player_key -> store
   sources/
     sleeper.py      # Sleeper season projections: fetch + parse
     espn.py         # ESPN season projections: fetch + parse (numeric stat-id decode)
+    ffc.py          # Fantasy Football Calculator ADP: fetch + parse (PK->K, team alias)
     crosswalk.py    # nflverse ff_playerids via nflreadpy -> identity spine
 tests/              # pytest; fixtures/ are trimmed real API responses
 docs/plans/         # per-slice implementation plans (gitignored, local-only)
 snapshots/          # raw API pulls, offline replay cache (gitignored)
+exports/            # `ffb cheatsheet --export` output (board.json etc.; gitignored)
 data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
 ```
 
@@ -55,19 +61,31 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
   `src_pts_ppr`). Exposes writes (`upsert_crosswalk`, `replace_crosswalk`,
   `upsert_projections`, `delete_projections`), the resolver (`resolve`,
   `resolve_batch`), and reads (`projection_rows`, `has_season`, `has_crosswalk`,
-  `has_stale_resolution`).
+  `has_stale_resolution`). Plus the `adp` table (keyed by `(player_key, season,
+  source)`, carrying FFC's own name/pos/team + ADP fields) with
+  `upsert_adp`/`delete_adp`/`adp_rows`, and `crosswalk_rows` (a spine read the
+  name matcher consumes, keeping `duckdb` confined here).
 - **ingest.py** — `ensure_crosswalk` loads the spine; `ensure_ingested` (Sleeper)
   and `ensure_espn_ingested` load a source, resolving each native id to a
   canonical `player_key`. Each re-ingest replaces the source's `(season, source)`
   slice (via `delete_projections`) so a refresh mirrors the source instead of
   unioning with stale rows. Returns a `Reconciliation` (matched/unmatched counts +
-  sample names). Idempotent and offline via the snapshot cache.
+  sample names). Idempotent and offline via the snapshot cache. `ensure_adp_ingested`
+  is the FFC entry point: it name-resolves (no id column) and re-parses/re-resolves
+  from the cached snapshot on **every** run (§ ADP self-heal below).
 - **consensus.py** — groups the requested sources by `player_key`, scores each
   source's stat line, and averages the points; carries `n` (source count). The
   `sources` argument restricts which sources contribute, so output depends on the
   request rather than on whatever a prior run happened to persist.
+- **names.py / vorp.py / tiers.py / board.py** — the cheat-sheet compute stack, all
+  pure (dicts in, dicts/strings out; enforced by `test_layering`). `names` does
+  `(normalized name, position)` matching with an FA-drop + team tiebreak; `vorp`
+  derives per-position replacement baselines by greedily filling every league
+  starting slot (flex-aware) and subtracts them; `tiers` splits each position at its
+  largest point drops; `board` left-joins ADP onto consensus, appends ADP-only rows,
+  computes VORP + tiers, ranks, and serializes to the `board.json` contract / md / csv.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
-  `snapshot_key`. No plugin abstraction yet; two concrete sources.
+  `snapshot_key`. No plugin abstraction yet; three projection/ADP sources.
 
 ## Conventions & invariants
 
@@ -76,6 +94,23 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
 - **Points are computed, never stored.** `scoring.py` scores `stats_json` at read
   time, so re-scoring to Yahoo league settings (slice 4) is a config swap, not a
   re-ingest. `src_pts_ppr` is only the source's own total, kept for validation.
+  **VORP and tiers are computed too** — derived in `board.py` at read time, never
+  stored, so a scoring or roster-shape change re-derives the whole board with no
+  re-ingest. **ADP is a *source* value, so it *is* stored** (the `adp` table);
+  storing it doesn't violate this rule.
+- **ADP resolves by name, and self-heals every run.** FFC's `player_id` has no
+  column in `ff_playerids`, so `ensure_adp_ingested` resolves each row by
+  `(normalized name, position)` with a team tiebreak (`names.py`); ambiguity →
+  *unmatched*, never a guess (a wrong merge silently corrupts the board). There's
+  no id-based staleness detector for name-resolved rows, so ADP just re-parses +
+  re-resolves from the cached snapshot on every run (delete-then-insert mirror) —
+  which buys the late-crosswalk self-heal for free. Network is still only touched
+  on `--refresh` or the first pull.
+- **board.json is a versioned, self-contained contract.** `board.py` emits it with
+  a `version` (bumped on any breaking shape change — the slice-6 tracker pins
+  against it) and everything the tracker needs (tiers, ADP, positions, names). The
+  CLI does the file writing; `board.py` stays I/O-free and takes `generated_at` as
+  an argument so it's deterministic under test.
 - **Canonical identity via the crosswalk.** Every source's native id resolves to
   a `player_key` (nflverse `mfl_id`) so consensus aligns players across sources.
   Matched players take canonical crosswalk identity (name/pos/team) so one source
@@ -92,17 +127,19 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
   `resolve` to match. An empty parse is treated as a bad pull and leaves the
   existing spine untouched.
 - **Best-effort degradation.** The CLI ranks even when pieces are missing: a
-  failed crosswalk load leaves players unmatched (not a crash), and a failed ESPN
-  fetch falls back to Sleeper-only. Both print a yellow notice; only a missing
-  Sleeper snapshot while offline is fatal.
+  failed crosswalk load leaves players unmatched (not a crash), a failed ESPN
+  fetch falls back to Sleeper-only, and a failed FFC pull drops the ADP columns.
+  Each prints a yellow notice; only a missing Sleeper snapshot while offline is
+  fatal. `rankings` and `cheatsheet` share the ingest block via `_ingest_sources`.
 - **Offline by default.** Every raw pull is snapshotted under `snapshots/` and
   replayed; `--refresh` forces a network re-fetch. Tests/CI use `tests/fixtures/`
   (committed), not `snapshots/` (gitignored).
 - **TDD.** Red → green per behavior; fixtures are small, hand-trimmed real
   responses. Keep tests behavior-level (public interfaces), not implementation.
-- **Layering:** `cli → {consensus, rankings, ingest} → {store, scoring}`;
-  `sources → snapshot`. `consensus.py`/`rankings.py` are pure (store rows in,
-  dict rows out).
+- **Layering:** `cli → {consensus, rankings, board, ingest} → {store, scoring}`;
+  `board → {vorp, tiers}`; `sources → snapshot`; `names` is pure, imported by
+  ingest only. `consensus`/`rankings`/`vorp`/`tiers`/`board`/`names` are pure
+  (data in, data out) — `test_layering` guards them against I/O imports.
 - **Git:** never commit to `main`; branch per slice (e.g.
   `slice-03-crosswalk-espn-consensus`). `docs/plans/`, `snapshots/`, and `data/`
   are gitignored.
@@ -129,6 +166,23 @@ data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
   crosswalk-matched kicker's consensus; and team defenses aren't in
   `ff_playerids` and Sleeper labels them `DEF` vs ESPN's `DST`, so defenses don't
   form a consensus. Expected; see DESIGN "Open items".
+- **FFC ADP is free but informal** (no auth, no SLA, undocumented). The response
+  is `{status, meta, players:[…]}`; `parse_adp` returns `[]` on a non-`Success`
+  status (so the snapshot `is_valid` gate treats a bad refresh as empty) and
+  normalizes `PK→K` + aliases team codes (`SF→SFO`, via `config.FFC_TEAM_ALIASES`)
+  so the name matcher's team tiebreak compares like with like. We pull one
+  format/teams combo (`config.FFC_FORMAT`/`LEAGUE_NUM_TEAMS`); a 10-team or
+  half-PPR league shifts that (and the VORP baselines) — both config reads.
+- **Team defenses (and a fuzzy tail) ride the board ADP-only.** DEF isn't in
+  `ff_playerids`, so FFC `DEF` rows resolve to `ffc:` fallbacks that can't join
+  Sleeper's `sleeper:` DEF fallbacks — a defense appears on the board with ADP but
+  no projection↔ADP join (and Sleeper's DEF appears with points but no ADP).
+  Kickers are fine (`PK→K`, kickers are in the crosswalk). Expect ~a dozen unmatched
+  ADP rows on real data (mostly defenses, plus nickname/ambiguous misses like
+  "Hollywood Brown" or two "Mike Williams"); they're surfaced in the footer, and
+  extending `normalize_name`/`FFC_TEAM_ALIASES` is the tuning loop, not a bug. A
+  player whose position doesn't map (`None`) is still boarded (never dropped) under
+  an "Unknown" section.
 - **Schema or parse-logic changes need a fresh DB.** The store uses `CREATE TABLE
   IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
   present, so neither a column change nor a parse/normalization change that alters

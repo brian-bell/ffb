@@ -15,3 +15,6 @@ docs/plans/
 # Raw API snapshots — kept local, re-fetched with `ffb ... --refresh`
 /snapshots/
 
+# Cheat-sheet exports (board.json + md/csv), rebuilt by `ffb cheatsheet --export`
+/exports/
+
