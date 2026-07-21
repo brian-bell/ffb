@@ -129,6 +129,27 @@ def test_self_heals_after_late_crosswalk(store, tmp_path, crosswalk_rows):
     assert henry["matched"] is True
 
 
+def test_self_heals_when_crosswalk_mapping_disappears(store, tmp_path, crosswalk_rows):
+    cache = _prime_snapshot(tmp_path / "snap")
+    store.upsert_crosswalk(crosswalk_rows)
+    # First ingest with the crosswalk -> Henry (sleeper 3198) is matched.
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+    henry = next(r for r in store.projection_rows(2024, position="RB") if r["native_id"] == "3198")
+    assert henry["player_key"] == "12626"
+    assert henry["matched"] is True
+
+    # The crosswalk is refreshed and Henry's mapping disappears upstream (removed,
+    # not reassigned) — e.g. a bare --refresh or a refresh for another season that
+    # doesn't re-ingest this slice. A later plain ingest must still self-heal: the
+    # stale canonical match falls back to a source key and is reported unmatched,
+    # instead of lingering because an inner join no longer sees the dropped id.
+    store.replace_crosswalk([r for r in crosswalk_rows if r["sleeper_id"] != "3198"])
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+    henry = next(r for r in store.projection_rows(2024, position="RB") if r["native_id"] == "3198")
+    assert henry["player_key"] == "sleeper:3198"
+    assert henry["matched"] is False
+
+
 def test_espn_self_heals_after_late_crosswalk(store, tmp_path, crosswalk_rows):
     cache = _prime_snapshot(tmp_path / "snap")
     cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))
@@ -149,6 +170,34 @@ def test_espn_self_heals_after_late_crosswalk(store, tmp_path, crosswalk_rows):
     )
     assert henry_espn["player_key"] == "12626"
     assert henry_espn["matched"] is True
+
+
+def test_season_ingest_not_skipped_when_only_weekly_rows_exist(store, tmp_path):
+    cache = _prime_snapshot(tmp_path / "snap")
+    # A weekly-scope row exists for sleeper/2024 but the season slice does not.
+    # has_season counts every scope, so the skip gate must scope to the season
+    # slice or it would treat the source as present and never ingest the season
+    # snapshot. Weekly ingest is slice 9; this guards the season path meanwhile.
+    store.upsert_projections(
+        [
+            {
+                "player_key": "sleeper:week-ghost",
+                "season": 2024,
+                "source": "sleeper",
+                "scope": "week1",
+                "native_id": "week-ghost",
+                "full_name": "Weekly Ghost",
+                "position": "RB",
+                "team": "FA",
+                "matched": False,
+                "stats": {},
+                "src_pts_ppr": None,
+            }
+        ]
+    )
+    recon = ensure_ingested(store, cache, season=2024, fetch=_no_network)
+    assert recon.n_rows > 0  # the season snapshot was actually ingested
+    assert len(store.projection_rows(2024, position="RB")) == 3  # season RBs present
 
 
 def test_ensure_espn_ingested_resolves_and_coexists_with_sleeper(store, tmp_path, crosswalk_rows):

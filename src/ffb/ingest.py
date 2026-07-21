@@ -134,10 +134,15 @@ def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str
 
 
 def _can_skip(store: Store, season: int, source: str, refresh: bool) -> bool:
-    """Skip re-ingest only when the source is present, not being refreshed, and
-    has no stale (now-resolvable) fallback rows to re-resolve."""
+    """Skip re-ingest only when the source's season slice is present, not being
+    refreshed, and has no stale (now-resolvable) rows to re-resolve.
+
+    The presence check is scoped to ``season`` to match what these entry points
+    ingest: a weekly-scope row (slice 9) must not make the season slice look
+    present and get skipped.
+    """
     return (
-        store.has_season(season, source=source)
+        store.has_season(season, source=source, scope="season")
         and not refresh
         and not store.has_stale_resolution(season, source)
     )

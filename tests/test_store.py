@@ -51,6 +51,33 @@ def test_position_filter_is_case_insensitive(seeded_store):
     assert len(lower) == 3
 
 
+def test_stale_resolution_only_considers_season_scope(store, crosswalk_rows):
+    store.upsert_crosswalk(crosswalk_rows)
+    # A weekly-scope row stored under a canonical key it can no longer resolve to
+    # (its native id isn't in the crosswalk). Seasonal re-ingest never touches the
+    # weekly scope, so flagging it stale would make ensure_ingested replay the
+    # season snapshot forever. Weekly ingest is slice 9; until then this scope is
+    # invisible to stale detection.
+    store.upsert_projections(
+        [
+            {
+                "player_key": "12626",
+                "season": 2024,
+                "source": "sleeper",
+                "scope": "week1",
+                "native_id": "999999",
+                "full_name": "Ghost",
+                "position": "RB",
+                "team": "FA",
+                "matched": True,
+                "stats": {},
+                "src_pts_ppr": None,
+            }
+        ]
+    )
+    assert store.has_stale_resolution(2024, "sleeper") is False
+
+
 def test_only_store_module_imports_duckdb():
     """Enforce the 'all DB access through one store module' contract."""
     src = Path(__file__).resolve().parents[1] / "src" / "ffb"

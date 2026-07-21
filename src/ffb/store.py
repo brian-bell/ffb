@@ -232,12 +232,15 @@ class Store:
         )
 
     # --- reads ------------------------------------------------------------
-    def has_season(self, season: int, source: str | None = None) -> bool:
+    def has_season(self, season: int, source: str | None = None, scope: str | None = None) -> bool:
         query = "SELECT COUNT(*) FROM projections WHERE season = ?"
         params: list[Any] = [season]
         if source is not None:
             query += " AND source = ?"
             params.append(source)
+        if scope is not None:
+            query += " AND scope = ?"
+            params.append(scope)
         result = self.conn.execute(query, params).fetchone()
         return bool(result and result[0] > 0)
 
@@ -246,23 +249,37 @@ class Store:
         return bool(result and result[0] > 0)
 
     def has_stale_resolution(self, season: int, source: str) -> bool:
-        """True if any stored ``(season, source)`` row now maps to a crosswalk
-        entry under a *different* key than it was stored with.
+        """True if any stored ``(season, source)`` row no longer matches how it
+        would resolve against the current crosswalk.
 
-        This catches rows ingested before the crosswalk was available (stranded
-        under ``source:native_id`` fallback keys) so ingest can re-resolve them.
-        Legitimately unmatched players (absent from the crosswalk) never match
-        the join, so they don't trigger a needless re-ingest.
+        For each row the expected key is the crosswalk match if the native id is
+        present, else the ``source:native_id`` fallback. A row is stale when its
+        stored ``player_key`` differs from that, which covers three cases:
+
+        - a late crosswalk now resolves a fallback row to a canonical key;
+        - a native id was reassigned to a different canonical key upstream;
+        - a native id **disappeared** from a refreshed crosswalk, so a row still
+          stored under its old canonical key must fall back to unmatched.
+
+        A ``LEFT JOIN`` (not inner) is required so the disappeared case is seen;
+        an inner join drops exactly the rows whose id is gone. Legitimately
+        unmatched players already sit on their fallback key, so they equal the
+        expected key and don't trigger a needless re-ingest.
+
+        Scoped to ``season`` because that's the only slice ``_finalize`` re-ingests
+        to heal a stale row; flagging a weekly-scope row (slice 9) would loop the
+        seasonal re-ingest forever without ever fixing it.
         """
         column = self._source_column(source)
         result = self.conn.execute(
             f"""
             SELECT COUNT(*)
             FROM projections p
-            JOIN crosswalk c ON c.{column} = p.native_id
-            WHERE p.season = ? AND p.source = ? AND p.player_key <> c.player_key
+            LEFT JOIN crosswalk c ON c.{column} = p.native_id
+            WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
+              AND p.player_key <> COALESCE(c.player_key, ? || ':' || p.native_id)
             """,
-            [season, source],
+            [season, source, source],
         ).fetchone()
         return bool(result and result[0] > 0)
 
