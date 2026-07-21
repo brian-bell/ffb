@@ -1,13 +1,13 @@
 # ffb — fantasy football pipeline
 
-Personal tooling for Brian's Yahoo league. See [`DESIGN.md`](DESIGN.md) for the
+Personal tooling for Brian's Yahoo league: pull free projection sources, store
+the raw and normalized data in DuckDB, and compute league-scored,
+consensus-ranked output on the command line. See [`DESIGN.md`](DESIGN.md) for the
 full design.
 
-## Status: Slice 3 — multi-source consensus
-
-Builds on the slice-1 spine by adding a second projection source (ESPN), joining
-it to Sleeper through the nflverse `ff_playerids` **crosswalk**, and averaging
-the sources into a **consensus** ranking:
+Projections from multiple sources (Sleeper, ESPN) are joined through the nflverse
+`ff_playerids` **crosswalk** onto a canonical `player_key`, then averaged into a
+**consensus** ranking scored to league settings:
 
 ```
 uv run ffb rankings --pos RB --sources
@@ -69,8 +69,8 @@ Every source's native id resolves to a canonical `player_key` (nflverse
 `mfl_id`) via the crosswalk, so consensus aligns players across sources; misses
 fall back to a `source:native_id` key and are reported, never dropped.
 
-Points are **computed** from stat lines at read time, not stored — so slice 4
-can re-score to exact Yahoo league settings by swapping the scoring config.
+Points are **computed** from stat lines at read time, not stored — so re-scoring
+to different league settings is a config swap, not a re-ingest.
 
 ## Development
 
