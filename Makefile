@@ -1,9 +1,10 @@
 TRACKER := npm --prefix tracker
 
-.PHONY: help init check-app export-board deploy-board deploy-app deploy-all
+.PHONY: help init check-app test-backend-e2e export-board deploy-board deploy-app deploy-all
 
 help:
 	@echo "make init          Install Python and tracker dependencies"
+	@echo "make test-backend-e2e  Run the offline CLI-to-Worker backend journey"
 	@echo "make deploy-board  Refresh, export, and publish board.json to production KV"
 	@echo "make deploy-app    Validate and deploy the tracker application"
 	@echo "make deploy-all    Deploy the application, then publish the board"
@@ -15,6 +16,9 @@ init:
 check-app:
 	$(TRACKER) run typecheck
 	$(TRACKER) test
+
+test-backend-e2e:
+	./tests/e2e/run_backend_e2e.sh
 
 export-board:
 	uv run ffb cheatsheet --refresh --export --export-dir exports

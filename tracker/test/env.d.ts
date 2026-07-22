@@ -4,6 +4,7 @@ declare module "cloudflare:test" {
   interface ProvidedEnv {
     BOARD: KVNamespace;
     DB: D1Database;
+    E2E_BOARD_JSON: string;
     TEST_MIGRATIONS: D1Migration[];
     TRACKER_API_KEY: string;
   }

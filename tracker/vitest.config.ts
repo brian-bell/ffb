@@ -1,4 +1,5 @@
 import { defineWorkersConfig, readD1Migrations } from "@cloudflare/vitest-pool-workers/config";
+import { configDefaults } from "vitest/config";
 
 const migrations = await readD1Migrations("./migrations");
 
@@ -7,6 +8,7 @@ const migrations = await readD1Migrations("./migrations");
 // committed to wrangler.jsonc.
 export default defineWorkersConfig({
   test: {
+    exclude: [...configDefaults.exclude, "test/e2e/**/*.test.ts"],
     setupFiles: ["./test/apply-migrations.ts"],
     poolOptions: {
       workers: {
