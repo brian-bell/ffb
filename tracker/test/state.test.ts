@@ -51,6 +51,17 @@ describe("nextState — key submission", () => {
   });
 });
 
+describe("nextState — returning-device boot network failure", () => {
+  it("opens the first-run modal with the network error preserved (atomic)", () => {
+    // A saved-key device whose initial /api/board fetch fails: must land on the
+    // modal WITH the network notice, not a blank error (the openModal-clears-error
+    // sequencing bug this event replaces).
+    const s = nextState(initialState, { type: "bootNetwork" });
+    expect(s.modal).toBe("first");
+    expect(s.error).toMatch(/network|retry/i);
+  });
+});
+
 describe("nextState — modal controls", () => {
   it("gear opens settings when a key exists", () => {
     const s = nextState({ locked: false, modal: "hidden", error: null }, { type: "openModal", mode: "settings" });

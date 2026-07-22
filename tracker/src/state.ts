@@ -13,6 +13,7 @@ export interface UiState {
 
 export type UiEvent =
   | { type: "boot"; hasKey: boolean }
+  | { type: "bootNetwork" } // saved key, but the initial board fetch failed
   | { type: "unlock" } // 200 from /api/board
   | { type: "invalid" } // 401 — key rejected/cleared
   | { type: "empty" } // blank submit
@@ -33,6 +34,11 @@ export function nextState(state: UiState, event: UiEvent): UiState {
   switch (event.type) {
     case "boot":
       return event.hasKey ? { locked: false, modal: "hidden", error: null } : gate;
+    case "bootNetwork":
+      // One atomic transition: open the first-run modal AND surface the network
+      // error. Composing openModal + network would clear the error (openModal
+      // resets it), leaving a blank modal — the bug this event avoids.
+      return { locked: false, modal: "first", error: ERR_NETWORK };
     case "unlock":
       return { locked: false, modal: "hidden", error: null };
     case "invalid":

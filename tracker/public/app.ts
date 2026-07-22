@@ -226,6 +226,10 @@ async function boot(): Promise<void> {
   if (result === "unauthorized") {
     store.del();
     dispatch({ type: "invalid" });
+  } else if (result === "network") {
+    // Returning device, transient fetch failure: open the first-run modal with
+    // the network error preserved (one atomic transition — see bootNetwork).
+    dispatch({ type: "bootNetwork" });
   } else {
     dispatch({ type: "boot", hasKey: true });
     if (result === "empty") {
@@ -233,9 +237,6 @@ async function boot(): Promise<void> {
       // publish instruction instead of a blank board.
       board = null;
       renderList();
-    } else if (result === "network") {
-      dispatch({ type: "network" });
-      dispatch({ type: "openModal", mode: "first" });
     }
   }
 }
