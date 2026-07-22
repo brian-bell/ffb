@@ -22,3 +22,26 @@ jobs:
         run: uv run ruff format --check .
       - name: Test
         run: uv run pytest
+
+  tracker:
+    # Independent of the Python job: a tracker change doesn't gate Python CI and
+    # vice-versa. The Worker tests are offline (Miniflare) and read the committed
+    # board.json fixture, never the live pipeline.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tracker
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tracker/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test

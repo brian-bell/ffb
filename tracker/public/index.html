@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f15" />
+<title>Draft Room — FFB tracker</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="screen" data-screen>
+  <div class="appbar">
+    <div class="row1">
+      <span class="brand">DRAFT<b>ROOM</b></span>
+      <span class="right">
+        <span class="clock" data-clock>1.07 · YOU in 2<span class="dir" role="img" aria-label="draft order heading up toward you">&#x2B06;&#xFE0E;</span></span>
+        <button class="gear" data-gear aria-label="Board settings and API key">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </span>
+    </div>
+    <div class="sub" data-sub>—</div>
+  </div>
+
+  <div class="tabs" role="tablist" data-tabs></div>
+
+  <div class="colhead" aria-hidden="true">
+    <span class="h-rk">#</span>
+    <span class="h-nm">Player</span>
+    <span class="h-vorp">VORP</span>
+    <span class="h-adp">ADP</span>
+    <span class="h-delta">+/&minus;</span>
+  </div>
+
+  <div class="list" data-list></div>
+  <div class="footbar" data-foot>board.json —</div>
+
+  <!-- API-key modal: first-run gate + settings -->
+  <div class="lock" data-lock hidden>
+    <div class="lockcard">
+      <button class="close" data-close aria-label="Close" hidden>&times;</button>
+      <div class="keyicon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.6 12.4 20 3M17 6l2 2M14 9l2 2"/></svg>
+      </div>
+      <h2 data-title>Unlock your board</h2>
+      <p class="desc" data-desc>Enter your tracker API key to load the draft board on this device.</p>
+      <label for="apikey">API key</label>
+      <input id="apikey" data-input type="password" autocomplete="off" spellcheck="false" placeholder="paste your key…" />
+      <p class="err" data-err hidden></p>
+      <button class="save" data-save>Unlock board</button>
+      <p class="hint">Set on the Worker with <code>wrangler secret put TRACKER_API_KEY</code>. Stored only on this device — never sent anywhere but your board.</p>
+      <button class="forget" data-forget hidden>Forget key on this device</button>
+    </div>
+  </div>
+</div>
+<script src="/app.js" defer></script>
+</body>
+</html>
