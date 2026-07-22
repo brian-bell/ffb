@@ -70,8 +70,11 @@ export function makeStore(storage: StorageLike | null): Store {
   let mem: string | null = null;
   return {
     get() {
+      // `mem` is a write-through fallback: prefer a stored value, but fall back
+      // to memory when storage yields nothing (a failed/blocked write) or throws.
       try {
-        return storage ? storage.getItem(STORAGE_KEY) : mem;
+        const stored = storage ? storage.getItem(STORAGE_KEY) : null;
+        return stored ?? mem;
       } catch {
         return mem;
       }

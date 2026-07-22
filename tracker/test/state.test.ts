@@ -114,4 +114,21 @@ describe("makeStore — localStorage with in-memory fallback", () => {
     store.set("z");
     expect(store.get()).toBe("z");
   });
+
+  it("keeps the key when writes fail but reads succeed (Safari private mode)", () => {
+    // The partial-failure mode: setItem throws (quota / private browsing) while
+    // getItem still works and returns null. The all-throwing case is not enough —
+    // get() must fall back to the memory copy set() stashed.
+    const store = makeStore({
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+      removeItem: () => {},
+    });
+    store.set("k");
+    expect(store.get()).toBe("k");
+    store.del();
+    expect(store.get()).toBeNull();
+  });
 });
