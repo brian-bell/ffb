@@ -129,6 +129,59 @@ describe("Worker draft state", () => {
     expect(await staleUndo.json()).toMatchObject({ error: "no_picks" });
   });
 
+  it("records a validated manual snapshot and rejects its equivalent canonical board row", async () => {
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ rounds: 1, teams: [{ name: "Brian", is_user: true }, { name: "Other", is_user: false }] }),
+    });
+    const manual = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ expected_overall_pick: 1, manual_player: { name: "  Mystery DST  ", pos: "DST", team: " nyj " } }),
+    });
+    expect(manual.status).toBe(201);
+    expect(await manual.json()).toMatchObject({ picks: [{ player_key: expect.stringMatching(/^manual:/), player_name: "Mystery DST", player_pos: "DEF", player_team: "NYJ" }] });
+
+    const duplicate = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ expected_overall_pick: 2, player_key: fixtureJson.players.find((player) => player.pos === "DEF")?.key }),
+    });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toMatchObject({ error: "player_already_picked" });
+  });
+
+  it("requires a teamless manual entry to use an already-listed board row", async () => {
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ rounds: 1, teams: [{ name: "Brian", is_user: true }, { name: "Other", is_user: false }] }),
+    });
+    const response = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ expected_overall_pick: 1, manual_player: { name: fixtureJson.players[0].name, pos: fixtureJson.players[0].pos, team: null } }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ error: "manual_player_matches_board" });
+  });
+
+  it("does not let an unknown-position manual entry duplicate a listed player", async () => {
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ rounds: 1, teams: [{ name: "Brian", is_user: true }, { name: "Other", is_user: false }] }),
+    });
+    const response = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ expected_overall_pick: 1, manual_player: { name: fixtureJson.players[0].name, pos: "Unknown", team: fixtureJson.players[0].team } }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ error: "manual_player_matches_board" });
+  });
+
   it("rejects an unconfigured draft before attempting to read the board", async () => {
     await env.BOARD.delete(BOARD_KEY);
     const response = await SELF.fetch("https://x/api/picks", {

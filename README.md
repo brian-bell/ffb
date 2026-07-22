@@ -118,7 +118,10 @@ Test-driven; CI runs lint + format + tests on every push and PR.
 [`tracker/`](tracker/) is a **separate TypeScript Cloudflare Worker** that
 consumes the pipeline's `board.json` **v1** contract at a file boundary (it never
 imports the Python package). On draft day it serves the phone-friendly Draft Room,
-records a single manual snake draft, and keeps the available board current.
+records a single manual snake draft, and keeps the available board current. On
+Brian’s turn it also derives one explainable recommendation from board VORP,
+tiers, roster slots, and Brian’s persisted picks; the usual three ADP-led
+“Likely next” choices remain available for every team’s pick.
 
 Architecture: the immutable board blob lives in **KV** (`BOARD`, key
 `board:current`) and is served verbatim from `GET /api/board`; live configuration,
@@ -134,6 +137,13 @@ only permits LIFO undo. `DELETE /api/draft` resets the one current draft (picks,
 then teams, then configuration) but deliberately leaves the published board in
 KV untouched. The other state routes are `GET`/`PUT /api/draft`, `POST /api/picks`,
 and `DELETE /api/picks/latest`.
+
+If Yahoo selects someone absent from the board, choose **Record unlisted
+player…**, enter their displayed name, position, and optional team, then use the
+same separate **Record pick** confirmation. This preserves snake order without
+inventing a board key. Before a live mock, use a fresh local draft and verify
+recommendations at Brian turns, a snake wheel, after undo, and after an
+unlisted-player entry.
 
 ```sh
 cd tracker

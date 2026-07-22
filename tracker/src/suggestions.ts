@@ -1,3 +1,4 @@
+import { isAvailable, type PlayerIdentity } from "./player-identity";
 import type { Player } from "./types";
 
 function marketOrder(a: Player, b: Player): number {
@@ -12,13 +13,20 @@ function marketOrder(a: Player, b: Player): number {
   return a.name.localeCompare(b.name);
 }
 
-export function availablePlayers(players: Player[], pickedKeys: ReadonlySet<string>): Player[] {
-  return players.filter((player) => !pickedKeys.has(player.key));
+type Picked = readonly PlayerIdentity[] | ReadonlySet<string>;
+
+function snapshots(picked: Picked): readonly PlayerIdentity[] {
+  if ("has" in picked) return [...(picked as ReadonlySet<string>)].map((key) => ({ key, name: "", pos: null, team: null }));
+  return picked as readonly PlayerIdentity[];
+}
+
+export function availablePlayers(players: Player[], picked: Picked): Player[] {
+  return players.filter((player) => isAvailable(player, snapshots(picked)));
 }
 
 /** Three available players most likely to be selected next by market ADP. */
-export function suggestPlayers(players: Player[], pickedKeys: ReadonlySet<string>): Player[] {
-  return availablePlayers(players, pickedKeys).sort(marketOrder).slice(0, 3);
+export function suggestPlayers(players: Player[], picked: Picked): Player[] {
+  return availablePlayers(players, picked).sort(marketOrder).slice(0, 3);
 }
 
 function normalized(value: string): string {
@@ -30,10 +38,10 @@ function tokens(value: string): string[] {
 }
 
 /** Search exact board rows only; callers must submit the selected row's key. */
-export function searchPlayers(players: Player[], pickedKeys: ReadonlySet<string>, query: string): Player[] {
+export function searchPlayers(players: Player[], picked: Picked, query: string): Player[] {
   const needle = normalized(query.trim());
   if (!needle) return [];
-  return availablePlayers(players, pickedKeys)
+  return availablePlayers(players, picked)
     .map((player) => {
       const name = normalized(player.name);
       const match = name.startsWith(needle) ? 0 : tokens(player.name).some((word) => word.startsWith(needle)) ? 1 : name.includes(needle) ? 2 : 3;
