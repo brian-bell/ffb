@@ -13,6 +13,22 @@ export function recommendationHtml(state: RecommendationState): string {
   return `<button class="recommendation" data-recommendation-key="${encodeURIComponent(recommendation.player.key)}"><span class="eyebrow">YOUR PICK</span><b>${esc(recommendation.position)} · ${esc(recommendation.player.name)}</b><small>${tier} · ${vorp} VORP</small><span>${esc(recommendation.reason)}</span><em>Select recommendation</em></button>`;
 }
 
+/** Compact recommendation facts for the always-visible pick dock summary. */
+export function recommendationSummaryHtml(state: RecommendationState): string {
+  const recommendation = state.recommendation;
+  if (!recommendation) {
+    return '<span class="dock-label">DRAFT ASSISTANT</span><span class="dock-pick">No recommendation for this turn.</span>';
+  }
+  const tier = recommendation.tier === null
+    ? "UNTIERED"
+    : `TIER ${recommendation.tier}${recommendation.tierRemaining === null ? "" : ` · ${recommendation.tierRemaining} LEFT`}`;
+  return (
+    '<span class="dock-label">YOUR PICK · RECOMMENDATION</span>' +
+    `<span class="dock-pick"><b>${esc(recommendation.position)} · ${esc(recommendation.player.name)}</b>` +
+    `<small>${esc(tier)}</small></span>`
+  );
+}
+
 export function needsHtml(state: RecommendationState): string {
   if (!state.context) return "";
   const { roster } = state.context;

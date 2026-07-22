@@ -8,14 +8,21 @@ import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import { searchPlayers, suggestPlayers } from "../src/suggestions";
 import { setupValidation, teamsFromSetup } from "../src/setup";
-import { boardNoticeHtml } from "../src/board-view";
+import {
+  boardNoticeHtml,
+  describeBoardView,
+  initialBoardView,
+  nextBoardView,
+  type BoardPosition,
+  type BoardViewState,
+} from "../src/board-view";
 import { deriveRecommendation } from "../src/recommendation";
-import { needsHtml, recommendationHtml } from "../src/recommendation-view";
+import { needsHtml, recommendationHtml, recommendationSummaryHtml } from "../src/recommendation-view";
 import { isAvailable, playersEquivalent } from "../src/player-identity";
 import type { DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
-const POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"];
+const POSITIONS: BoardPosition[] = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"];
 
 function localStorageOrNull(): Storage | null {
   try {
@@ -50,7 +57,9 @@ const footEl = $<HTMLElement>("[data-foot]");
 const subEl = $<HTMLElement>("[data-sub]");
 const clockEl = $<HTMLElement>("[data-clock]");
 const viewTabsEl = $<HTMLElement>("[data-view-tabs]");
-const recentEl = $<HTMLElement>("[data-recent]");
+const orderLabelEl = $<HTMLElement>("[data-order-label]");
+const viewLeadEl = $<HTMLElement>("[data-view-lead]");
+const viewDetailEl = $<HTMLElement>("[data-view-detail]");
 const setupModalEl = $<HTMLElement>("[data-setup-modal]");
 const setupEl = $<HTMLElement>("[data-setup]");
 const draftNameEl = $<HTMLInputElement>("[data-draft-name]");
@@ -59,7 +68,10 @@ const teamNamesEl = $<HTMLTextAreaElement>("[data-team-names]");
 const userTeamEl = $<HTMLElement>("[data-user-team]") as unknown as HTMLSelectElement;
 const saveDraftEl = $<HTMLButtonElement>("[data-save-draft]");
 const pickPanelEl = $<HTMLElement>("[data-pick-panel]");
+const pickToolsToggleEl = $<HTMLButtonElement>("[data-pick-tools-toggle]");
+const pickToolsEl = $<HTMLElement>("[data-pick-tools]");
 const onClockEl = $<HTMLElement>("[data-on-clock]");
+const recommendationSummaryEl = $<HTMLElement>("[data-recommendation-summary]");
 const suggestionsEl = $<HTMLElement>("[data-suggestions]");
 const recommendationRegionEl = $<HTMLElement>("[data-recommendation-region]");
 const recommendationEl = $<HTMLElement>("[data-recommendation]");
@@ -87,15 +99,14 @@ let ui: UiState = initialState;
 let board: Board | null = null;
 let boardDriftVersion: unknown | null = null;
 let boardMalformed = false;
-let active = "ALL";
-let view: "available" | "drafted" = "available";
+let boardView: BoardViewState = initialBoardView;
 let draft: DraftState | null = null;
 interface ManualPlayerInput { name: string; pos: "QB" | "RB" | "WR" | "TE" | "K" | "DEF" | "DST" | "Unknown"; team: string | null; }
 type PickSelection = { kind: "board"; player: Player } | { kind: "manual"; player: ManualPlayerInput };
 let selected: PickSelection | null = null;
 let writing = false;
 let setupPresented = false;
-let focusPickEntry = false;
+let focusPickTools = false;
 
 function dispatch(event: UiEvent): void {
   ui = nextState(ui, event);
@@ -140,7 +151,11 @@ function renderList(): void {
       if (playersEquivalent(player, { key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) picked.set(player.key, annotation);
     }
   }
-  listEl.innerHTML = renderBoard(board, active, { picked, mode: view });
+  listEl.innerHTML = renderBoard(board, boardView.position, {
+    picked,
+    mode: boardView.mode,
+    draftPicks: draft?.picks,
+  });
   listEl.scrollTop = 0;
 }
 
@@ -212,7 +227,7 @@ function renderDraft(): void {
   screenEl.toggleAttribute("inert", showSetup);
   screenEl.setAttribute("aria-hidden", String(showSetup));
   pickPanelEl.hidden = !configured;
-  recentEl.hidden = !configured;
+  renderPickTools();
   if (!configured) {
     clockEl.textContent = "Set up draft";
     subEl.textContent = board ? `${board.num_teams}-team · ${board.scoring} scoring` : "—";
@@ -236,6 +251,9 @@ function renderDraft(): void {
   }
   const picked = draft!.picks.map((pick) => ({ key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team }));
   const recommendation = board ? deriveRecommendation(board, draft!) : null;
+  recommendationSummaryEl.innerHTML = recommendationSummaryHtml(
+    recommendation ?? { context: null, recommendation: null, warnings: [] },
+  );
   recommendationRegionEl.hidden = !next?.is_user;
   recommendationEl.innerHTML = recommendation ? recommendationHtml(recommendation) : "";
   needsEl.innerHTML = recommendation ? needsHtml(recommendation) : "";
@@ -244,9 +262,6 @@ function renderDraft(): void {
   suggestionsEl.innerHTML = !next || !board ? "" : suggestPlayers(board.players, picked)
     .map((player) => `<button class="suggestion" data-player-key="${encodeURIComponent(player.key)}"><b>${escapeHtml(player.name)}</b><small>${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")} · ADP ${player.adp ?? "—"}</small></button>`)
     .join("");
-  recentEl.innerHTML = draft!.picks.length
-    ? [...draft!.picks].reverse().slice(0, 6).map((pick) => `<div><b>${pick.round}.${String(pick.round_pick).padStart(2, "0")}</b> · ${escapeHtml(pick.player_name)} — ${escapeHtml(pick.team_name)}</div>`).join("")
-    : "No picks recorded.";
   const canPick = Boolean(next && board);
   playerSearchEl.disabled = !canPick || writing;
   unlistedEl.disabled = !next || writing;
@@ -255,9 +270,9 @@ function renderDraft(): void {
   undoPickEl.textContent = draft!.picks.length ? `Undo ${draft!.picks.at(-1)!.round}.${String(draft!.picks.at(-1)!.round_pick).padStart(2, "0")} — ${draft!.picks.at(-1)!.player_name}` : "Undo latest pick";
   setSelected(next ? selected : null);
   renderList();
-  if (focusPickEntry) {
-    focusPickEntry = false;
-    setTimeout(() => playerSearchEl.focus(), 0);
+  if (focusPickTools) {
+    focusPickTools = false;
+    setTimeout(() => pickToolsToggleEl.focus(), 0);
   }
 }
 
@@ -268,10 +283,28 @@ function showContractDrift(got: unknown): void {
   renderList();
 }
 
-function renderTabs(): void {
-  tabsEl.innerHTML = POSITIONS.map(
-    (p) => `<button class="tab" role="tab" aria-selected="${p === active}" data-pos="${p}">${p}</button>`,
-  ).join("");
+function renderViewControls(): void {
+  if (!tabsEl.children.length) {
+    tabsEl.innerHTML = POSITIONS.map(
+      (position) => `<button class="tab" role="tab" data-pos="${position}">${position}</button>`,
+    ).join("");
+  }
+  tabsEl.querySelectorAll<HTMLButtonElement>("[data-pos]").forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.pos === boardView.position));
+  });
+  viewTabsEl.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((tab) => {
+    tab.setAttribute("aria-pressed", String(tab.dataset.view === boardView.mode));
+  });
+  const description = describeBoardView(boardView);
+  orderLabelEl.textContent = description.orderLabel;
+  viewLeadEl.textContent = description.lead;
+  viewDetailEl.textContent = description.detail;
+}
+
+function renderPickTools(): void {
+  pickToolsToggleEl.setAttribute("aria-expanded", String(boardView.pickToolsExpanded));
+  pickToolsToggleEl.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
+  pickToolsEl.hidden = !boardView.pickToolsExpanded;
 }
 
 // ---- data fetch ----
@@ -362,7 +395,10 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       return false;
     }
     draft = response;
-    if (!wasConfigured && draft.configured) focusPickEntry = true;
+    if (path === "/api/picks" && method === "POST") {
+      boardView = nextBoardView(boardView, { type: "pickRecorded" });
+    }
+    if (!wasConfigured && draft.configured) focusPickTools = true;
     selected = null;
     playerSearchEl.value = "";
     searchResultsEl.innerHTML = "";
@@ -439,19 +475,28 @@ gearEl.addEventListener("click", () => {
 tabsEl.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".tab");
   if (!btn) return;
-  active = btn.dataset.pos ?? "ALL";
-  tabsEl.querySelectorAll<HTMLButtonElement>(".tab").forEach((t) => {
-    t.setAttribute("aria-selected", String(t.dataset.pos === active));
+  boardView = nextBoardView(boardView, {
+    type: "selectPosition",
+    position: (btn.dataset.pos ?? "ALL") as BoardPosition,
   });
+  renderViewControls();
   renderList();
 });
 
 viewTabsEl.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-view]");
   if (!button) return;
-  view = button.dataset.view === "drafted" ? "drafted" : "available";
-  viewTabsEl.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.view === view)));
+  boardView = nextBoardView(boardView, {
+    type: "selectMode",
+    mode: button.dataset.view === "drafted" ? "drafted" : "available",
+  });
+  renderViewControls();
   renderList();
+});
+
+pickToolsToggleEl.addEventListener("click", () => {
+  boardView = nextBoardView(boardView, { type: "togglePickTools" });
+  renderPickTools();
 });
 
 teamNamesEl.addEventListener("input", refreshUserTeams);
@@ -578,7 +623,7 @@ resetDraftEl.addEventListener("click", () => {
 
 // ---- first run vs. returning device ----
 async function boot(): Promise<void> {
-  renderTabs();
+  renderViewControls();
   const key = store.get();
   if (!key) {
     dispatch({ type: "boot", hasKey: false });

@@ -22,10 +22,14 @@
     <div class="sub" data-sub>—</div>
   </div>
 
-  <div class="tabs" role="tablist" data-tabs></div>
-  <div class="viewtabs" data-view-tabs>
+  <div class="tabs" role="tablist" aria-label="Position filter" data-tabs></div>
+  <div class="viewtabs" aria-label="Board availability" data-view-tabs>
     <button class="viewtab" data-view="available" aria-pressed="true">Available</button>
     <button class="viewtab" data-view="drafted" aria-pressed="false">Drafted</button>
+    <span class="order-label" data-order-label>BOARD ORDER</span>
+  </div>
+  <div class="view-context" aria-live="polite">
+    <b data-view-lead>Overall board</b> · <span data-view-detail>Tier badges stay inline. Choose a position to group by tier.</span>
   </div>
 
   <div class="colhead" aria-hidden="true">
@@ -37,39 +41,46 @@
   </div>
 
   <div class="list" data-list></div>
-  <section class="recent" data-recent hidden></section>
-  <div class="footbar" data-foot>board.json —</div>
 
-  <section class="pickpanel" data-pick-panel hidden>
-    <p class="onclock" data-on-clock></p>
-    <div data-recommendation-region hidden>
-      <div class="recommendation-wrap" data-recommendation></div>
-      <p class="needs" data-needs></p>
-      <p class="recommendation-warning" data-recommendation-warning></p>
-      <p class="sr-only" data-recommendation-live aria-live="polite"></p>
+  <section class="pickdock" data-pick-panel hidden>
+    <div class="dock-summary">
+      <div class="dock-copy">
+        <p class="onclock" data-on-clock></p>
+        <div class="recommendation-summary" data-recommendation-summary></div>
+      </div>
+      <button class="pick-tools-toggle" data-pick-tools-toggle type="button" aria-expanded="false" aria-controls="pick-tools">Pick tools</button>
     </div>
-    <p class="likely-next">Likely next</p>
-    <div class="suggestions" data-suggestions></div>
-    <label class="searchlabel" for="player-search">Player search</label>
-    <input id="player-search" data-player-search role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Search available players" />
-    <div class="searchresults" data-search-results role="listbox"></div>
-    <button class="unlisted" data-unlisted type="button">Record unlisted player…</button>
-    <form class="manual" data-manual-form hidden>
-      <label class="searchlabel" for="manual-name">Unlisted player name</label>
-      <input id="manual-name" data-manual-name maxlength="100" autocomplete="off" />
-      <label class="searchlabel" for="manual-pos">Position</label>
-      <select id="manual-pos" data-manual-pos><option>Unknown</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select>
-      <label class="searchlabel" for="manual-team">Team (optional)</label>
-      <input id="manual-team" data-manual-team maxlength="8" autocomplete="off" />
-      <button class="unlisted" data-manual-select type="submit">Use unlisted player</button>
-      <button class="unlisted" data-manual-cancel type="button">Cancel</button>
-    </form>
-    <p class="selected" data-selected>No player selected.</p>
-    <p class="status" data-draft-error aria-live="polite"></p>
-    <button class="record" data-record-pick disabled>Record pick</button>
-    <button class="undo" data-undo-pick disabled>Undo latest pick</button>
-    <button class="reset" data-reset-draft>Reset draft…</button>
+    <div class="pick-tools" data-pick-tools id="pick-tools" hidden>
+      <div data-recommendation-region hidden>
+        <div class="recommendation-wrap" data-recommendation></div>
+        <p class="needs" data-needs></p>
+        <p class="recommendation-warning" data-recommendation-warning></p>
+        <p class="sr-only" data-recommendation-live aria-live="polite"></p>
+      </div>
+      <p class="likely-next">Likely next</p>
+      <div class="suggestions" data-suggestions></div>
+      <label class="searchlabel" for="player-search">Player search</label>
+      <input id="player-search" data-player-search role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Search available players" />
+      <div class="searchresults" data-search-results role="listbox"></div>
+      <button class="unlisted" data-unlisted type="button">Record unlisted player…</button>
+      <form class="manual" data-manual-form hidden>
+        <label class="searchlabel" for="manual-name">Unlisted player name</label>
+        <input id="manual-name" data-manual-name maxlength="100" autocomplete="off" />
+        <label class="searchlabel" for="manual-pos">Position</label>
+        <select id="manual-pos" data-manual-pos><option>Unknown</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select>
+        <label class="searchlabel" for="manual-team">Team (optional)</label>
+        <input id="manual-team" data-manual-team maxlength="8" autocomplete="off" />
+        <button class="unlisted" data-manual-select type="submit">Use unlisted player</button>
+        <button class="unlisted" data-manual-cancel type="button">Cancel</button>
+      </form>
+      <p class="selected" data-selected>No player selected.</p>
+      <p class="status" data-draft-error aria-live="polite"></p>
+      <button class="record" data-record-pick disabled>Record pick</button>
+      <button class="undo" data-undo-pick disabled>Undo latest pick</button>
+      <button class="reset" data-reset-draft>Reset draft…</button>
+    </div>
   </section>
+  <div class="footbar" data-foot>board.json —</div>
 
   <!-- API-key modal: first-run gate + settings -->
   <div class="lock" data-lock hidden>
