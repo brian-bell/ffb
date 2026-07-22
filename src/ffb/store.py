@@ -69,6 +69,26 @@ CREATE TABLE IF NOT EXISTS adp (
     matched       BOOLEAN,
     PRIMARY KEY (player_key, season, source)
 );
+
+CREATE TABLE IF NOT EXISTS league_settings (
+    season INTEGER PRIMARY KEY,
+    league_id VARCHAR, league_key VARCHAR, name VARCHAR, current_week INTEGER,
+    num_teams INTEGER, source VARCHAR, synced_at VARCHAR,
+    roster_slots_json VARCHAR, scoring_rules_json VARCHAR,
+    unmapped_scoring_rules_json VARCHAR, provider_settings_json VARCHAR
+);
+CREATE TABLE IF NOT EXISTS league_teams (
+    season INTEGER, team_key VARCHAR, team_id VARCHAR, name VARCHAR,
+    managers_json VARCHAR, is_user_team BOOLEAN,
+    PRIMARY KEY (season, team_key)
+);
+CREATE TABLE IF NOT EXISTS league_rosters (
+    season INTEGER, week INTEGER, team_key VARCHAR, yahoo_player_id VARCHAR,
+    yahoo_player_key VARCHAR, full_name VARCHAR, nfl_team VARCHAR,
+    primary_position VARCHAR, eligible_positions_json VARCHAR, selected_position VARCHAR,
+    player_key VARCHAR, matched BOOLEAN,
+    PRIMARY KEY (season, week, team_key, yahoo_player_id)
+);
 """
 
 # Columns of the adp table, in insert order (also the read column order).
@@ -90,7 +110,7 @@ _ADP_COLUMNS = (
 )
 
 # Which crosswalk column holds each source's native player id.
-_SOURCE_ID_COLUMN = {"sleeper": "sleeper_id", "espn": "espn_id"}
+_SOURCE_ID_COLUMN = {"sleeper": "sleeper_id", "espn": "espn_id", "yahoo": "yahoo_id"}
 
 
 class Store:
@@ -298,6 +318,140 @@ class Store:
             "DELETE FROM adp WHERE season = ? AND source = ?",
             [season, source],
         )
+
+    # --- league state ----------------------------------------------------
+    def replace_league_state(self, bundle: Any) -> dict[str, int]:
+        """Atomically mirror a validated league bundle's state for its season."""
+        league = bundle.league
+        settings = bundle.settings
+        season = league["season"]
+        resolved = self.resolve_batch(
+            "yahoo", [p["yahoo_player_id"] for r in bundle.rosters for p in r["players"]]
+        )
+        rows: list[dict[str, Any]] = []
+        for roster in bundle.rosters:
+            for player in roster["players"]:
+                match = resolved.get(player["yahoo_player_id"])
+                rows.append(
+                    {
+                        **player,
+                        "team_key": roster["team_key"],
+                        "week": roster["week"],
+                        "player_key": match["player_key"]
+                        if match
+                        else f"yahoo:{player['yahoo_player_id']}",
+                        "matched": bool(match),
+                        "full_name": match["full_name"] if match else player["name"],
+                        "position": match["position"] if match else player["primary_position"],
+                        "team": match["team"] if match else player["nfl_team"],
+                    }
+                )
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute("DELETE FROM league_settings WHERE season = ?", [season])
+            self.conn.execute(
+                """INSERT INTO league_settings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    season,
+                    league["league_id"],
+                    league["league_key"],
+                    league["name"],
+                    league["current_week"],
+                    league["num_teams"],
+                    bundle.data["source"],
+                    bundle.data["synced_at"],
+                    json.dumps(settings["roster_slots"]),
+                    json.dumps(settings["scoring_rules"]),
+                    json.dumps(settings["unmapped_scoring_rules"]),
+                    json.dumps(settings["provider_settings"]),
+                ],
+            )
+            self.conn.execute("DELETE FROM league_teams WHERE season = ?", [season])
+            for team in bundle.teams:
+                self.conn.execute(
+                    "INSERT INTO league_teams VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        season,
+                        team["team_key"],
+                        team["team_id"],
+                        team["name"],
+                        json.dumps(team["managers"]),
+                        team["is_user_team"],
+                    ],
+                )
+            self.conn.execute(
+                "DELETE FROM league_rosters WHERE season = ? AND week = ?",
+                [season, league["current_week"]],
+            )
+            for row in rows:
+                self.conn.execute(
+                    "INSERT INTO league_rosters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        season,
+                        row["week"],
+                        row["team_key"],
+                        row["yahoo_player_id"],
+                        row["yahoo_player_key"],
+                        row["full_name"],
+                        row["team"],
+                        row["position"],
+                        json.dumps(row["eligible_positions"]),
+                        row["selected_position"],
+                        row["player_key"],
+                        row["matched"],
+                    ],
+                )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+        return {
+            "teams": len(bundle.teams),
+            "players": len(rows),
+            "matched": sum(r["matched"] for r in rows),
+            "unmatched": sum(not r["matched"] for r in rows),
+        }
+
+    def league_context(self, season: int) -> dict[str, Any] | None:
+        cursor = self.conn.execute("SELECT * FROM league_settings WHERE season = ?", [season])
+        values = cursor.fetchone()
+        if not values:
+            return None
+        row = dict(zip([c[0] for c in cursor.description], values, strict=True))
+        for key in ("roster_slots", "scoring_rules", "unmapped_scoring_rules", "provider_settings"):
+            row[key] = json.loads(row.pop(f"{key}_json"))
+        return row
+
+    def league_teams(self, season: int) -> list[dict[str, Any]]:
+        cursor = self.conn.execute(
+            "SELECT * FROM league_teams WHERE season = ? ORDER BY team_key", [season]
+        )
+        rows = [
+            dict(zip([c[0] for c in cursor.description], values, strict=True))
+            for values in cursor.fetchall()
+        ]
+        for row in rows:
+            row["managers"] = json.loads(row.pop("managers_json"))
+        return rows
+
+    def league_roster_rows(self, season: int, week: int | None = None) -> list[dict[str, Any]]:
+        if week is None:
+            context = self.league_context(season)
+            if context is None:
+                return []
+            week = context["current_week"]
+        cursor = self.conn.execute(
+            "SELECT * FROM league_rosters WHERE season = ? AND week = ? "
+            "ORDER BY team_key, yahoo_player_id",
+            [season, week],
+        )
+        rows = [
+            dict(zip([c[0] for c in cursor.description], values, strict=True))
+            for values in cursor.fetchall()
+        ]
+        for row in rows:
+            row["eligible_positions"] = json.loads(row.pop("eligible_positions_json"))
+        return rows
 
     def adp_rows(self, season: int, source: str = "ffc") -> list[dict[str, Any]]:
         """Return stored ADP rows for a season/source as plain dicts."""
