@@ -7,8 +7,10 @@
   "name": "ffb-tracker",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
-  // Served at the custom domain (Cloudflare manages the DNS + cert).
+  // Served at the custom domain (Cloudflare manages the DNS + cert); the
+  // *.workers.dev URL stays enabled as a fallback.
   "routes": [{ "pattern": "ffb.bbell.dev", "custom_domain": true }],
+  "workers_dev": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
