@@ -78,13 +78,17 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   green independent of the live pipeline.
 - **D1 draft state:** migration `0002_draft_state.sql` stores one configurable
   current draft, ordered teams, and immutable pick snapshots. `src/draft-store.ts`
-  is the only D1 query gateway; `draft.ts`, `suggestions.ts`, and `render.ts` are
-  DOM-free behavior. The Worker derives snake order rather than persisting it,
-  validates stale expected-pick writes, supports latest-only undo, and resets by
-  explicitly deleting picks, teams, then draft (never relying on FK cascade).
-- **Pure testable core:** `src/{auth,board,draft,suggestions,render,state}.ts` are
-  pure/DOM-free and unit-tested; `public/app.ts` is thin DOM wiring bundled to
-  `public/app.js` (esbuild, gitignored).
+  is the only D1 query gateway; `draft-api.ts` is the `/api/*` request router (the
+  `GET`/`PUT /api/draft`, `POST /api/picks`, `DELETE /api/picks/latest`, `DELETE
+  /api/draft` handlers); `draft.ts`, `suggestions.ts`, and `render.ts` are DOM-free
+  behavior. The Worker derives snake order rather than persisting it, validates
+  stale expected-pick writes, supports latest-only undo, and resets by explicitly
+  deleting picks, teams, then draft (never relying on FK cascade).
+- **Pure testable core:** `src/{auth,board,board-view,draft,suggestions,render,setup,state}.ts`
+  are pure/DOM-free and unit-tested; `types.ts` mirrors the `board.json` v1
+  contract; `index.ts` is the Worker entry (auth-gate + KV board stream + fall
+  through to Static Assets), and `draft-api.ts` the API router. `public/app.ts` is
+  thin DOM wiring bundled to `public/app.js` (esbuild, gitignored).
 - CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
   of the Python `uv` job. Binding ids in `wrangler.jsonc` are placeholders filled
   in during the one-time HITL Cloudflare setup (see README).
