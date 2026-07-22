@@ -33,7 +33,7 @@ def test_limit_caps_results(seeded_store):
 def test_no_position_returns_all_positions(seeded_store):
     rows = ranked(seeded_store, season=2024)
     positions = {r["position"] for r in rows}
-    assert positions == {"RB", "QB", "WR"}
+    assert positions == {"RB", "QB", "WR", "K", "DEF"}
     # Ranks are contiguous across the whole set.
     assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1))
 

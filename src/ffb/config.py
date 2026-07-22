@@ -49,10 +49,90 @@ ESPN_STAT_MAP = {
     44: "rec_2pt",
     53: "rec",
     72: "fum_lost",
+    # Kicking. ESPN also emits attempts, misses, aggregate FGM, and overlapping
+    # 50-59/60+ splits; keep only this non-overlapping made-FG partition + XP.
+    # ESPN's under-40 bucket maps to one of Yahoo's equal-value three-point
+    # bands so it is counted once without inventing a distance distribution.
+    74: "fgm_50p",
+    77: "fgm_40_49",
+    80: "fgm_30_39",
+    86: "xpm",
+    # Team defense / special teams. Multiple source buckets intentionally map
+    # to the same league key; the ESPN parser adds them rather than overwriting.
+    89: "pts_allow_0",
+    90: "pts_allow_1_6",
+    91: "pts_allow_7_13",
+    92: "pts_allow_14_20",
+    93: "def_fum_td",  # blocked-kick TD: same six-point defensive-TD bucket
+    95: "int",
+    96: "fum_rec",
+    97: "blk_kick",
+    98: "safe",
+    99: "sack",
+    101: "def_kr_td",
+    102: "pr_td",
+    103: "def_fum_td",
+    104: "pass_int_td",
+    121: "pts_allow_14_20",  # ESPN 18-21; chosen approximation for Yahoo 14-20
+    122: "pts_allow_21_27",
+    123: "pts_allow_28_34",
+    124: "pts_allow_35p",
+    125: "pts_allow_35p",
 }
 
 # ESPN defaultPositionId -> our position label.
-ESPN_POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DST"}
+ESPN_POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DEF"}
+
+# ESPN proTeamId -> the nflverse/MFL-style team codes used by canonical player
+# identity. ESPN's retired OAK label for id 13 is normalized to current LVR.
+ESPN_PRO_TEAM_MAP = {
+    1: "ATL",
+    2: "BUF",
+    3: "CHI",
+    4: "CIN",
+    5: "CLE",
+    6: "DAL",
+    7: "DEN",
+    8: "DET",
+    9: "GBP",
+    10: "TEN",
+    11: "IND",
+    12: "KCC",
+    13: "LVR",
+    14: "LAR",
+    15: "MIA",
+    16: "MIN",
+    17: "NEP",
+    18: "NOS",
+    19: "NYG",
+    20: "NYJ",
+    21: "PHI",
+    22: "ARI",
+    23: "PIT",
+    24: "LAC",
+    25: "SFO",
+    26: "SEA",
+    27: "TBB",
+    28: "WAS",
+    29: "CAR",
+    30: "JAC",
+    33: "BAL",
+    34: "HOU",
+}
+
+NFL_TEAM_CODES = frozenset(ESPN_PRO_TEAM_MAP.values())
+# Source/API abbreviations normalized to the MFL-style codes used by the
+# crosswalk and synthetic defense keys.
+TEAM_ALIASES = {
+    "SF": "SFO",
+    "KC": "KCC",
+    "GB": "GBP",
+    "NE": "NEP",
+    "NO": "NOS",
+    "TB": "TBB",
+    "LV": "LVR",
+    "JAX": "JAC",
+}
 
 
 @dataclass(frozen=True)
@@ -70,8 +150,8 @@ class ScoringConfig:
         return total
 
 
-# Default full-PPR scoring. Standard offensive categories only for the
-# walking skeleton; K/DST fidelity is a later concern (see DESIGN "Open items").
+# Default full-PPR scoring for generic library callers. League-specific kicking
+# and defense weights live in LEAGUE_SCORING below.
 DEFAULT_PPR = ScoringConfig(
     weights={
         "pass_yd": 0.04,
@@ -97,11 +177,9 @@ DEFAULT_PPR = ScoringConfig(
 # from the Yahoo league into the store. Swapping them re-scores everything with
 # no re-ingest (points are computed at read time — see AGENTS.md). Known
 # assumptions to confirm against the real league: full PPR (1.0), 4-pt passing
-# TDs, -1 interceptions. Kicking and D/ST categories are included (keys map to
-# Sleeper's stat line); ESPN's K/DST stat ids aren't decoded yet, so under
-# --sources those positions are Sleeper-only until that decode lands (see espn.py
-# and AGENTS.md). Stat keys don't collide across positions, so one flat map
-# scores every position.
+# TDs, -1 interceptions. Kicking and D/ST categories are included, with Sleeper
+# and ESPN both normalized onto these keys. Stat keys don't collide across
+# positions, so one flat map scores every position.
 LEAGUE_SCORING = ScoringConfig(
     weights={
         # Offense
@@ -179,25 +257,9 @@ LEAGUE_NUM_TEAMS = 12
 
 # --- FFC ADP source (slice 5, spike-verified 2026-07-21) --------------------
 # Fantasy Football Calculator's free ADP API. We pull one format/teams combo
-# matching the league. `PK` is FFC's kicker label (we normalize to `K`); `DEF`
-# stays `DEF` but rides ADP-only (team defenses aren't in ff_playerids — see
-# AGENTS.md and DESIGN "Open items").
+# matching the league. `PK` is FFC's kicker label (we normalize to `K`).
 FFC_FORMAT = "ppr"
 FFC_POSITION_MAP = {"PK": "K", "DEF": "DEF"}
-
-# FFC team codes differ from nflverse/MFL style for a handful of teams. Used only
-# as a TIEBREAK when resolving an ambiguous (name, position) — an imperfect alias
-# degrades to "unmatched", never to a wrong merge (§3b). Verify the full set
-# against a real pull; extend as new differences surface when trimming fixtures.
-FFC_TEAM_ALIASES = {
-    "SF": "SFO",
-    "NO": "NOS",
-    "KC": "KCC",
-    "TB": "TBB",
-    "GB": "GBP",
-    "NE": "NEP",
-    "LV": "LVR",
-}
 
 # --- Cheat sheet: VORP + tiers (slice 5) ------------------------------------
 # Draftable pool depth per position — how deep tiers/board consider a position

@@ -111,7 +111,7 @@ def parse_adp(raw: dict[str, Any], season: int) -> list[dict[str, Any]]:
                 continue
             position = config.FFC_POSITION_MAP.get(position, position)
             team = player.get("team")
-            team = config.FFC_TEAM_ALIASES.get(team, team)
+            team = config.TEAM_ALIASES.get(team, team)
             rows.append(
                 {
                     "native_id": str(native_id),

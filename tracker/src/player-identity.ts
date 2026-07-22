@@ -19,11 +19,24 @@ export function normalizedPosition(pos: string | null): string | null {
 
 function normalizedTeam(team: string | null): string | null {
   const normalizedValue = team?.trim().toLocaleUpperCase() ?? "";
-  return normalizedValue || null;
+  if (!normalizedValue) return null;
+  const aliases: Record<string, string> = {
+    SF: "SFO",
+    KC: "KCC",
+    GB: "GBP",
+    NE: "NEP",
+    NO: "NOS",
+    TB: "TBB",
+    LV: "LVR",
+    JAX: "JAC",
+  };
+  return aliases[normalizedValue] ?? normalizedValue;
 }
 
 function isFallback(key: string): boolean {
-  return key.includes(":");
+  return ["sleeper:", "espn:", "ffc:", "yahoo:", "manual:"].some((prefix) =>
+    key.startsWith(prefix)
+  );
 }
 
 function isManual(key: string): boolean {

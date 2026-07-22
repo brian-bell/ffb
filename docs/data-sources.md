@@ -32,7 +32,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | Source | Access | Auth | Provides | Status |
 |---|---|---|---|---|
 | **Sleeper projections** | REST JSON (`api.sleeper.com`) | none | Season projections (all offensive + K/DEF stat lines) | **Live** |
-| **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense; K/DST not decoded yet) | **Live** |
+| **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense + K/DEF stat lines) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Live (mock only)** |
@@ -85,8 +85,7 @@ no `--sources` uses Sleeper alone).
     `fgm_50p`) — there is no total-FGM or sub-40 band, so kicker points reflect
     long FGs + XP (this matches Sleeper's own `pts_std`; validated to ~2 pt median
     diff in `tests/test_scoring_validation.py`).
-  - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands) and
-    Sleeper labels defenses `DEF` (ESPN uses `DST`).
+  - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands).
 
 ### 2. ESPN — season projections
 
@@ -109,24 +108,23 @@ form a consensus. **Unofficial, undocumented endpoint** — no auth, may drift.
   `statSourceId == 1 && scoringPeriodId == 0`; its `stats` is a
   `{numeric statId: value}` map.
 - **What we extract** (`parse_projections`):
-  - Position via `config.ESPN_POSITION_MAP` (`defaultPositionId` → `QB/RB/WR/TE/K/DST`).
+  - Position via `config.ESPN_POSITION_MAP` (`defaultPositionId` →
+    `QB/RB/WR/TE/K/DEF`; ESPN's D/ST label is normalized to `DEF`).
   - Stats via `config.ESPN_STAT_MAP` — numeric stat ids decoded to the **same stat
-    keys Sleeper uses** (e.g. `3→pass_yd`, `53→rec`, `72→fum_lost`), so one scoring
-    function scores both sources identically. Unmapped ids are dropped.
-  - `team=None` (ESPN gives a numeric `proTeamId`; canonical team comes from the
-    crosswalk). `src_pts_ppr=None` — ESPN's `appliedTotal` is 0 in this view, so we
-    score it ourselves.
-  - **Rows with no scorable stats are skipped.** K and D/ST report stat ids that
-    are *not* in `ESPN_STAT_MAP` (only offense is decoded), so their translated
-    line is empty; emitting them would drag a crosswalk-matched kicker's consensus
-    to half. Skipping is self-healing — once those ids are mapped, the rows flow
-    through automatically.
+    keys Sleeper uses** for offense, kicking, and defense. Multiple ESPN buckets
+    may add into one league category; notably ESPN's 18–21 points-allowed band is
+    deliberately approximated as Yahoo's 14–20 band. Unmapped ids are dropped.
+  - Numeric `proTeamId` maps to the canonical MFL-style team code used by the
+    crosswalk and defense identity. `src_pts_ppr=None` — ESPN's `appliedTotal` is
+    0 in this view, so we score it ourselves.
+  - **Rows with no decoded scorable stats are skipped** rather than emitted at
+    zero, which avoids incorrectly diluting a cross-source consensus.
 - **Snapshot key** — `espn/projections_{season}`.
 - **Gotchas**
   - Unofficial endpoint: if ESPN changes shape, the committed fixture keeps CI
     green; re-verify with a fresh `--refresh` pull.
-  - K/DST stat ids are **not decoded yet** (tracked as a follow-up), so under
-    `--sources` those positions are effectively Sleeper-only.
+  - K/DEF now form a Sleeper + ESPN consensus. Kickers join through the player
+    crosswalk; defenses join through `def:<canonical team>`.
   - `appliedTotal == 0` here — never trust it as a point total.
 
 ### 3. nflverse `ff_playerids` — the identity crosswalk
@@ -157,8 +155,9 @@ Yahoo roster identities.
   - A `--refresh` **mirrors** the source (replace, not union) so ids removed or
     reassigned upstream don't leave stale mappings — but an empty/malformed pull
     is rejected so it can't wipe a usable spine.
-  - **Team defenses are not in `ff_playerids`.** DEF/DST rows never match, so they
-    fall back to `source:native_id` keys and don't form a cross-source consensus.
+  - **Team defenses are not in `ff_playerids`.** Valid DEF/DST rows bypass it and
+    use the synthetic `def:<canonical MFL team code>` identity; unknown team codes
+    remain source fallbacks rather than risking a wrong merge.
 
 ### 4. Fantasy Football Calculator — ADP
 
@@ -181,12 +180,13 @@ show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
   else, or a non-object payload, returns `[]` so the snapshot `is_valid` gate treats
   a bad refresh as empty). Per row: stringify `player_id`; normalize position via
   `config.FFC_POSITION_MAP` (`PK → K`, `DEF` kept); alias the team via
-  `config.FFC_TEAM_ALIASES` (`SF → SFO`, `KC → KCC`, …) to nflverse/MFL style so the
+  `config.TEAM_ALIASES` (`SF → SFO`, `KC → KCC`, …) to nflverse/MFL style so the
   name matcher's team tiebreak compares like with like. Rows with a missing or
   non-string name/position are skipped (a bad value would otherwise crash name
   resolution). Never raises on a bad row — it logs and skips.
-- **Identity — by name, not id.** FFC's `player_id` is FFC-internal (no column in
-  `ff_playerids`), so `resolve_batch` can't apply. `names.build_name_index` /
+- **Identity — by name, not id.** Team defenses first use `def:<canonical team>`.
+  FFC's player ids are internal (no column in `ff_playerids`), so other rows use
+  `names.build_name_index` /
   `match_by_name` resolve each row by `(normalized name, position)`:
   normalization lowercases and strips punctuation, diacritics, and generational
   suffixes (`Jr`/`III`); duplicate `(name, pos)` pairs (the crosswalk has ~551,
@@ -205,13 +205,11 @@ show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
   serving a stale slice.
 - **Snapshot key** — `ffc/adp_{fmt}_{teams}_{season}` (e.g. `ffc/adp_ppr_12_2024`).
 - **Gotchas**
-  - **Team defenses ride ADP-only.** DEF isn't in `ff_playerids`, so FFC `DEF`
-    rows fall back to `ffc:` keys that can't join Sleeper's `sleeper:` DEF
-    fallbacks — a defense appears on the board with ADP but no projection↔ADP join.
-    Kickers are fine (`PK → K`, kickers are in the crosswalk).
-  - Expect ~a dozen unmatched ADP rows on real data (mostly defenses, plus
-    nickname/ambiguous misses like "Hollywood Brown" or two "Mike Williams");
-    extending `normalize_name`/`FFC_TEAM_ALIASES` is the tuning loop, not a bug.
+  - Team defenses join projection consensus through `def:<canonical team>` even
+    though they are absent from `ff_playerids`. Kickers join through the crosswalk.
+  - Expect an unmatched ADP tail from nickname/ambiguous misses like "Hollywood
+    Brown" or two "Mike Williams"; extending `normalize_name`/`TEAM_ALIASES` is
+    the tuning loop, not a bug.
   - One format/teams combo per pull — a 10-team or half-PPR league shifts these
     (and the VORP baselines), but both are config reads.
 

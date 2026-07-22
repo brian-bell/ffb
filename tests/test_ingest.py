@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from ffb.consensus import consensus_rows
 from ffb.ingest import ensure_crosswalk, ensure_espn_ingested, ensure_ingested
 from ffb.snapshot import SnapshotCache
 from ffb.sources.crosswalk import snapshot_key as xwalk_key
@@ -114,7 +115,8 @@ def test_ingest_resolves_matched_players_to_canonical_key(store, tmp_path, cross
     store.upsert_crosswalk(crosswalk_rows)
     cache = _prime_snapshot(tmp_path / "snap")
     recon = ensure_ingested(store, cache, season=2024, fetch=_no_network)
-    assert recon.matched == 1  # only Henry (sleeper 3198) is in the crosswalk fixture
+    # Henry and Tucker resolve through the crosswalk; SFO uses canonical DEF identity.
+    assert recon.matched == 3
     henry = next(r for r in store.projection_rows(2024, position="RB") if r["native_id"] == "3198")
     assert henry["player_key"] == "12626"
     assert henry["matched"] is True
@@ -228,11 +230,73 @@ def test_ensure_espn_ingested_resolves_and_coexists_with_sleeper(store, tmp_path
     ensure_ingested(store, cache, season=2024, fetch=_no_network)  # sleeper first
     recon = ensure_espn_ingested(store, cache, season=2024, fetch=_no_network)
 
-    # Henry (3043078) + Chase (4362628) are in the crosswalk fixture; Allen isn't.
-    assert recon.matched == 2
+    # Henry, Chase, and Tucker use the crosswalk; SFO uses canonical DEF identity.
+    # Allen remains unmatched.
+    assert recon.matched == 4
     espn_rows = store.projection_rows(2024, source="espn")
     henry = next(r for r in espn_rows if r["native_id"] == "3043078")
     assert henry["player_key"] == "12626"  # same canonical key as the Sleeper Henry
     # Ingesting ESPN must not delete the Sleeper slice.
     assert store.has_season(2024, source="sleeper")
     assert store.has_season(2024, source="espn")
+
+
+def test_team_defenses_share_canonical_key_across_projection_sources(store, tmp_path):
+    cache = _prime_snapshot(tmp_path / "snap")
+    cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))
+
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+    ensure_espn_ingested(store, cache, season=2024, fetch=_no_network)
+
+    defenses = consensus_rows(
+        store,
+        2024,
+        position="DEF",
+        sources=["sleeper", "espn"],
+    )
+    assert len(defenses) == 1
+    assert defenses[0]["player_key"] == "def:SFO"
+    assert defenses[0]["team"] == "SFO"
+    assert defenses[0]["matched"] is True
+    assert defenses[0]["n"] == 2
+
+
+def test_canonical_defenses_do_not_force_reingest_on_every_run(store, tmp_path):
+    cache = _prime_snapshot(tmp_path / "snap")
+    cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))
+
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+    ensure_espn_ingested(store, cache, season=2024, fetch=_no_network)
+
+    assert ensure_ingested(store, cache, season=2024, fetch=_no_network).n_rows == 0
+    assert ensure_espn_ingested(store, cache, season=2024, fetch=_no_network).n_rows == 0
+
+
+def test_legacy_defense_fallback_self_heals_to_canonical_key(store, tmp_path):
+    store.upsert_projections(
+        [
+            {
+                "player_key": "sleeper:SF",
+                "native_id": "SF",
+                "full_name": "San Francisco 49ers",
+                "position": "DEF",
+                "team": "SF",
+                "matched": False,
+                "season": 2024,
+                "source": "sleeper",
+                "scope": "season",
+                "stats": {"sack": 40.0},
+                "src_pts_ppr": None,
+            }
+        ]
+    )
+    cache = _prime_snapshot(tmp_path / "snap")
+
+    recon = ensure_ingested(store, cache, season=2024, fetch=_no_network)
+
+    assert recon.n_rows > 0
+    defense = next(
+        row for row in store.projection_rows(2024, source="sleeper") if row["native_id"] == "SF"
+    )
+    assert defense["player_key"] == "def:SFO"
+    assert defense["matched"] is True

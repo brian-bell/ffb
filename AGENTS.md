@@ -211,12 +211,12 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   against it) and everything the tracker needs (tiers, ADP, positions, names). The
   CLI does the file writing; `board.py` stays I/O-free and takes `generated_at` as
   an argument so it's deterministic under test.
-- **Canonical identity via the crosswalk.** Every source's native id resolves to
-  a `player_key` (nflverse `mfl_id`) so consensus aligns players across sources.
-  Matched players take canonical crosswalk identity (name/pos/team) so one source
-  can't clobber another's. A crosswalk **miss is never dropped** — it falls back
-  to a `source:native_id` key with `matched=False` and is surfaced in the
-  `Reconciliation`, the WARNING logs, and the CLI footer.
+- **Canonical identity via the crosswalk (plus team-defense keys).** Player
+  sources resolve to an nflverse `mfl_id`; team defenses, which are absent from
+  `ff_playerids`, resolve to `def:<canonical MFL team code>`. Valid canonical
+  identities carry `matched=True`. Anything unresolved is never dropped: it
+  falls back to `source:native_id` with `matched=False` and is surfaced in the
+  `Reconciliation`, WARNING logs, and CLI footer.
 - **Late crosswalk self-heals.** A source ingested before the crosswalk was
   available is stranded under fallback keys. On the next run, `has_stale_resolution`
   detects rows that now map to a different (canonical) key and forces an offline
@@ -257,32 +257,28 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   decoded via `config.ESPN_STAT_MAP`. `appliedTotal` is 0 in this view, so ESPN
   rows carry `src_pts_ppr=None` and we score them ourselves. If ESPN drifts, the
   committed fixture keeps CI green; re-verify against a fresh `--refresh` pull.
-- **K/DST are scored but effectively single-source.** `LEAGUE_SCORING` includes
-  kicking and defense weights (keyed to Sleeper's stat line), so K/DEF rank on
-  real points, not zero. But cross-source consensus for them is still limited:
-  ESPN's K/DST stat ids aren't in `ESPN_STAT_MAP`, so `espn.parse_projections`
-  drops any row with no scorable stats (self-healing once those ids are mapped —
-  a separate spike) rather than emit 0-point rows that would halve a
-  crosswalk-matched kicker's consensus; and team defenses aren't in
-  `ff_playerids` and Sleeper labels them `DEF` vs ESPN's `DST`, so defenses don't
-  form a consensus. Expected; see DESIGN "Open items".
+- **K/DEF form a Sleeper + ESPN consensus.** ESPN's numeric kicking and defense
+  stat ids decode into the same keys `LEAGUE_SCORING` uses for Sleeper. The ESPN
+  18–21 points-allowed bucket maps to Yahoo's 14–20 bucket as an explicit
+  approximation, and source buckets that collapse onto one league category are
+  added. ESPN `DST` normalizes to `DEF`; Sleeper, ESPN, and FFC defense rows share
+  `def:<canonical team>` identity. Rows with no decoded scorable stats are still
+  dropped rather than emitted at zero, which avoids diluting consensus.
 - **FFC ADP is free but informal** (no auth, no SLA, undocumented). The response
   is `{status, meta, players:[…]}`; `parse_adp` returns `[]` on a non-`Success`
   status (so the snapshot `is_valid` gate treats a bad refresh as empty) and
-  normalizes `PK→K` + aliases team codes (`SF→SFO`, via `config.FFC_TEAM_ALIASES`)
+  normalizes `PK→K` + aliases team codes (`SF→SFO`, via `config.TEAM_ALIASES`)
   so the name matcher's team tiebreak compares like with like. We pull one
   format/teams combo (`config.FFC_FORMAT`/`LEAGUE_NUM_TEAMS`); a 10-team or
   half-PPR league shifts that (and the VORP baselines) — both config reads.
-- **Team defenses (and a fuzzy tail) ride the board ADP-only.** DEF isn't in
-  `ff_playerids`, so FFC `DEF` rows resolve to `ffc:` fallbacks that can't join
-  Sleeper's `sleeper:` DEF fallbacks — a defense appears on the board with ADP but
-  no projection↔ADP join (and Sleeper's DEF appears with points but no ADP).
-  Kickers are fine (`PK→K`, kickers are in the crosswalk). Expect ~a dozen unmatched
-  ADP rows on real data (mostly defenses, plus nickname/ambiguous misses like
-  "Hollywood Brown" or two "Mike Williams"); they're surfaced in the footer, and
-  extending `normalize_name`/`FFC_TEAM_ALIASES` is the tuning loop, not a bug. A
-  player whose position doesn't map (`None`) is still boarded (never dropped) under
-  an "Unknown" section.
+- **Team defenses share synthetic canonical identity.** DEF isn't in
+  `ff_playerids`, so valid team-defense rows bypass player-name resolution and
+  use `def:<canonical MFL team code>` across Sleeper, ESPN, and FFC. Unknown team
+  codes remain source fallbacks rather than risking a wrong merge. The remaining
+  unmatched ADP tail is typically nickname/ambiguous misses like "Hollywood
+  Brown" or two "Mike Williams"; extending `normalize_name`/`TEAM_ALIASES` is the
+  tuning loop. A player whose position doesn't map (`None`) is still boarded
+  (never dropped) under an "Unknown" section.
 - **Schema or parse-logic changes need a fresh DB.** The store uses `CREATE TABLE
   IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
   present, so neither a column change nor a parse/normalization change that alters

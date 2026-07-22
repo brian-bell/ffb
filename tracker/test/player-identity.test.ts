@@ -24,4 +24,18 @@ describe("player identity", () => {
       { key: "manual:two", name: "Mystery Player", pos: "Unknown", team: "buf" },
     )).toBe(true);
   });
+
+  it("bridges legacy and canonical defense team aliases", () => {
+    expect(playersEquivalent(
+      { key: "sleeper:SF", name: "San Francisco 49ers", pos: "DEF", team: "SF" },
+      { key: "def:SFO", name: "49ers D/ST", pos: "DEF", team: "SFO" },
+    )).toBe(true);
+  });
+
+  it("does not treat the canonical defense namespace as a source fallback", () => {
+    expect(playersEquivalent(
+      { key: "def:SFO", name: "Same Name", pos: "WR", team: "SFO" },
+      { key: "canonical-other", name: "Same Name", pos: "WR", team: "SFO" },
+    )).toBe(false);
+  });
 });

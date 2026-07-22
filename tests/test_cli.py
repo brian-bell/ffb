@@ -1,6 +1,7 @@
 """CLI smoke test — offline, against primed snapshots."""
 
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -59,6 +60,31 @@ def test_sources_flag_shows_per_source_and_consensus_columns(tmp_path):
     assert "Espn" in result.output
     assert "Consensus" in result.output
     assert "Henry" in result.output
+
+
+def test_kicker_sources_show_two_source_consensus(tmp_path):
+    result = runner.invoke(
+        app,
+        ["rankings", "--pos", "K", "--sources"],
+        env=_env(tmp_path, with_espn=True),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Justin Tucker" in result.output
+    tucker_line = next(line for line in result.output.splitlines() if "Justin Tucker" in line)
+    assert re.search(r"\b2\s*│$", tucker_line), result.output
+
+
+def test_defense_sources_show_two_source_consensus(tmp_path):
+    result = runner.invoke(
+        app,
+        ["rankings", "--pos", "DEF", "--sources"],
+        env=_env(tmp_path, with_espn=True),
+    )
+
+    assert result.exit_code == 0, result.output
+    defense_line = next(line for line in result.output.splitlines() if "49ers" in line)
+    assert re.search(r"\b2\s*│$", defense_line), result.output
 
 
 def test_unmatched_players_are_reported(tmp_path):

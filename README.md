@@ -79,8 +79,8 @@ the draft tracker consumes — no runtime dependency on this pipeline.
 
 FFC has no id in the crosswalk, so ADP resolves by **normalized name + position**
 (with a team tiebreak); ambiguity resolves to *unmatched*, never a guess. Team
-defenses aren't in `ff_playerids`, so they ride the board ADP-only and are
-reported in the footer.
+defenses use a source-independent `def:<canonical-team>` identity, so Sleeper
+and ESPN projections join FFC ADP without relying on `ff_playerids`.
 
 ## How it fits together
 

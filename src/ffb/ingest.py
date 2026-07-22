@@ -3,10 +3,10 @@
 Two entry points:
 
 - ``ensure_crosswalk`` loads the nflverse ff_playerids identity spine.
-- ``ensure_ingested`` loads a source's projections, resolving each native id to
-  the canonical ``player_key`` via the crosswalk. Crosswalk misses are never
-  dropped: they fall back to a ``source:native_id`` key and are counted in the
-  returned :class:`Reconciliation` so the CLI and logs can surface them.
+- ``ensure_ingested`` loads a source's projections, resolving players through
+  the crosswalk and team defenses through a synthetic canonical team key.
+  Unresolved rows are never dropped: they fall back to ``source:native_id`` and
+  are counted in :class:`Reconciliation` so the CLI and logs can surface them.
 
 Both are idempotent and offline-capable: raw responses come from the snapshot
 cache when present.
@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ffb import config, names
+from ffb import config, identity, names
 from ffb.snapshot import SnapshotCache
 from ffb.sources import crosswalk, espn, ffc, sleeper
 from ffb.store import Store
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Reconciliation:
-    """Outcome of resolving one source's rows against the crosswalk."""
+    """Outcome of resolving one source's rows to canonical identities."""
 
     source: str
     n_rows: int = 0
@@ -81,13 +81,27 @@ def resolve_rows(
 ) -> tuple[list[dict[str, Any]], Reconciliation]:
     """Attach a canonical ``player_key`` + ``matched`` flag to each parsed row.
 
-    A crosswalk miss keeps the player under a ``source:native_id`` fallback key
-    (``matched=False``) rather than dropping it.
+    Valid defenses use ``def:<team>``; other rows use the crosswalk. An identity
+    miss keeps the row under ``source:native_id`` rather than dropping it.
     """
     lookup = store.resolve_batch(source, [row["native_id"] for row in rows])
     recon = Reconciliation(source=source, n_rows=len(rows))
     resolved: list[dict[str, Any]] = []
     for row in rows:
+        defense = identity.canonical_defense_key(row.get("position"), row.get("team"))
+        if defense is not None:
+            player_key, team = defense
+            recon.matched += 1
+            resolved.append(
+                {
+                    **row,
+                    "player_key": player_key,
+                    "matched": True,
+                    "position": "DEF",
+                    "team": team,
+                }
+            )
+            continue
         hit = lookup.get(row["native_id"])
         if hit is not None:
             recon.matched += 1
@@ -207,15 +221,29 @@ def resolve_adp_rows(
 ) -> tuple[list[dict[str, Any]], Reconciliation]:
     """Attach a ``player_key`` + ``matched`` flag to parsed ADP rows by name.
 
-    FFC has no id in the crosswalk, so we resolve by ``(name, position)`` with a
-    team tiebreak (see :mod:`ffb.names`). A miss is never dropped: it keeps an
-    ``ffc:<native_id>`` fallback key (``matched=False``) and is counted in the
-    returned :class:`Reconciliation`.
+    Team defenses use ``def:<team>``. FFC players resolve by ``(name, position)``
+    with a team tiebreak (see :mod:`ffb.names`). A miss is never dropped: it
+    keeps an ``ffc:<native_id>`` fallback key and is counted in the returned
+    :class:`Reconciliation`.
     """
     index = names.build_name_index(store.crosswalk_rows())
     recon = Reconciliation(source="ffc", n_rows=len(rows))
     resolved: list[dict[str, Any]] = []
     for row in rows:
+        defense = identity.canonical_defense_key(row.get("position"), row.get("team"))
+        if defense is not None:
+            player_key, team = defense
+            recon.matched += 1
+            resolved.append(
+                {
+                    **row,
+                    "player_key": player_key,
+                    "matched": True,
+                    "position": "DEF",
+                    "team": team,
+                }
+            )
+            continue
         key = names.match_by_name(index, row["full_name"], row["position"], team=row.get("team"))
         if key is not None:
             recon.matched += 1
