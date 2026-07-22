@@ -9,8 +9,10 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 - **Public / free / read-only.** No paid feeds; no writes back to any service.
 - **Offline by default.** Every raw pull is snapshotted to `snapshots/<key>.json`
   on first fetch and replayed on later runs, so rebuilds and tests never re-hit
-  the network. `--refresh` forces a re-fetch and overwrites the snapshot. Tests
-  and CI read committed `tests/fixtures/` instead of `snapshots/` (gitignored).
+  the network. `--refresh` forces a re-fetch and updates the snapshot; crosswalk
+  and FFC refreshes validate the parsed payload first so an empty/bad response
+  cannot replace their last known-good cache. Tests and CI read committed
+  `tests/fixtures/` instead of `snapshots/` (gitignored).
 - **Thin fetch + pure parse.** Each source module is a `fetch_*` (network, returns
   raw JSON) paired with a pure `parse_*` (raw → normalized rows, never raises on a
   bad row — it logs and skips). Only `fetch_*` touches the network; only

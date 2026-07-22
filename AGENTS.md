@@ -20,10 +20,22 @@ uv run ffb rankings --pos RB --sources   # consensus rankings
 uv run ffb cheatsheet --export           # draft board + board.json export
 ```
 
-CI (`.github/workflows/ci.yml`) runs `uv sync --frozen`, `ruff check`, `ruff
-format --check`, and `pytest` on every push to `main` and every PR. It is
-network-free: tests read `tests/fixtures/`, never the live APIs. If you change
-dependencies, commit the updated `uv.lock` or `--frozen` will fail.
+The tracker has its own Node toolchain:
+
+```sh
+cd tracker
+npm ci
+npm run typecheck
+npm test
+npm run build:client
+```
+
+CI (`.github/workflows/ci.yml`) runs two independent jobs on every push to
+`main` and every PR. The Python job runs `uv sync --frozen`, `ruff check`, `ruff
+format --check`, and `pytest`; the tracker job runs `npm ci`, `typecheck`, and
+Vitest. Both suites are network-free. If Python dependencies change, commit the
+updated `uv.lock` or `--frozen` will fail; if tracker dependencies change,
+commit `tracker/package-lock.json` too.
 
 ## Layout
 
@@ -60,7 +72,7 @@ tracker/            # SEPARATE TS Cloudflare Worker subtree (own npm/vitest) —
 
 `tracker/` is a **TypeScript Cloudflare Worker**, isolated from the Python
 package (own `package.json`, `wrangler.jsonc`, `vitest`; uv stays Python-only).
-It's the slice-7 draft tracker: a thin render/auth layer that consumes the
+It's the slice-8 draft tracker: a thin render/auth layer that consumes the
 pipeline's `board.json` **v1** contract as its input API — the only
 cross-boundary coupling is `tracker/` reading `../exports/board.json` at publish
 time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about it.
@@ -80,18 +92,28 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   current draft, ordered teams, and immutable pick snapshots. `src/draft-store.ts`
   is the only D1 query gateway; `draft-api.ts` is the `/api/*` request router (the
   `GET`/`PUT /api/draft`, `POST /api/picks`, `DELETE /api/picks/latest`, `DELETE
-  /api/draft` handlers); `draft.ts`, `suggestions.ts`, and `render.ts` are DOM-free
-  behavior. The Worker derives snake order rather than persisting it, validates
-  stale expected-pick writes, supports latest-only undo, and resets by explicitly
-  deleting picks, teams, then draft (never relying on FK cascade).
-- **Pure testable core:** `src/{auth,board,board-view,draft,suggestions,render,setup,state}.ts`
-  are pure/DOM-free and unit-tested; `types.ts` mirrors the `board.json` v1
-  contract; `index.ts` is the Worker entry (auth-gate + KV board stream + fall
-  through to Static Assets), and `draft-api.ts` the API router. `public/app.ts` is
-  thin DOM wiring bundled to `public/app.js` (esbuild, gitignored).
+  /api/draft` handlers). The Worker derives snake order rather than persisting
+  it, validates stale expected-pick writes, supports latest-only undo, accepts a
+  validated `manual_player` snapshot when a Yahoo pick is absent from the board,
+  and resets by explicitly deleting picks, teams, then draft (never relying on
+  FK cascade).
+- **Recommendation + availability:** `recommendation.ts` derives Brian-only,
+  explainable recommendations from the immutable board plus live D1 picks. It
+  fills dedicated starters before flex, considers tier survival and VORP cliffs,
+  delays K/DEF until forced, and shows no Brian-specific recommendation on an
+  opponent turn. `player-identity.ts` centralizes canonical/fallback/manual and
+  DEF/DST equivalence so suggestions, search, recommendations, and the write API
+  exclude the same drafted player representations.
+- **Pure testable core:** `src/{auth,board,board-view,draft,player-identity,
+  recommendation,recommendation-view,suggestions,render,setup,state}.ts` are
+  pure/DOM-free and unit-tested; `types.ts` mirrors the `board.json` v1 contract;
+  `index.ts` is the Worker entry (auth-gate + KV board stream + fall through to
+  Static Assets), and `draft-api.ts` the API router. `public/app.ts` is thin DOM
+  wiring bundled to `public/app.js` (esbuild, gitignored).
 - CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
-  of the Python `uv` job. Binding ids in `wrangler.jsonc` are placeholders filled
-  in during the one-time HITL Cloudflare setup (see README).
+  of the Python `uv` job. The provisioned KV/D1 ids and `ffb.bbell.dev` route in
+  `wrangler.jsonc` are non-secret deployment configuration; `TRACKER_API_KEY`
+  remains a Wrangler secret (see README).
 
 ## Key modules & responsibilities
 
@@ -233,4 +255,3 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   cheap.
 - **Yahoo isn't wired yet.** The crosswalk carries `yahoo_id` for later, but no
   Yahoo projections are ingested (tasks 2/9).
-```

@@ -47,8 +47,10 @@ uv run ffb rankings --pos RB --refresh # re-fetch live from all sources
 
 By default runs are **offline**: each raw response (Sleeper, ESPN, the nflverse
 crosswalk) is snapshotted under `snapshots/` on first fetch and replayed on later
-runs. `--refresh` forces a new network pull and overwrites the snapshots. Without
-`--sources`, only Sleeper is fetched (consensus over one source = that source).
+runs. `--refresh` forces a new network pull and updates the snapshots; validation
+keeps a bad crosswalk or FFC response from replacing its last known-good cache.
+Without `--sources`, Sleeper is the only projection source fetched (consensus
+over one source = that source).
 
 ## Draft cheat sheet
 
@@ -147,12 +149,13 @@ unlisted-player entry.
 
 ```sh
 cd tracker
-npm install
+npm ci
 npm test                     # vitest + @cloudflare/vitest-pool-workers (offline)
 npm run typecheck
-npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
-npm run publish:board        # seed the LOCAL dev KV from ../exports/board.json
+npm run build:client         # verify the browser bundle
 npx wrangler d1 migrations apply ffb-tracker --local
+npm run publish:board        # seed local KV from ../exports/board.json
+npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
 ```
 
 For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
@@ -160,25 +163,22 @@ For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
 cheatsheet --export` (writes `exports/board.json`), then `npm run publish:board`
 to reload the dev store.
 
-### One-time Cloudflare setup (HITL)
+### Provisioned Cloudflare deployment (HITL)
 
-The KV/D1 ids in `wrangler.jsonc` are **placeholders**; they are not secrets and
-are filled in once. Run from `tracker/`:
+The production KV namespace, D1 database, and `ffb.bbell.dev` custom-domain route
+are already provisioned. Their IDs are committed in `wrangler.jsonc`; resource
+IDs are deployment configuration, not secrets. `TRACKER_API_KEY` remains a
+Wrangler secret. From `tracker/`, authenticate the machine and deploy with:
 
 ```sh
 npx wrangler login
-npx wrangler kv namespace create BOARD               # → id      → wrangler.jsonc
-npx wrangler kv namespace create BOARD --preview     # → preview_id → wrangler.jsonc
-npx wrangler d1 create ffb-tracker                   # → database_id → wrangler.jsonc
 npx wrangler d1 migrations apply ffb-tracker --remote
-npx wrangler secret put TRACKER_API_KEY              # the shared key (never committed)
-npm run deploy                                       # note the *.workers.dev URL
+npx wrangler secret put TRACKER_API_KEY              # first deploy or key rotation only
+npm run deploy
 npm run publish:board:remote                         # load the live board into prod KV
 ```
 
-Then open the URL on a phone, enter the key, and the board renders by tier.
-Rotate the key any time with another `wrangler secret put TRACKER_API_KEY`.
-
-Apply the committed D1 migrations separately to production before the first
-draft: `npx wrangler d1 migrations apply ffb-tracker --remote`. Local and remote
-databases are distinct; applying `--local` does not affect production.
+Then open `https://ffb.bbell.dev` on a phone and enter the key. Apply committed
+D1 migrations before deploying code that needs them; local and remote databases
+are distinct, so applying `--local` never affects production. Rotate the key any
+time with another `wrangler secret put TRACKER_API_KEY`.
