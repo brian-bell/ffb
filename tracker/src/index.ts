@@ -4,6 +4,7 @@
 
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
+import { handleDraftApi } from "./draft-api";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -39,6 +40,12 @@ export default {
       return new Response(text, {
         headers: { "content-type": "application/json" },
       });
+    }
+
+    if (pathname === "/api/draft" || pathname === "/api/picks" || pathname === "/api/picks/latest") {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleDraftApi(request, env, pathname);
     }
 
     // Any other /api/* path is a real 404 (never a static asset).
