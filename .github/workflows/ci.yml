@@ -45,3 +45,24 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+
+  backend-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+      - name: Sync Python dependencies
+        run: uv sync --frozen
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tracker/package-lock.json
+      - name: Install tracker dependencies
+        run: npm ci --prefix tracker
+      - name: Test backend end to end
+        run: make test-backend-e2e
