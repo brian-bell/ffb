@@ -203,3 +203,18 @@ Then open `https://ffb.bbell.dev` on a phone and enter the key. Apply committed
 D1 migrations locally during development as before; local and remote databases
 are distinct, so applying `--local` never affects production. Rotate the key any
 time with another `wrangler secret put TRACKER_API_KEY` from `tracker/`.
+
+## Fixture-backed league settings
+
+Live Yahoo OAuth is deliberately deferred. To use mock league scoring, roster
+shape, team count, and current-week rosters locally, sync an offline fixture:
+
+```sh
+uv run ffb league sync --season 2024 --fixture tests/fixtures/yahoo_league_minimal.json
+uv run ffb league show --season 2024 --rosters
+```
+
+Fixture settings are visibly labeled as mock. League state is stored as source
+data, while projections, points, VORP, and tiers continue to be derived at read
+time. Running `league sync` without `--fixture` explains that live Yahoo support
+is pending Task 2b.

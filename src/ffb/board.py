@@ -206,6 +206,7 @@ def to_board_json(
     num_teams: int,
     roster_slots: dict[str, int],
     generated_at: str,
+    scoring: str = "league",
 ) -> dict[str, Any]:
     """Wrap board rows in the versioned, self-contained contract envelope (§3g).
 
@@ -216,7 +217,7 @@ def to_board_json(
         "version": BOARD_VERSION,
         "season": season,
         "generated_at": generated_at,
-        "scoring": "league",
+        "scoring": scoring,
         "num_teams": num_teams,
         "roster_slots": roster_slots,
         "players": rows,

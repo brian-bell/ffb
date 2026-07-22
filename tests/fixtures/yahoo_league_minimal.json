@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "synced_at": "2026-07-22T12:00:00Z",
+  "league": {"league_id": "mock-1", "league_key": "1.l.mock-1", "name": "Mock League", "season": 2024, "current_week": 1, "num_teams": 1},
+  "settings": {
+    "roster_slots": [{"position": "QB", "count": 1, "is_starting": true}],
+    "scoring_rules": [{"stat_key": "pass_yd", "points": 0.04, "provider_stat_id": "4", "provider_name": "Passing Yards"}],
+    "unmapped_scoring_rules": [],
+    "provider_settings": {}
+  },
+  "teams": [{"team_id": "1", "team_key": "1.l.mock-1.t.1", "name": "Brian's Team", "managers": ["Brian"], "is_user_team": true}],
+  "rosters": [{"team_key": "1.l.mock-1.t.1", "week": 1, "players": []}]
+}

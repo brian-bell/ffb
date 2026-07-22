@@ -71,6 +71,8 @@ src/ffb/
   vorp.py           # replacement baselines via greedy starter fill + VORP (pure)
   tiers.py          # largest-gap positional tiers within a draftable pool (pure)
   board.py          # consensus ⋈ adp + vorp + tiers -> board rows + md/csv/json serializers (pure)
+  league.py         # provider-neutral LeagueBundle v1 + strict fixture adapter/validation
+  league_context.py # stored rules -> safe scoring/roster/team-count runtime context
   ingest.py         # snapshot -> parse -> resolve to player_key -> store
   sources/
     sleeper.py      # Sleeper season projections: fetch + parse
@@ -156,6 +158,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   sample names). Idempotent and offline via the snapshot cache. `ensure_adp_ingested`
   is the FFC entry point: it name-resolves (no id column) and re-parses/re-resolves
   from the cached snapshot on **every** run (§ ADP self-heal below).
+- **league.py / league_context.py** — `FixtureLeagueSource` validates the closed
+  provider-neutral `LeagueBundle` v1 before any write; `load_league_context`
+  independently substitutes complete mock scoring/roster settings, while always
+  using a valid stored team count. Live Yahoo/YFPY remains Task 2b.
 - **consensus.py** — groups the requested sources by `player_key`, scores each
   source's stat line, and averages the points; carries `n` (source count). The
   `sources` argument restricts which sources contribute, so output depends on the
@@ -273,5 +279,7 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   rows) reaches an existing `data/ffb.duckdb`. Delete it and re-ingest (offline,
   from snapshots) after such a change. The DB is a disposable cache, so this is
   cheap.
-- **Yahoo isn't wired yet.** The crosswalk carries `yahoo_id` for later, but no
-  Yahoo projections are ingested (tasks 2/9).
+- **Yahoo is fixture-backed only.** `ffb league sync --fixture PATH` stores mock
+  league settings, teams, and current-week rosters atomically; it has no OAuth or
+  live requests. Task 2b adds YFPY behind the existing provider boundary. Yahoo
+  projections remain future work (Task 9).

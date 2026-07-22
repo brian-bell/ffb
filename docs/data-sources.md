@@ -35,7 +35,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense; K/DST not decoded yet) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
-| Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | League scoring, roster slots, teams, rosters, FAs, matchups | Planned (slice 2) |
+| Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Live (mock only)** |
+| Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | Live league scoring, roster slots, teams, rosters | Planned (Task 2b) |
 | nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
 | Sleeper trending / player status | REST JSON | none | Trending adds/drops, injury status | Planned (slice 11) |
 | ESPN news / RSS | REST / RSS | none | Headlines for LLM digest (never numeric) | Planned (slice 13) |
@@ -131,7 +132,8 @@ form a consensus. **Unofficial, undocumented endpoint** — no auth, may drift.
 ### 3. nflverse `ff_playerids` — the identity crosswalk
 
 `src/ffb/sources/crosswalk.py`. Not a projection source — the **join spine** that
-lets consensus align the same player across Sleeper and ESPN (and, later, Yahoo).
+lets consensus align the same player across Sleeper and ESPN, plus fixture-backed
+Yahoo roster identities.
 
 - **Access** — `nflreadpy.load_ff_playerids()` returns a wide polars DataFrame
   (parquet under the hood). **Use `nflreadpy`, not `nfl_data_py`** — the latter
@@ -148,8 +150,8 @@ lets consensus align the same player across Sleeper and ESPN (and, later, Yahoo)
   kickers). Rows without an `mfl_id` are skipped.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
   `store.resolve` / `resolve_batch` map a source's native id (`sleeper_id`,
-  `espn_id`) to `player_key`. `yahoo_id` is carried now for slice 2 even though
-  no Yahoo data is ingested yet.
+  `espn_id`, or `yahoo_id`) to `player_key`. Fixture roster misses remain stored
+  as `yahoo:<id>` fallbacks.
 - **Snapshot key** — `nflverse/ff_playerids`.
 - **Gotchas**
   - A `--refresh` **mirrors** the source (replace, not union) so ids removed or
@@ -250,6 +252,11 @@ a fallback key. `consensus.py` groups by `player_key`, scores each source's stat
 line with `config.LEAGUE_SCORING`, and averages the points (carrying `n`, the
 source count).
 
+`league.py` validates a closed, provider-neutral `LeagueBundle` before
+`Store.replace_league_state` atomically mirrors settings/teams and replaces only
+the current roster week. `league_context.py` selects complete fixture scoring and
+roster components independently, falling back to placeholders safely.
+
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table. `ffb cheatsheet` then left-joins that ADP
 onto the consensus in `board.py`, adds VORP (`vorp.py`) and positional tiers
@@ -260,11 +267,13 @@ a scoring or roster-shape change re-derives everything with no re-ingest.
 
 ## Planned sources (not yet wired)
 
-Documented for context; see `DESIGN.md` and the slice roadmap. None are ingested
-today.
+Documented for context; see `DESIGN.md` and the slice roadmap. These live sources
+are not ingested today.
 
-- **Yahoo Fantasy API** via `yfpy` (slice 2) — the league's own state: exact
-  scoring settings, roster slots, teams, rosters, free agents, matchups,
+- **Yahoo Fantasy API** via `yfpy` (Task 2b) — the live adapter for the league's
+  own state. Fixture-backed current-week league state is already supported through
+  `ffb league sync --fixture`; no credentials or live requests exist in this slice.
+  The live adapter will add exact scoring settings, roster slots, teams, rosters, free agents, matchups,
   transactions, draft results, and actual weekly points. OAuth2 (token persisted
   between runs); **read-only** (the pipeline recommends, never sets lineups). The
   crosswalk already carries `yahoo_id` for the join. Its scoring settings will

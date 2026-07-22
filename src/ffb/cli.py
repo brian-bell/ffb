@@ -21,10 +21,14 @@ from ffb.ingest import (
     ensure_espn_ingested,
     ensure_ingested,
 )
+from ffb.league import FixtureLeagueSource
+from ffb.league_context import load_league_context
 from ffb.snapshot import SnapshotCache
 from ffb.store import Store
 
 app = typer.Typer(help="Fantasy football pipeline (walking skeleton).", no_args_is_help=True)
+league_app = typer.Typer(help="Sync and inspect stored league state.", no_args_is_help=True)
+app.add_typer(league_app, name="league")
 console = Console()
 
 # Per-source columns shown by --sources, in display order.
@@ -34,6 +38,92 @@ _SOURCE_COLUMNS = ("sleeper", "espn")
 @app.callback()
 def main() -> None:
     """Keep subcommand names (e.g. ``ffb rankings``) even with one command."""
+
+
+@league_app.command("sync")
+def league_sync(  # noqa: B008
+    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="League season."),
+    fixture: Path | None = typer.Option(  # noqa: B008
+        None, "--fixture", help="Offline LeagueBundle JSON fixture."
+    ),
+) -> None:
+    """Validate and atomically import fixture-backed league state."""
+    if fixture is None:
+        console.print("[yellow]Live Yahoo sync is pending Task 2b; use --fixture PATH.[/yellow]")
+        raise typer.Exit(code=2)
+    try:
+        bundle = FixtureLeagueSource(fixture).fetch(season)
+    except ValueError as exc:
+        console.print(f"[red]League fixture rejected:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    store = Store(paths.db_path())
+    store.init_schema()
+    # A fixture sync may be the first command against a fresh database. Load
+    # the identity spine before resolving nonempty Yahoo rosters so their ids
+    # are stored canonically rather than stranded under fallback keys. Empty
+    # settings-only fixtures have nothing to resolve, so keep them offline.
+    if any(roster["players"] for roster in bundle.rosters):
+        try:
+            ensure_crosswalk(store, SnapshotCache(paths.snapshot_dir()))
+        except Exception as exc:  # noqa: BLE001 - fixture state remains useful without it
+            console.print(
+                f"[yellow]Crosswalk unavailable ({exc}); roster players may be unmatched.[/yellow]"
+            )
+    result = store.replace_league_state(bundle)
+    store.close()
+    console.print(
+        f"[green]Synced fixture/mock league state:[/green] {result['teams']} team(s), "
+        f"{result['players']} roster player(s), {result['matched']} matched, "
+        f"{result['unmatched']} unmatched."
+    )
+
+
+@league_app.command("show")
+def league_show(
+    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="League season."),
+    rosters: bool = typer.Option(False, "--rosters", help="Expand current-week roster players."),
+) -> None:
+    """Display persisted league source state without network access."""
+    store = Store(paths.db_path())
+    store.init_schema()
+    context = store.league_context(season)
+    if context is None:
+        store.close()
+        console.print(
+            f"[yellow]No league state for {season}. Run: ffb league sync "
+            f"--season {season} --fixture PATH[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    console.print(
+        f"[yellow]Mock fixture settings[/yellow] — {context['name']} "
+        f"({context['source']} synced {context['synced_at']})"
+    )
+    console.print(f"Week {context['current_week']} · {context['num_teams']} team(s)")
+    console.print(
+        "Scoring rules: "
+        + ", ".join(f"{r['provider_name']} ({r['points']})" for r in context["scoring_rules"])
+    )
+    if context["unmapped_scoring_rules"]:
+        console.print(
+            "Unmapped scoring rules: "
+            + ", ".join(
+                f"{r['provider_name']} ({r['points']})" for r in context["unmapped_scoring_rules"]
+            )
+        )
+    console.print(
+        "Roster slots: "
+        + ", ".join(f"{r['position']} × {r['count']}" for r in context["roster_slots"])
+    )
+    teams = store.league_teams(season)
+    roster_rows = store.league_roster_rows(season)
+    for team in teams:
+        count = sum(r["team_key"] == team["team_key"] for r in roster_rows)
+        managers = ", ".join(team["managers"]) or "no manager listed"
+        console.print(f"{team['name']} ({managers}) — {count} roster player(s)")
+    if rosters:
+        for row in roster_rows:
+            console.print(f"{row['team_key']}: {row['full_name']} ({row['primary_position']})")
+    store.close()
 
 
 def _ingest_sources(
@@ -101,12 +191,13 @@ def rankings(
     # Score with THIS league's settings, not generic PPR. Placeholder config for
     # now; slice 2 swaps this one call for a store read (Yahoo settings), keeping
     # config.LEAGUE_SCORING as the offline fallback.
+    league = load_league_context(store, season)
     rows = consensus_rows(
         store,
         season=season,
         position=pos,
         sources=active_sources,
-        cfg=config.LEAGUE_SCORING,
+        cfg=league.scoring,
     )
     store.close()
 
@@ -118,7 +209,7 @@ def rankings(
     rows = rows[:limit]
     _render(rows, season=season, pos=pos, sources=sources)
     _report_unmatched(rows)
-    _report_placeholder_scoring()
+    _report_scoring_provenance(league)
 
 
 @app.command()
@@ -150,10 +241,13 @@ def cheatsheet(
     active_sources = _ingest_sources(store, cache, season, refresh=refresh, with_espn=True)
 
     # ADP is best-effort like ESPN: a failed FFC pull just drops the ADP columns.
+    league = load_league_context(store, season)
     adp_recon = Reconciliation(source="ffc")
     adp_failed = False
     try:
-        adp_recon = ensure_adp_ingested(store, cache, season=season, refresh=refresh)
+        adp_recon = ensure_adp_ingested(
+            store, cache, season=season, refresh=refresh, teams=league.num_teams
+        )
     except Exception as exc:  # noqa: BLE001 - degrade, render without ADP
         adp_failed = True
         console.print(f"[yellow]ADP unavailable ({exc}); showing the board without ADP.[/yellow]")
@@ -163,7 +257,7 @@ def cheatsheet(
         season=season,
         position=None,  # board is full; --pos filters only the terminal view
         sources=active_sources,
-        cfg=config.LEAGUE_SCORING,
+        cfg=league.scoring,
     )
     # On failure, ignore any ADP persisted by a prior run — otherwise the board
     # (and export) would serve stale ADP/ranks despite the "unavailable" notice.
@@ -173,8 +267,8 @@ def cheatsheet(
     board = board_mod.board_rows(
         consensus,
         adp,
-        roster_slots=config.LEAGUE_ROSTER_SLOTS,
-        num_teams=config.LEAGUE_NUM_TEAMS,
+        roster_slots=league.roster_slots,
+        num_teams=league.num_teams,
     )
 
     if not board:
@@ -183,26 +277,27 @@ def cheatsheet(
 
     if export:
         out_dir = Path(export_dir) if export_dir else paths.export_dir()
-        _export_board(board, season=season, out_dir=out_dir)
+        _export_board(board, season=season, out_dir=out_dir, league=league)
 
     shown = [r for r in board if pos is None or (r["pos"] or "").upper() == pos.upper()]
     shown = shown[:limit]
     _render_board(shown, season=season, pos=pos)
     _report_board_unmatched(shown)
     _report_adp_unmatched(adp_recon)
-    _report_placeholder_scoring()
+    _report_scoring_provenance(league)
 
 
-def _export_board(board: list[dict], *, season: int, out_dir: Path) -> None:
+def _export_board(board: list[dict], *, season: int, out_dir: Path, league: object) -> None:
     """Write cheatsheet.md, cheatsheet.csv, and board.json into ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     doc = board_mod.to_board_json(
         board,
         season=season,
-        num_teams=config.LEAGUE_NUM_TEAMS,
-        roster_slots=config.LEAGUE_ROSTER_SLOTS,
+        num_teams=league.num_teams,
+        roster_slots=league.roster_slots,
         generated_at=generated_at,
+        scoring=league.scoring_provenance,
     )
     (out_dir / "cheatsheet.md").write_text(board_mod.to_markdown(board, season=season))
     (out_dir / "cheatsheet.csv").write_text(board_mod.to_csv(board))
@@ -315,17 +410,20 @@ def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) ->
     console.print(table)
 
 
-def _report_placeholder_scoring() -> None:
+def _report_scoring_provenance(league: object) -> None:
     """Note that points come from placeholder league settings, not real Yahoo ones.
 
     Scoring is applied silently, so without this a run looks league-accurate when
     it is only typical full-PPR defaults. Slice 2 makes this conditional (shown
     only when falling back to the placeholder); today it always applies.
     """
-    console.print(
-        "[dim]Scored with placeholder league settings (typical full-PPR); "
-        "connect the Yahoo league for exact scoring.[/dim]"
-    )
+    if league.scoring_provenance == "placeholder":
+        console.print(
+            "[dim]Scored with placeholder league settings (typical full-PPR); "
+            "sync a fixture for exact mock scoring.[/dim]"
+        )
+    else:
+        console.print("[yellow]Scored with mock fixture league settings.[/yellow]")
 
 
 def _report_unmatched(rows: list[dict]) -> None:
