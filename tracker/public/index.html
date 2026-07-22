@@ -42,10 +42,28 @@
 
   <section class="pickpanel" data-pick-panel hidden>
     <p class="onclock" data-on-clock></p>
+    <div data-recommendation-region hidden>
+      <div class="recommendation-wrap" data-recommendation></div>
+      <p class="needs" data-needs></p>
+      <p class="recommendation-warning" data-recommendation-warning></p>
+      <p class="sr-only" data-recommendation-live aria-live="polite"></p>
+    </div>
+    <p class="likely-next">Likely next</p>
     <div class="suggestions" data-suggestions></div>
     <label class="searchlabel" for="player-search">Player search</label>
     <input id="player-search" data-player-search role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Search available players" />
     <div class="searchresults" data-search-results role="listbox"></div>
+    <button class="unlisted" data-unlisted type="button">Record unlisted player…</button>
+    <form class="manual" data-manual-form hidden>
+      <label class="searchlabel" for="manual-name">Unlisted player name</label>
+      <input id="manual-name" data-manual-name maxlength="100" autocomplete="off" />
+      <label class="searchlabel" for="manual-pos">Position</label>
+      <select id="manual-pos" data-manual-pos><option>Unknown</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select>
+      <label class="searchlabel" for="manual-team">Team (optional)</label>
+      <input id="manual-team" data-manual-team maxlength="8" autocomplete="off" />
+      <button class="unlisted" data-manual-select type="submit">Use unlisted player</button>
+      <button class="unlisted" data-manual-cancel type="button">Cancel</button>
+    </form>
     <p class="selected" data-selected>No player selected.</p>
     <p class="status" data-draft-error aria-live="polite"></p>
     <button class="record" data-record-pick disabled>Record pick</button>

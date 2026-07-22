@@ -18,4 +18,14 @@ describe("pick suggestions", () => {
     expect(searchPlayers(players, new Set(["one"]), "alpha").map((player) => player.key)).toEqual(["two", "three"]);
     expect(searchPlayers(players, new Set(), "two").map((player) => player.key)).toEqual(["two"]);
   });
+
+  it("hides equivalent drafted defense identities from both market suggestions and search", () => {
+    const defenses = [
+      { key: "sleeper:buf", name: "Buffalo Bills", pos: "DST", team: "BUF", rank: 1, adp: 1, adp_rank: 1 },
+      { key: "ffc:buf", name: "Bills D/ST", pos: "DEF", team: "buf", rank: 2, adp: 2, adp_rank: 2 },
+    ] as Player[];
+    const picked = [{ key: "sleeper:buf", name: "Buffalo Bills", pos: "DST", team: "BUF" }];
+    expect(suggestPlayers(defenses, picked)).toEqual([]);
+    expect(searchPlayers(defenses, picked, "bills")).toEqual([]);
+  });
 });

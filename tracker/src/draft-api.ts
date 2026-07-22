@@ -1,5 +1,6 @@
-import { BOARD_KEY, BOARD_VERSION } from "./board";
+import { BOARD_KEY, BOARD_VERSION, isValidBoard } from "./board";
 import { configureDraft, getDraftState, recordPick, resetDraft, undoLatestPick, type DraftConfigInput } from "./draft-store";
+import { normalizedName, normalizedPosition } from "./player-identity";
 import type { Player } from "./types";
 
 export interface DraftApiEnv {
@@ -53,7 +54,7 @@ async function currentBoard(env: DraftApiEnv): Promise<{ board: { season?: unkno
   if (text === null) return { response: error("no_board_published", "No board has been published.", 404) };
   try {
     const board = JSON.parse(text) as { season?: unknown; players?: unknown; version?: unknown };
-    if (board.version !== BOARD_VERSION || !Array.isArray(board.players)) return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
+    if (board.version !== BOARD_VERSION || !isValidBoard(board)) return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
     return { board };
   } catch {
     return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
@@ -77,17 +78,49 @@ async function putDraft(request: Request, env: DraftApiEnv): Promise<Response> {
 
 async function postPick(request: Request, env: DraftApiEnv): Promise<Response> {
   const input = await body(request);
-  if (!input || typeof input !== "object") return error("invalid_request", "Provide a player key and expected pick.", 400);
-  const value = input as { player_key?: unknown; expected_overall_pick?: unknown };
-  if (typeof value.player_key !== "string" || !value.player_key || !Number.isInteger(value.expected_overall_pick) || (value.expected_overall_pick as number) < 1) return error("invalid_request", "Provide a player key and expected pick.", 400);
+  if (!input || typeof input !== "object") return error("invalid_request", "Provide exactly one player and expected pick.", 400);
+  const value = input as { player_key?: unknown; manual_player?: unknown; expected_overall_pick?: unknown };
+  const boardKey = typeof value.player_key === "string" && value.player_key.trim() ? value.player_key.trim() : null;
+  if ((!boardKey && value.manual_player === undefined) || (boardKey && value.manual_player !== undefined) || !Number.isInteger(value.expected_overall_pick) || (value.expected_overall_pick as number) < 1) return error("invalid_request", "Provide exactly one player and expected pick.", 400);
   const state = await getDraftState(env.DB);
   if (!state.configured) return error("draft_unconfigured", "Configure the draft before recording a pick.", 409);
   if (!state.next) return error("draft_complete", "The draft is complete.", 409);
   if (state.next.overall_pick !== value.expected_overall_pick) return error("stale_draft", "The draft changed in another tab; reload before recording.", 409);
-  const loaded = await currentBoard(env);
-  if ("response" in loaded) return loaded.response;
-  const player = (loaded.board.players as Player[]).find((candidate) => candidate && candidate.key === value.player_key);
-  if (!player) return error("unknown_player", "Player is not on the current board.", 422);
+  let player: Player;
+  if (boardKey) {
+    const loaded = await currentBoard(env);
+    if ("response" in loaded) return loaded.response;
+    const found = (loaded.board.players as Player[]).find((candidate) => candidate && candidate.key === boardKey);
+    if (!found) return error("unknown_player", "Player is not on the current board.", 422);
+    player = found;
+  } else {
+    const manual = value.manual_player;
+    if (!manual || typeof manual !== "object") return error("invalid_manual_player", "Provide a valid manual player snapshot.", 400);
+    const inputPlayer = manual as { name?: unknown; pos?: unknown; team?: unknown };
+    const name = typeof inputPlayer.name === "string" ? inputPlayer.name.trim() : "";
+    const rawPos = typeof inputPlayer.pos === "string" ? inputPlayer.pos.trim() : "";
+    const pos = normalizedPosition(rawPos);
+    const team = inputPlayer.team === null || inputPlayer.team === undefined ? null : typeof inputPlayer.team === "string" ? inputPlayer.team.trim().toLocaleUpperCase() : "";
+    if (!name || name.length > 100 || !["QB", "RB", "WR", "TE", "K", "DEF", "DST", "Unknown"].includes(rawPos) || (team !== null && (!team || team.length > 8))) return error("invalid_manual_player", "Provide a valid manual player snapshot.", 400);
+    if (team === null || pos === null) {
+      const text = await env.BOARD.get(BOARD_KEY);
+      if (text !== null) {
+        try {
+          const current = JSON.parse(text) as unknown;
+          if (isValidBoard(current) && current.players.some((candidate) => {
+            if (normalizedName(candidate.name) !== normalizedName(name)) return false;
+            if (pos !== null) return normalizedPosition(candidate.pos) === pos;
+            return team === null || candidate.team?.trim().toLocaleUpperCase() === team;
+          })) {
+            return error("manual_player_matches_board", "Select the matching board player, or provide the player's team.", 422);
+          }
+        } catch {
+          // A missing/malformed optional board must not stop the clock-preserving manual path.
+        }
+      }
+    }
+    player = { key: `manual:${crypto.randomUUID()}`, name, pos, team, bye: null, points: null, n_sources: 0, vorp: null, tier: null, rank: Number.MAX_SAFE_INTEGER, pos_rank: Number.MAX_SAFE_INTEGER, adp: null, adp_rank: null, adp_high: null, adp_low: null, adp_stdev: null, matched: false };
+  }
   const result = await recordPick(env.DB, player, value.expected_overall_pick as number);
   if (result !== "ok") return error(result, result.replaceAll("_", " "), 409);
   return json(await getDraftState(env.DB), 201);

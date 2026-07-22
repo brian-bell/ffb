@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { getBoardText, validateVersion, BOARD_KEY, BOARD_VERSION } from "../src/board";
+import { getBoardText, isValidBoard, validateVersion, BOARD_KEY, BOARD_VERSION } from "../src/board";
+import fixture from "./fixtures/board.json";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {
@@ -37,5 +38,17 @@ describe("validateVersion", () => {
   it("rejects a missing / non-numeric version", () => {
     expect(validateVersion({})).toBe(false);
     expect(validateVersion({ version: "1" })).toBe(false);
+    expect(validateVersion(null)).toBe(false);
+    expect(validateVersion([])).toBe(false);
+  });
+});
+
+describe("isValidBoard", () => {
+  it("accepts the v1 nullable player fields but rejects malformed same-version payloads", () => {
+    expect(isValidBoard(fixture)).toBe(true);
+    expect(isValidBoard({ ...fixture, roster_slots: { QB: -1 }, players: [] })).toBe(false);
+    expect(isValidBoard({ ...fixture, roster_slots: [], players: [] })).toBe(false);
+    expect(isValidBoard({ ...fixture, players: [{ ...fixture.players[0], vorp: Number.POSITIVE_INFINITY }] })).toBe(false);
+    expect(isValidBoard({ ...fixture, players: [{ ...fixture.players[0], adp: null, tier: null }] })).toBe(true);
   });
 });

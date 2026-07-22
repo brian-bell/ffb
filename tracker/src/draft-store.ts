@@ -1,4 +1,5 @@
 import { nextPick, type DraftTeam, type NextPick } from "./draft";
+import { playersEquivalent } from "./player-identity";
 
 export interface TeamInput {
   name: string;
@@ -125,8 +126,10 @@ export async function recordPick(db: D1Database, player: PickPlayer, expectedOve
   if (!state.configured) return "draft_unconfigured";
   if (!state.next) return "draft_complete";
   if (state.next.overall_pick !== expectedOverallPick) return "stale_draft";
-  const taken = await db.prepare("SELECT 1 FROM picks WHERE draft_id = 1 AND player_key = ?").bind(player.key).first();
-  if (taken) return "player_already_picked";
+  if (state.picks.some((picked) => playersEquivalent(
+    { key: player.key, name: player.name, pos: player.pos, team: player.team },
+    { key: picked.player_key, name: picked.player_name, pos: picked.player_pos, team: picked.player_team },
+  ))) return "player_already_picked";
   try {
     await db
       .prepare(

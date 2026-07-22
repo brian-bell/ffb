@@ -4,11 +4,14 @@
 // DOM wiring around them (slice-6 §3c/§6).
 
 import { renderBoard } from "../src/render";
-import { validateVersion } from "../src/board";
+import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import { searchPlayers, suggestPlayers } from "../src/suggestions";
 import { setupValidation, teamsFromSetup } from "../src/setup";
 import { boardNoticeHtml } from "../src/board-view";
+import { deriveRecommendation } from "../src/recommendation";
+import { needsHtml, recommendationHtml } from "../src/recommendation-view";
+import { isAvailable, playersEquivalent } from "../src/player-identity";
 import type { DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
@@ -58,8 +61,19 @@ const saveDraftEl = $<HTMLButtonElement>("[data-save-draft]");
 const pickPanelEl = $<HTMLElement>("[data-pick-panel]");
 const onClockEl = $<HTMLElement>("[data-on-clock]");
 const suggestionsEl = $<HTMLElement>("[data-suggestions]");
+const recommendationRegionEl = $<HTMLElement>("[data-recommendation-region]");
+const recommendationEl = $<HTMLElement>("[data-recommendation]");
+const needsEl = $<HTMLElement>("[data-needs]");
+const recommendationWarningEl = $<HTMLElement>("[data-recommendation-warning]");
+const recommendationLiveEl = $<HTMLElement>("[data-recommendation-live]");
 const playerSearchEl = $<HTMLInputElement>("[data-player-search]");
 const searchResultsEl = $<HTMLElement>("[data-search-results]");
+const unlistedEl = $<HTMLButtonElement>("[data-unlisted]");
+const manualFormEl = $<HTMLFormElement>("[data-manual-form]");
+const manualNameEl = $<HTMLInputElement>("[data-manual-name]");
+const manualPosEl = $<HTMLElement>("[data-manual-pos]") as unknown as HTMLSelectElement;
+const manualTeamEl = $<HTMLInputElement>("[data-manual-team]");
+const manualCancelEl = $<HTMLButtonElement>("[data-manual-cancel]");
 const selectedEl = $<HTMLElement>("[data-selected]");
 const draftErrorEl = $<HTMLElement>("[data-draft-error]");
 const setupErrorEl = $<HTMLElement>("[data-setup-error]");
@@ -72,10 +86,13 @@ const resetDraftEl = $<HTMLButtonElement>("[data-reset-draft]");
 let ui: UiState = initialState;
 let board: Board | null = null;
 let boardDriftVersion: unknown | null = null;
+let boardMalformed = false;
 let active = "ALL";
 let view: "available" | "drafted" = "available";
 let draft: DraftState | null = null;
-let selected: Player | null = null;
+interface ManualPlayerInput { name: string; pos: "QB" | "RB" | "WR" | "TE" | "K" | "DEF" | "DST" | "Unknown"; team: string | null; }
+type PickSelection = { kind: "board"; player: Player } | { kind: "manual"; player: ManualPlayerInput };
+let selected: PickSelection | null = null;
 let writing = false;
 let setupPresented = false;
 let focusPickEntry = false;
@@ -113,15 +130,16 @@ function applyUi(): void {
 // ---- board rendering ----
 function renderList(): void {
   if (!board) {
-    listEl.innerHTML = boardNoticeHtml(boardDriftVersion);
+    listEl.innerHTML = boardNoticeHtml(boardDriftVersion, boardMalformed);
     return;
   }
-  const picked = new Map((draft?.picks ?? []).map((pick) => [pick.player_key, {
-    overall_pick: pick.overall_pick,
-    round: pick.round,
-    round_pick: pick.round_pick,
-    team_name: pick.team_name,
-  }]));
+  const picked = new Map<string, { overall_pick: number; round: number; round_pick: number; team_name: string }>();
+  for (const pick of draft?.picks ?? []) {
+    const annotation = { overall_pick: pick.overall_pick, round: pick.round, round_pick: pick.round_pick, team_name: pick.team_name };
+    for (const player of board.players) {
+      if (playersEquivalent(player, { key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) picked.set(player.key, annotation);
+    }
+  }
   listEl.innerHTML = renderBoard(board, active, { picked, mode: view });
   listEl.scrollTop = 0;
 }
@@ -153,10 +171,11 @@ function playerByKey(key: string): Player | null {
   return board?.players.find((player) => player.key === key) ?? null;
 }
 
-function setSelected(player: Player | null): void {
-  selected = player;
+function setSelected(selection: PickSelection | null): void {
+  selected = selection;
+  const player = selection?.player;
   selectedEl.innerHTML = player ? `Selected: <b>${escapeHtml(player.name)}</b> · ${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")}` : "No player selected.";
-  recordPickEl.disabled = !player || !draft?.next || writing;
+  recordPickEl.disabled = !selection || !draft?.next || writing;
 }
 
 function setDraftError(message = ""): void {
@@ -215,8 +234,14 @@ function renderDraft(): void {
     clockEl.textContent = `${pick} · ${next.is_user ? "YOU · " : ""}${next.team_name} ${next.direction === "forward" ? "↓" : "↑"}`;
     onClockEl.textContent = `Round ${next.round} of ${draft!.draft!.rounds} · Pick ${next.overall_pick} of ${draft!.draft!.team_count * draft!.draft!.rounds} · ${next.team_name} is on the clock`;
   }
-  const pickedKeys = new Set(draft!.picks.map((pick) => pick.player_key));
-  suggestionsEl.innerHTML = !next || !board ? "" : suggestPlayers(board.players, pickedKeys)
+  const picked = draft!.picks.map((pick) => ({ key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team }));
+  const recommendation = board ? deriveRecommendation(board, draft!) : null;
+  recommendationRegionEl.hidden = !next?.is_user;
+  recommendationEl.innerHTML = recommendation ? recommendationHtml(recommendation) : "";
+  needsEl.innerHTML = recommendation ? needsHtml(recommendation) : "";
+  recommendationWarningEl.textContent = recommendation?.warnings.join(" ") ?? "";
+  recommendationLiveEl.textContent = recommendation?.recommendation ? `${recommendation.recommendation.position} ${recommendation.recommendation.player.name}: ${recommendation.recommendation.reason}` : "";
+  suggestionsEl.innerHTML = !next || !board ? "" : suggestPlayers(board.players, picked)
     .map((player) => `<button class="suggestion" data-player-key="${encodeURIComponent(player.key)}"><b>${escapeHtml(player.name)}</b><small>${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")} · ADP ${player.adp ?? "—"}</small></button>`)
     .join("");
   recentEl.innerHTML = draft!.picks.length
@@ -224,9 +249,11 @@ function renderDraft(): void {
     : "No picks recorded.";
   const canPick = Boolean(next && board);
   playerSearchEl.disabled = !canPick || writing;
+  unlistedEl.disabled = !next || writing;
+  if (selected?.kind === "board" && !isAvailable(selected.player, picked)) selected = null;
   undoPickEl.disabled = writing || draft!.picks.length === 0;
   undoPickEl.textContent = draft!.picks.length ? `Undo ${draft!.picks.at(-1)!.round}.${String(draft!.picks.at(-1)!.round_pick).padStart(2, "0")} — ${draft!.picks.at(-1)!.player_name}` : "Undo latest pick";
-  setSelected(canPick ? selected : null);
+  setSelected(next ? selected : null);
   renderList();
   if (focusPickEntry) {
     focusPickEntry = false;
@@ -236,6 +263,7 @@ function renderDraft(): void {
 
 function showContractDrift(got: unknown): void {
   board = null;
+  boardMalformed = false;
   boardDriftVersion = got;
   renderList();
 }
@@ -247,10 +275,11 @@ function renderTabs(): void {
 }
 
 // ---- data fetch ----
-type LoadResult = "ok" | "unauthorized" | "empty" | "network" | "drift";
+type LoadResult = "ok" | "unauthorized" | "empty" | "network" | "drift" | "malformed";
 
 async function loadBoard(key: string): Promise<LoadResult> {
   boardDriftVersion = null;
+  boardMalformed = false;
   let res: Response;
   try {
     res = await fetch("/api/board", { headers: { Authorization: `Bearer ${key}` } });
@@ -261,15 +290,27 @@ async function loadBoard(key: string): Promise<LoadResult> {
   if (res.status === 404) return "empty";
   if (!res.ok) return "network";
 
-  let parsed: Board;
+  let parsed: unknown;
   try {
-    parsed = (await res.json()) as Board;
+    parsed = await res.json();
   } catch {
     return "network";
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    board = null;
+    boardMalformed = true;
+    renderList();
+    return "malformed";
   }
   if (!validateVersion(parsed)) {
     showContractDrift((parsed as { version?: unknown }).version);
     return "drift";
+  }
+  if (!isValidBoard(parsed)) {
+    board = null;
+    boardMalformed = true;
+    renderList();
+    return "malformed";
   }
   board = parsed;
   renderChrome();
@@ -352,13 +393,14 @@ async function submitKey(): Promise<void> {
   switch (result) {
     case "ok":
     case "drift":
+    case "malformed":
     case "empty":
       // The key authenticated (even a 404/drift means the gate passed); persist + unlock.
       store.set(key);
       dispatch({ type: "unlock" });
       // Keep the version-mismatch notice visible: rendering draft state with no
       // compatible board would replace its actionable redeploy instruction.
-      if (result !== "drift") await loadDraft();
+      if (result !== "drift" && result !== "malformed") await loadDraft();
       if (result === "empty") {
         board = null;
         renderList();
@@ -464,11 +506,19 @@ setupEl.addEventListener("keydown", (event) => {
 suggestionsEl.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-player-key]");
   if (!button) return;
-  setSelected(playerByKey(decodeURIComponent(button.dataset.playerKey ?? "")));
+  const player = playerByKey(decodeURIComponent(button.dataset.playerKey ?? ""));
+  setSelected(player ? { kind: "board", player } : null);
+});
+
+recommendationEl.addEventListener("click", (e) => {
+  const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-recommendation-key]");
+  if (!button) return;
+  const player = playerByKey(decodeURIComponent(button.dataset.recommendationKey ?? ""));
+  setSelected(player ? { kind: "board", player } : null);
 });
 
 playerSearchEl.addEventListener("input", () => {
-  const picked = new Set(draft?.picks.map((pick) => pick.player_key) ?? []);
+  const picked = draft?.picks.map((pick) => ({ key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) ?? [];
   const results = board ? searchPlayers(board.players, picked, playerSearchEl.value) : [];
   playerSearchEl.setAttribute("aria-expanded", String(results.length > 0));
   searchResultsEl.innerHTML = results.map((player) => `<button class="searchresult" role="option" data-player-key="${encodeURIComponent(player.key)}"><b>${escapeHtml(player.name)}</b> <small>${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")} · ADP ${player.adp ?? "—"}</small></button>`).join("");
@@ -478,15 +528,43 @@ searchResultsEl.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-player-key]");
   if (!button) return;
   const player = playerByKey(decodeURIComponent(button.dataset.playerKey ?? ""));
-  setSelected(player);
+  setSelected(player ? { kind: "board", player } : null);
   playerSearchEl.value = player?.name ?? "";
   playerSearchEl.setAttribute("aria-expanded", "false");
   searchResultsEl.innerHTML = "";
 });
 
+unlistedEl.addEventListener("click", () => {
+  manualFormEl.hidden = !manualFormEl.hidden;
+  if (!manualFormEl.hidden) manualNameEl.focus();
+});
+
+manualFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = manualNameEl.value.trim();
+  const pos = manualPosEl.value as ManualPlayerInput["pos"];
+  const team = manualTeamEl.value.trim() || null;
+  if (!name) {
+    setDraftError("Enter the unlisted player's exact display name.");
+    manualNameEl.focus();
+    return;
+  }
+  setSelected({ kind: "manual", player: { name, pos, team } });
+  manualFormEl.hidden = true;
+  setDraftError("");
+});
+
+manualCancelEl.addEventListener("click", () => {
+  manualFormEl.hidden = true;
+  playerSearchEl.focus();
+});
+
 recordPickEl.addEventListener("click", () => {
   if (!selected || !draft?.next) return;
-  void writeDraft("/api/picks", "POST", { player_key: selected.key, expected_overall_pick: draft.next.overall_pick });
+  const payload = selected.kind === "board"
+    ? { player_key: selected.player.key, expected_overall_pick: draft.next.overall_pick }
+    : { manual_player: selected.player, expected_overall_pick: draft.next.overall_pick };
+  void writeDraft("/api/picks", "POST", payload);
 });
 
 undoPickEl.addEventListener("click", () => {
@@ -510,7 +588,7 @@ async function boot(): Promise<void> {
   const result = await loadBoard(key);
   // A draft cannot be rendered safely against an incompatible board. More
   // importantly, avoid overwriting the contract-drift notice from loadBoard.
-  const draftResult = result === "drift" ? null : await loadDraft();
+  const draftResult = result === "drift" || result === "malformed" ? null : await loadDraft();
   if (result === "unauthorized") {
     store.del();
     dispatch({ type: "invalid" });
