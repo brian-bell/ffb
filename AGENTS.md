@@ -14,6 +14,7 @@ workflows:
 
 ```sh
 make init                     # uv sync + npm install in tracker/
+make test-backend-e2e         # offline fixture -> CLI -> DuckDB/board -> Worker KV/D1 journey
 make deploy-board             # refresh/export board.json, then publish production KV
 make deploy-app               # tracker checks + remote D1 migrations + Worker deploy
 make deploy-all               # app first, then board
@@ -40,6 +41,13 @@ npm test
 npm run build:client
 ```
 
+Before committing a change that can affect fixture ingestion, CLI board export,
+the `board.json` contract, D1 migrations, KV/D1 behavior, or Worker APIs, run
+`make test-backend-e2e` from the repository root. It exercises the complete
+backend boundary using committed fixtures and isolated temporary storage, with
+no live network or Cloudflare dependencies. Set `FFB_E2E_KEEP_TMP=1` to retain
+the temporary database, snapshots, and export when diagnosing a failure.
+
 `deploy-board` is intentionally a data-only deployment: it runs `ffb
 cheatsheet --refresh --export`, verifies `exports/board.json` is nonempty, and
 writes `board:current` to production KV without redeploying code. `deploy-app`
@@ -47,12 +55,13 @@ runs the tracker typecheck and tests, applies pending remote D1 migrations, then
 builds and deploys the Worker and static assets. Both require an authenticated
 Wrangler session; first-time secret setup and key rotation remain manual.
 
-CI (`.github/workflows/ci.yml`) runs two independent jobs on every push to
+CI (`.github/workflows/ci.yml`) runs three independent jobs on every push to
 `main` and every PR. The Python job runs `uv sync --frozen`, `ruff check`, `ruff
 format --check`, and `pytest`; the tracker job runs `npm ci`, `typecheck`, and
-Vitest. Both suites are network-free. If Python dependencies change, commit the
-updated `uv.lock` or `--frozen` will fail; if tracker dependencies change,
-commit `tracker/package-lock.json` too.
+Vitest; the backend E2E job installs both toolchains and runs
+`make test-backend-e2e`. All three suites are network-free. If Python
+dependencies change, commit the updated `uv.lock` or `--frozen` will fail; if
+tracker dependencies change, commit `tracker/package-lock.json` too.
 
 ## Layout
 
@@ -80,6 +89,7 @@ src/ffb/
     ffc.py          # Fantasy Football Calculator ADP: fetch + parse (PK->K, team alias)
     crosswalk.py    # nflverse ff_playerids via nflreadpy -> identity spine
 tests/              # pytest; fixtures/ are trimmed real API responses
+  e2e/              # snapshot primer + isolated CLI-to-Worker orchestration
 docs/plans/         # per-slice implementation plans (gitignored, local-only)
 snapshots/          # raw API pulls, offline replay cache (gitignored)
 exports/            # `ffb cheatsheet --export` output (board.json etc.; gitignored)
@@ -133,9 +143,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   Static Assets), and `draft-api.ts` the API router. `public/app.ts` is thin DOM
   wiring bundled to `public/app.js` (esbuild, gitignored).
 - CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
-  of the Python `uv` job. The provisioned KV/D1 ids and `ffb.bbell.dev` route in
-  `wrangler.jsonc` are non-secret deployment configuration; `TRACKER_API_KEY`
-  remains a Wrangler secret (see README).
+  of the Python `uv` job; a third `backend-e2e` job generates a real board with
+  the Python CLI and drives it through the Worker with Miniflare. The provisioned
+  KV/D1 ids and `ffb.bbell.dev` route in `wrangler.jsonc` are non-secret deployment
+  configuration; `TRACKER_API_KEY` remains a Wrangler secret (see README).
 
 ## Key modules & responsibilities
 

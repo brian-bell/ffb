@@ -114,9 +114,13 @@ to different league settings is a config swap, not a re-ingest.
 uv run pytest              # test suite
 uv run ruff check .        # lint
 uv run ruff format .       # format
+make test-backend-e2e      # offline fixture-to-Worker backend journey
 ```
 
-Test-driven; CI runs lint + format + tests on every push and PR.
+Test-driven; CI runs the Python suite, tracker suite, and cross-stack backend E2E
+harness independently on every push and PR. The E2E target generates a real
+`board.json` from committed fixtures, publishes it to Miniflare KV, applies the
+D1 migrations, and exercises the Worker API without live network dependencies.
 
 ## Draft tracker (`tracker/`)
 
