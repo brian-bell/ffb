@@ -1,13 +1,14 @@
 {
   // FFB draft tracker — Cloudflare Worker + static assets.
-  // The KV/D1 ids below are PLACEHOLDERS. They are populated during the one-time
-  // HITL Cloudflare setup (see README "Draft tracker" → setup); they are not
-  // secrets and are safe to commit. TRACKER_API_KEY is a Wrangler *secret*
-  // (`wrangler secret put TRACKER_API_KEY`) and is never committed.
+  // The KV/D1 ids below are the provisioned resources (not secrets, safe to
+  // commit). TRACKER_API_KEY is a Wrangler *secret* (`wrangler secret put
+  // TRACKER_API_KEY`) and is never committed.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ffb-tracker",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
+  // Served at the custom domain (Cloudflare manages the DNS + cert).
+  "routes": [{ "pattern": "ffb.bbell.dev", "custom_domain": true }],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
