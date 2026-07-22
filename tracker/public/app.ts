@@ -4,9 +4,11 @@
 // DOM wiring around them (slice-6 §3c/§6).
 
 import { renderBoard } from "../src/render";
-import { validateVersion, BOARD_VERSION } from "../src/board";
+import { validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import { searchPlayers, suggestPlayers } from "../src/suggestions";
+import { setupValidation, teamsFromSetup } from "../src/setup";
+import { boardNoticeHtml } from "../src/board-view";
 import type { DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
@@ -46,6 +48,7 @@ const subEl = $<HTMLElement>("[data-sub]");
 const clockEl = $<HTMLElement>("[data-clock]");
 const viewTabsEl = $<HTMLElement>("[data-view-tabs]");
 const recentEl = $<HTMLElement>("[data-recent]");
+const setupModalEl = $<HTMLElement>("[data-setup-modal]");
 const setupEl = $<HTMLElement>("[data-setup]");
 const draftNameEl = $<HTMLInputElement>("[data-draft-name]");
 const roundsEl = $<HTMLInputElement>("[data-rounds]");
@@ -59,6 +62,8 @@ const playerSearchEl = $<HTMLInputElement>("[data-player-search]");
 const searchResultsEl = $<HTMLElement>("[data-search-results]");
 const selectedEl = $<HTMLElement>("[data-selected]");
 const draftErrorEl = $<HTMLElement>("[data-draft-error]");
+const setupErrorEl = $<HTMLElement>("[data-setup-error]");
+const setupStatusEl = $<HTMLElement>("[data-setup-status]");
 const recordPickEl = $<HTMLButtonElement>("[data-record-pick]");
 const undoPickEl = $<HTMLButtonElement>("[data-undo-pick]");
 const resetDraftEl = $<HTMLButtonElement>("[data-reset-draft]");
@@ -66,11 +71,14 @@ const resetDraftEl = $<HTMLButtonElement>("[data-reset-draft]");
 // ---- app state ----
 let ui: UiState = initialState;
 let board: Board | null = null;
+let boardDriftVersion: unknown | null = null;
 let active = "ALL";
 let view: "available" | "drafted" = "available";
 let draft: DraftState | null = null;
 let selected: Player | null = null;
 let writing = false;
+let setupPresented = false;
+let focusPickEntry = false;
 
 function dispatch(event: UiEvent): void {
   ui = nextState(ui, event);
@@ -105,12 +113,15 @@ function applyUi(): void {
 // ---- board rendering ----
 function renderList(): void {
   if (!board) {
-    listEl.innerHTML =
-      '<div class="notice"><b>No board published yet.</b>' +
-      "Run <code>ffb cheatsheet --export</code> then <code>npm run publish:board</code>.</div>";
+    listEl.innerHTML = boardNoticeHtml(boardDriftVersion);
     return;
   }
-  const picked = new Map((draft?.picks ?? []).map((pick) => [pick.player_key, pick]));
+  const picked = new Map((draft?.picks ?? []).map((pick) => [pick.player_key, {
+    overall_pick: pick.overall_pick,
+    round: pick.round,
+    round_pick: pick.round_pick,
+    team_name: pick.team_name,
+  }]));
   listEl.innerHTML = renderBoard(board, active, { picked, mode: view });
   listEl.scrollTop = 0;
 }
@@ -152,6 +163,22 @@ function setDraftError(message = ""): void {
   draftErrorEl.textContent = message;
 }
 
+function setSetupError(message = ""): void {
+  setupErrorEl.hidden = !message;
+  setupErrorEl.textContent = message;
+}
+
+function setSetupStatus(message = ""): void {
+  setupStatusEl.hidden = !message;
+  setupStatusEl.textContent = message;
+}
+
+function clearSetupInvalid(): void {
+  teamNamesEl.removeAttribute("aria-invalid");
+  userTeamEl.removeAttribute("aria-invalid");
+  roundsEl.removeAttribute("aria-invalid");
+}
+
 function refreshUserTeams(): void {
   const selectedName = userTeamEl.value;
   const names = teamNamesEl.value.split("\n").map((name) => name.trim()).filter(Boolean);
@@ -161,15 +188,24 @@ function refreshUserTeams(): void {
 
 function renderDraft(): void {
   const configured = draft?.configured === true;
-  setupEl.hidden = configured;
+  const showSetup = !configured && !ui.locked;
+  setupModalEl.hidden = !showSetup;
+  screenEl.toggleAttribute("inert", showSetup);
+  screenEl.setAttribute("aria-hidden", String(showSetup));
   pickPanelEl.hidden = !configured;
   recentEl.hidden = !configured;
   if (!configured) {
     clockEl.textContent = "Set up draft";
     subEl.textContent = board ? `${board.num_teams}-team · ${board.scoring} scoring` : "—";
     renderList();
+    if (showSetup && !setupPresented) setTimeout(() => draftNameEl.focus(), 0);
+    setupPresented = showSetup;
+    saveDraftEl.disabled = writing;
+    saveDraftEl.textContent = writing ? "Saving draft setup…" : "Save draft setup";
+    setupEl.setAttribute("aria-busy", String(writing));
     return;
   }
+  setupPresented = false;
   const next = draft!.next;
   if (!next) {
     clockEl.textContent = "Draft complete";
@@ -192,17 +228,16 @@ function renderDraft(): void {
   undoPickEl.textContent = draft!.picks.length ? `Undo ${draft!.picks.at(-1)!.round}.${String(draft!.picks.at(-1)!.round_pick).padStart(2, "0")} — ${draft!.picks.at(-1)!.player_name}` : "Undo latest pick";
   setSelected(canPick ? selected : null);
   renderList();
+  if (focusPickEntry) {
+    focusPickEntry = false;
+    setTimeout(() => playerSearchEl.focus(), 0);
+  }
 }
 
 function showContractDrift(got: unknown): void {
   board = null;
-  // `got` is the board's own version field, echoed back from a possibly
-  // malformed/tampered KV value — escape it before it touches innerHTML.
-  const version = escapeHtml(String(got));
-  listEl.innerHTML =
-    '<div class="notice"><b>Board format changed.</b>' +
-    `This tracker renders v${BOARD_VERSION}, but the board is v${version}. ` +
-    "Redeploy the tracker (<code>npm run deploy</code>) to match the new contract.</div>";
+  boardDriftVersion = got;
+  renderList();
 }
 
 function renderTabs(): void {
@@ -215,6 +250,7 @@ function renderTabs(): void {
 type LoadResult = "ok" | "unauthorized" | "empty" | "network" | "drift";
 
 async function loadBoard(key: string): Promise<LoadResult> {
+  boardDriftVersion = null;
   let res: Response;
   try {
     res = await fetch("/api/board", { headers: { Authorization: `Bearer ${key}` } });
@@ -260,7 +296,10 @@ async function loadDraft(): Promise<LoadResult> {
 }
 
 async function writeDraft(path: string, method: string, payload?: unknown): Promise<boolean> {
+  if (writing) return false;
+  const wasConfigured = draft?.configured === true;
   writing = true;
+  if (!draft?.configured) setSetupStatus("Saving draft setup…");
   renderDraft();
   try {
     const res = await fetch(path, {
@@ -275,22 +314,29 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
     }
     const response = (await res.json()) as DraftState & { error?: string; message?: string };
     if (!res.ok) {
-      setDraftError(response.message ?? response.error ?? "Could not update draft.");
+      const message = response.message ?? response.error ?? "Could not update draft.";
+      if (draft?.configured) setDraftError(message);
+      else setSetupError(message);
       if (res.status === 409) await loadDraft();
       return false;
     }
     draft = response;
+    if (!wasConfigured && draft.configured) focusPickEntry = true;
     selected = null;
     playerSearchEl.value = "";
     searchResultsEl.innerHTML = "";
     setDraftError("");
+    setSetupError("");
     renderDraft();
     return true;
   } catch {
-    setDraftError("Network error — draft state was not changed here.");
+    const message = "Network error — draft state was not changed here.";
+    if (draft?.configured) setDraftError(message);
+    else setSetupError(message);
     return false;
   } finally {
     writing = false;
+    setSetupStatus("");
     renderDraft();
   }
 }
@@ -367,13 +413,52 @@ viewTabsEl.addEventListener("click", (e) => {
 });
 
 teamNamesEl.addEventListener("input", refreshUserTeams);
-saveDraftEl.addEventListener("click", () => {
-  const names = teamNamesEl.value.split("\n").map((name) => name.trim()).filter(Boolean);
+teamNamesEl.addEventListener("input", () => {
+  clearSetupInvalid();
+  setSetupError("");
+});
+userTeamEl.addEventListener("change", () => {
+  clearSetupInvalid();
+  setSetupError("");
+});
+roundsEl.addEventListener("input", () => {
+  clearSetupInvalid();
+  setSetupError("");
+});
+setupEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (writing) return;
+  const validationError = setupValidation(teamNamesEl.value, userTeamEl.value, Number(roundsEl.value));
+  if (validationError) {
+    clearSetupInvalid();
+    const field = validationError.field === "teams" ? teamNamesEl : validationError.field === "rounds" ? roundsEl : userTeamEl;
+    field.setAttribute("aria-invalid", "true");
+    setSetupError(validationError.message);
+    field.focus();
+    return;
+  }
+  clearSetupInvalid();
+  setSetupError("");
   void writeDraft("/api/draft", "PUT", {
     name: draftNameEl.value.trim(),
     rounds: Number(roundsEl.value),
-    teams: names.map((name) => ({ name, is_user: name === userTeamEl.value })),
+    teams: teamsFromSetup(teamNamesEl.value, userTeamEl.value),
   });
+});
+
+setupEl.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab") return;
+  const focusable = [...setupEl.querySelectorAll<HTMLElement>("input, textarea, select, button:not([disabled])")];
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) return;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 });
 
 suggestionsEl.addEventListener("click", (e) => {

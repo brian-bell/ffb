@@ -7,6 +7,8 @@ import type { Board, Player } from "./types";
 
 export interface PickAnnotation {
   overall_pick: number;
+  round: number;
+  round_pick: number;
   team_name: string;
 }
 
@@ -70,7 +72,7 @@ function metaLine(p: Player, showTier: boolean): string {
 function row(p: Player, maxVorp: number, showTier: boolean, pick?: PickAnnotation): string {
   const adpNa = p.adp == null ? " na" : "";
   const annotation = pick
-    ? `<span class="picknote">${pick.overall_pick}.${String(((pick.overall_pick - 1) % 100) + 1).padStart(2, "0")} · ${esc(pick.team_name)}</span>`
+    ? `<span class="picknote">${pick.round}.${String(pick.round_pick).padStart(2, "0")} · ${esc(pick.team_name)}</span>`
     : "";
   return (
     `<div class="rowA${pick ? " drafted" : ""}">` +

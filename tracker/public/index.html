@@ -40,15 +40,6 @@
   <section class="recent" data-recent hidden></section>
   <div class="footbar" data-foot>board.json —</div>
 
-  <section class="setup" data-setup hidden>
-    <h2>Set up draft</h2>
-    <label>Draft name <input data-draft-name placeholder="2026 Draft" /></label>
-    <label>Rounds <input data-rounds type="number" min="1" max="30" value="16" /></label>
-    <label>Teams, first-round order (one per line)<textarea data-team-names rows="5" placeholder="Brian&#10;Team 2"></textarea></label>
-    <label>Brian’s team <select data-user-team></select></label>
-    <button data-save-draft>Save draft setup</button>
-  </section>
-
   <section class="pickpanel" data-pick-panel hidden>
     <p class="onclock" data-on-clock></p>
     <div class="suggestions" data-suggestions></div>
@@ -79,6 +70,26 @@
       <button class="forget" data-forget hidden>Forget key on this device</button>
     </div>
   </div>
+</div>
+
+<div class="setupmodal" data-setup-modal hidden>
+  <form class="setup" data-setup role="dialog" aria-modal="true" aria-labelledby="setup-title" aria-describedby="setup-description" novalidate>
+    <header class="setuphead">
+      <span class="eyebrow">Draft room</span>
+      <h2 id="setup-title">Set up your draft</h2>
+      <p id="setup-description">Set your league once, then stay focused on the board.</p>
+    </header>
+    <div class="setupgrid">
+      <label class="field">Draft name <input data-draft-name placeholder="2026 Draft" /></label>
+      <label class="field roundsfield">Rounds <input data-rounds type="number" min="1" max="30" value="16" required aria-describedby="setup-error" /></label>
+    </div>
+    <label class="field">Teams, first-round order <textarea data-team-names rows="5" aria-describedby="draft-order-help setup-error" placeholder="Brian&#10;Team 1&#10;Team 2"></textarea></label>
+    <p class="fieldhint" id="draft-order-help">Enter one team per line. The first listed team picks first; choose your team below.</p>
+    <label class="field">Brian’s team <select data-user-team aria-describedby="setup-error"></select></label>
+    <p class="setuperror" id="setup-error" data-setup-error aria-live="polite" hidden></p>
+    <p class="setupstatus" data-setup-status aria-live="polite" hidden></p>
+    <button data-save-draft type="submit">Save draft setup</button>
+  </form>
 </div>
 <script src="/app.js" defer></script>
 </body>
