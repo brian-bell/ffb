@@ -17,7 +17,7 @@ check-app:
 	$(TRACKER) test
 
 export-board:
-	uv run ffb cheatsheet --refresh --export
+	uv run ffb cheatsheet --refresh --export --export-dir exports
 
 deploy-board: export-board
 	test -s exports/board.json
