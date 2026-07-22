@@ -100,8 +100,8 @@ body {
 .gear {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   flex: none;
   border: 1px solid #263041;
   background: #141b24;
@@ -141,6 +141,7 @@ body {
   flex: none;
   border: 0;
   cursor: pointer;
+  min-height: 44px;
   font: 640 12.5px/1 var(--sans);
   padding: 9px 14px;
   border-radius: 999px;
@@ -182,7 +183,8 @@ body {
 
 /* ---------- board list ---------- */
 .list {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 170px;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -242,10 +244,23 @@ body {
   text-overflow: ellipsis;
 }
 .nm i {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
   font-style: normal;
   font: 500 10px/1.2 var(--mono);
   color: #6d7a89;
   letter-spacing: 0.02em;
+}
+.tier-chip {
+  display: inline-flex;
+  padding: 2px 4px;
+  border: 1px solid #604714;
+  border-radius: 4px;
+  background: #251b08;
+  color: var(--dr-accent);
+  font-weight: 780;
 }
 .num {
   font: 600 12.5px/1 var(--mono);
@@ -311,15 +326,26 @@ body {
 }
 
 /* ---------- live draft controls ---------- */
-.viewtabs { display: flex; gap: 6px; padding: 0 12px 9px; background: var(--dr-chrome); }
-.viewtab, .suggestion, .pickpanel button, .setup button { min-height: 44px; border-radius: 9px; border: 1px solid #29323e; background: #171e26; color: var(--dr-ink); font: 650 12px/1 var(--sans); cursor: pointer; }
-.viewtab { padding: 0 12px; min-height: 32px; color: var(--dr-muted); }
+.viewtabs { display: flex; align-items: center; gap: 6px; padding: 0 12px 9px; background: var(--dr-chrome); }
+.viewtab, .suggestion, .pickdock button, .setup button { min-height: 44px; border-radius: 9px; border: 1px solid #29323e; background: #171e26; color: var(--dr-ink); font: 650 12px/1 var(--sans); cursor: pointer; }
+.viewtab { padding: 0 12px; color: var(--dr-muted); }
 .viewtab[aria-pressed="true"] { color: var(--dr-accent); border-color: #52400f; }
-.recent { max-height: 108px; overflow-y: auto; border-top: 1px solid var(--dr-line); background: #10161e; padding: 7px 14px; color: var(--dr-muted); font: 11px/1.5 var(--mono); }
-.recent b { color: var(--dr-ink); }
-.pickpanel { flex: none; background: #10161e; border-top: 1px solid var(--dr-line); padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
-.pickpanel[hidden], .setupmodal[hidden] { display: none; }
+.order-label { margin-left: auto; color: #687686; font: 650 9px/1.2 var(--mono); text-align: right; }
+.view-context { flex: none; padding: 8px 13px; border-top: 1px solid var(--dr-line); border-bottom: 1px solid var(--dr-line); background: #101720; color: #a8b4c1; font-size: 10.5px; }
+.view-context b { color: var(--dr-accent); }
+.pickdock { flex: none; background: #101720; border-top: 1px solid #354151; box-shadow: 0 -12px 26px rgba(0, 0, 0, .3); }
+.pickdock[hidden], .pick-tools[hidden], .setupmodal[hidden] { display: none; }
+.dock-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 12px; }
+.dock-copy { min-width: 0; }
+.pick-tools-toggle { min-height: 44px; padding: 0 12px; }
+.pick-tools { max-height: min(20dvh, 200px); overflow-y: auto; padding: 0 12px 12px; }
 .onclock, .selected, .status, .needs, .recommendation-warning { margin: 0 0 8px; font-size: 12px; color: var(--dr-muted); }
+.dock-summary .onclock { margin: 0; color: var(--dr-accent); font: 700 10px/1.35 var(--mono); }
+.recommendation-summary { margin-top: 4px; }
+.dock-label { display: block; color: var(--dr-accent); font: 760 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.dock-pick { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin-top: 4px; color: var(--dr-ink); font-size: 12px; }
+.dock-pick b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pick small { flex: none; color: var(--dr-muted); font: 650 9.5px/1 var(--mono); }
 .onclock, .selected b { color: var(--dr-accent); }
 .suggestions { display: flex; gap: 7px; overflow-x: auto; margin-bottom: 9px; }
 .suggestion { flex: 1 0 125px; padding: 8px; text-align: left; }
@@ -331,7 +357,7 @@ body {
 .needs { color: var(--dr-accent); font: 700 10px/1.3 var(--mono); letter-spacing: .08em; }.recommendation-warning { color: #ffbf78; }.unlisted { width: 100%; margin-top: 8px; color: var(--dr-muted) !important; }.manual { padding: 8px 0; }.manual[hidden] { display: none; }.manual select { width: 100%; min-height: 42px; border: 1px solid #29323e; border-radius: 8px; background: #171e26; color: var(--dr-ink); padding: 8px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .searchlabel { display: block; color: var(--dr-muted); font: 700 10px/1.3 var(--mono); letter-spacing: .09em; text-transform: uppercase; margin: 8px 0 5px; }
-.pickpanel input { width: 100%; min-height: 42px; border: 1px solid #29323e; border-radius: 8px; background: #171e26; color: var(--dr-ink); padding: 8px; font: 14px/1.35 var(--sans); }
+.pickdock input { width: 100%; min-height: 44px; border: 1px solid #29323e; border-radius: 8px; background: #171e26; color: var(--dr-ink); padding: 8px; font: 14px/1.35 var(--sans); }
 .searchresults:empty { display: none; }
 .searchresults { max-height: 150px; overflow: auto; border: 1px solid #29323e; border-radius: 8px; margin-top: 4px; }
 .searchresult { display: block; width: 100%; text-align: left; padding: 9px; color: var(--dr-ink); background: #171e26; border: 0; border-bottom: 1px solid var(--dr-line); cursor: pointer; }
@@ -339,7 +365,15 @@ body {
 .record { width: 100%; margin-top: 8px; background: var(--dr-accent) !important; color: #1a1204 !important; border-color: var(--dr-accent) !important; }
 .undo, .reset { margin-top: 8px; width: 100%; }
 .reset { color: #ff9393 !important; }
-.pickpanel button:disabled { cursor: not-allowed; opacity: .48; }
+.pickdock button:disabled { cursor: not-allowed; opacity: .48; }
+.viewtab:focus-visible,
+.pickdock button:focus-visible,
+.pickdock input:focus-visible,
+.pickdock select:focus-visible,
+.searchresult:focus-visible {
+  outline: 2px solid var(--dr-accent);
+  outline-offset: 2px;
+}
 .setupmodal { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: max(16px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom)); background: rgba(4, 7, 11, .72); backdrop-filter: blur(5px); }
 .setup { width: min(100%, 480px); margin: auto; padding: 22px; background: #10161e; border: 1px solid #34404f; border-radius: 18px; box-shadow: 0 24px 64px #000b; }
 .setuphead { margin-bottom: 18px; }

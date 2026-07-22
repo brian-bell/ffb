@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { needsHtml, recommendationHtml } from "../src/recommendation-view";
+import { needsHtml, recommendationHtml, recommendationSummaryHtml } from "../src/recommendation-view";
 import type { RecommendationState } from "../src/recommendation";
 
 const state = {
@@ -15,5 +15,29 @@ describe("recommendation view", () => {
     expect(recommendationHtml(state)).toContain("Bijan &lt;Robinson&gt;");
     expect(needsHtml(state)).toContain("RB");
     expect(needsHtml(state)).toContain("FLEX");
+  });
+
+  it("summarizes the recommended position, player, tier, and tier survivors", () => {
+    const tieredState = {
+      ...state,
+      recommendation: { ...state.recommendation!, tier: 2, tierRemaining: 3 },
+    } as RecommendationState;
+    const html = recommendationSummaryHtml(tieredState);
+
+    expect(html).toContain("RB · Bijan &lt;Robinson&gt;");
+    expect(html).toContain("TIER 2 · 3 LEFT");
+  });
+
+  it("labels a null-tier recommendation as untiered", () => {
+    expect(recommendationSummaryHtml(state)).toContain("UNTIERED");
+    expect(recommendationSummaryHtml(state)).not.toContain("TIER null");
+  });
+
+  it("uses neutral non-actionable copy when there is no recommendation", () => {
+    const html = recommendationSummaryHtml({ ...state, recommendation: null });
+
+    expect(html).toContain("No recommendation for this turn.");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("data-recommendation-key");
   });
 });

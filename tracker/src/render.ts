@@ -4,6 +4,7 @@
 // formats. Kept a pure function so it unit-tests without a DOM round-trip.
 
 import type { Board, Player } from "./types";
+import { normalizedPosition, playersEquivalent } from "./player-identity";
 
 export interface PickAnnotation {
   overall_pick: number;
@@ -12,9 +13,17 @@ export interface PickAnnotation {
   team_name: string;
 }
 
+export interface DraftPickSnapshot extends PickAnnotation {
+  player_key: string;
+  player_name: string;
+  player_pos: string | null;
+  player_team: string | null;
+}
+
 export interface RenderOptions {
   picked?: ReadonlyMap<string, PickAnnotation>;
   mode?: "available" | "drafted";
+  draftPicks?: readonly DraftPickSnapshot[];
 }
 
 // Positions that don't carry a meaningful positional rank suffix in the meta line.
@@ -30,7 +39,7 @@ function fmt1(v: number | null): string {
 
 function posLabel(p: Player): string {
   if (p.pos == null) return "—";
-  return NO_POSRANK.has(p.pos) ? p.pos : `${p.pos}${p.pos_rank}`;
+  return NO_POSRANK.has(p.pos) || p.pos_rank <= 0 ? p.pos : `${p.pos}${p.pos_rank}`;
 }
 
 /** VORP micro-bar width (% of the board-wide max), 0 when unscored. */
@@ -61,15 +70,18 @@ function deltaChip(p: Player): string {
   return `<span class="chip ${cls}">${txt}</span>`;
 }
 
-function metaLine(p: Player, showTier: boolean): string {
-  const team = p.team ?? "FA";
-  const bye = p.bye == null ? "—" : String(p.bye);
-  let meta = `${posLabel(p)} · ${team} · BYE ${bye}`;
-  if (showTier && p.tier != null) meta += ` · T${p.tier}`;
-  return meta;
+function tierChip(p: Player): string {
+  const label = p.tier == null ? "ADP" : `T${p.tier}`;
+  return `<span class="tier-chip">${esc(label)}</span>`;
 }
 
-function row(p: Player, maxVorp: number, showTier: boolean, pick?: PickAnnotation): string {
+function metaLine(p: Player): string {
+  const team = p.team ?? "FA";
+  const bye = p.bye == null ? "—" : String(p.bye);
+  return `${posLabel(p)} · ${team} · BYE ${bye}`;
+}
+
+function row(p: Player, maxVorp: number, pick?: PickAnnotation): string {
   const adpNa = p.adp == null ? " na" : "";
   const annotation = pick
     ? `<span class="picknote">${pick.round}.${String(pick.round_pick).padStart(2, "0")} · ${esc(pick.team_name)}</span>`
@@ -78,7 +90,7 @@ function row(p: Player, maxVorp: number, showTier: boolean, pick?: PickAnnotatio
     `<div class="rowA${pick ? " drafted" : ""}">` +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
-    `<span class="nm"><b>${esc(p.name)}</b><i>${esc(metaLine(p, showTier))}</i></span>` +
+    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${esc(metaLine(p))}</i></span>` +
     vorpCell(p, maxVorp) +
     `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
     deltaChip(p) +
@@ -86,9 +98,39 @@ function row(p: Player, maxVorp: number, showTier: boolean, pick?: PickAnnotatio
   );
 }
 
-function tierDivider(pos: string, tier: number | null): string {
+function tierDivider(pos: string, tier: number | null, count: number): string {
   const label = tier == null ? "ADP only" : `Tier ${tier}`;
-  return `<div class="trule">${label} · ${pos}</div>`;
+  return `<div class="trule">${label} · ${esc(pos)} · ${count} left</div>`;
+}
+
+function playerFromPick(players: readonly Player[], pick: DraftPickSnapshot): Player {
+  const identity = {
+    key: pick.player_key,
+    name: pick.player_name,
+    pos: pick.player_pos,
+    team: pick.player_team,
+  };
+  const boardPlayer = players.find((player) => playersEquivalent(player, identity));
+  const displayPosition = normalizedPosition(pick.player_pos) ?? pick.player_pos;
+  return {
+    key: pick.player_key,
+    name: pick.player_name,
+    pos: displayPosition,
+    team: pick.player_team,
+    bye: boardPlayer?.bye ?? null,
+    points: boardPlayer?.points ?? null,
+    n_sources: boardPlayer?.n_sources ?? 0,
+    vorp: boardPlayer?.vorp ?? null,
+    tier: boardPlayer?.tier ?? null,
+    rank: boardPlayer?.rank ?? pick.overall_pick,
+    pos_rank: boardPlayer?.pos_rank ?? 0,
+    adp: boardPlayer?.adp ?? null,
+    adp_rank: boardPlayer?.adp_rank ?? null,
+    adp_high: boardPlayer?.adp_high ?? null,
+    adp_low: boardPlayer?.adp_low ?? null,
+    adp_stdev: boardPlayer?.adp_stdev ?? null,
+    matched: boardPlayer?.matched ?? false,
+  };
 }
 
 /**
@@ -102,18 +144,29 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const picked = options.picked ?? new Map<string, PickAnnotation>();
   const history = options.mode === "drafted";
 
+  if (history && options.draftPicks) {
+    return [...options.draftPicks]
+      .filter((pick) => filter === "ALL" || normalizedPosition(pick.player_pos) === filter)
+      .sort((a, b) => a.overall_pick - b.overall_pick)
+      .map((pick) => row(playerFromPick(players, pick), maxVorp, pick))
+      .join("");
+  }
+
   const all = filter === "ALL";
+  const grouped = !history && !all;
   let rows = (all ? players : players.filter((p) => p.pos === filter)).filter((p) => (history ? picked.has(p.key) : !picked.has(p.key)));
   if (history) rows = [...rows].sort((a, b) => picked.get(a.key)!.overall_pick - picked.get(b.key)!.overall_pick);
+  const tierCounts = new Map<number | null, number>();
+  for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
 
   let html = "";
   let curTier: number | null | undefined = undefined;
   for (const p of rows) {
-    if (!all && p.tier !== curTier) {
+    if (grouped && p.tier !== curTier) {
       curTier = p.tier;
-      html += tierDivider(filter, p.tier);
+      html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
-    html += row(p, maxVorp, all, picked.get(p.key));
+    html += row(p, maxVorp, picked.get(p.key));
   }
   return html;
 }

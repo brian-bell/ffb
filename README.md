@@ -125,6 +125,14 @@ Brian’s turn it also derives one explainable recommendation from board VORP,
 tiers, roster slots, and Brian’s persisted picks; the usual three ADP-led
 “Likely next” choices remain available for every team’s pick.
 
+The board opens in **Available + ALL**. Every row carries an inline tier badge;
+choosing a position groups available players under sticky positional tier
+headings with live survivor counts. **Drafted** is the complete chronological
+pick history, and position filters never regroup that history by tier. Position
+and Available/Drafted are independent session-only controls. Draft actions live
+in the compact **Pick tools** dock, which starts collapsed and collapses again
+after a recorded pick so the board keeps the primary phone viewport.
+
 Architecture: the immutable board blob lives in **KV** (`BOARD`, key
 `board:current`) and is served verbatim from `GET /api/board`; live configuration,
 ordered teams, and picks live separately in **D1**. The client joins them by
