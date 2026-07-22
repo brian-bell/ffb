@@ -310,7 +310,9 @@ async function submitKey(): Promise<void> {
       // The key authenticated (even a 404/drift means the gate passed); persist + unlock.
       store.set(key);
       dispatch({ type: "unlock" });
-      await loadDraft();
+      // Keep the version-mismatch notice visible: rendering draft state with no
+      // compatible board would replace its actionable redeploy instruction.
+      if (result !== "drift") await loadDraft();
       if (result === "empty") {
         board = null;
         renderList();
@@ -420,7 +422,10 @@ async function boot(): Promise<void> {
     renderList();
     return;
   }
-  const [result, draftResult] = await Promise.all([loadBoard(key), loadDraft()]);
+  const result = await loadBoard(key);
+  // A draft cannot be rendered safely against an incompatible board. More
+  // importantly, avoid overwriting the contract-drift notice from loadBoard.
+  const draftResult = result === "drift" ? null : await loadDraft();
   if (result === "unauthorized") {
     store.del();
     dispatch({ type: "invalid" });
