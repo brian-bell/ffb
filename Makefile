@@ -1,5 +1,3 @@
-SHELL := /bin/zsh
-
 TRACKER := npm --prefix tracker
 
 .PHONY: help init check-app export-board deploy-board deploy-app deploy-all
