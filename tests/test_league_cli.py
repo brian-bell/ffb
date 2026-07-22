@@ -58,4 +58,4 @@ def test_league_sync_loads_crosswalk_before_resolving_rosters(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "1 matched, 0 unmatched" in result.output
+    assert "1 matched, 0 unmatched" in " ".join(result.output.split())
