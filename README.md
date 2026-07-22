@@ -203,6 +203,12 @@ Use `deploy-board` for projection, ADP, scoring, or ranking updates that do not
 change tracker code. Use `deploy-app` for Worker or browser-app changes; it
 applies committed D1 migrations before deploying code that needs them.
 
+Publishing a GitHub Release runs `make deploy-app`, which validates the tracker,
+applies remote D1 migrations, and deploys the Worker and static assets. Configure
+repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` before
+publishing a release. Board data is not part of the release workflow; publish it
+separately from a development machine with `make deploy-board`.
+
 Then open `https://ffb.bbell.dev` on a phone and enter the key. Apply committed
 D1 migrations locally during development as before; local and remote databases
 are distinct, so applying `--local` never affects production. Rotate the key any
