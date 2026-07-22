@@ -67,3 +67,11 @@ def test_league_sync_loads_crosswalk_before_resolving_rosters(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "1 matched, 0 unmatched" in " ".join(result.output.split())
+
+    shown = runner.invoke(
+        app,
+        ["league", "show", "--season", "2024", "--rosters"],
+        env={"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")},
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "Derrick Henry (RB)" in shown.output

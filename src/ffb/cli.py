@@ -122,7 +122,7 @@ def league_show(
         console.print(f"{team['name']} ({managers}) — {count} roster player(s)")
     if rosters:
         for row in roster_rows:
-            console.print(f"{row['team_key']}: {row['full_name']} ({row['position']})")
+            console.print(f"{row['team_key']}: {row['full_name']} ({row['primary_position']})")
     store.close()
 
 
