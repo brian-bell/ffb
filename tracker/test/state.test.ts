@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextState, makeStore, initialState, type UiState } from "../src/state";
+import { nextState, makeStore, resetsKeyInput, initialState, type UiState } from "../src/state";
 
 describe("nextState — boot", () => {
   it("no stored key → first-run gate, locked", () => {
@@ -83,6 +83,27 @@ describe("nextState — modal controls", () => {
       modal: "first",
       error: null,
     });
+  });
+});
+
+describe("resetsKeyInput — clear the key field only on fresh presentation", () => {
+  it("preserves the typed key on retryable failures", () => {
+    // The mobile re-paste bug: a transient failure must not wipe the field.
+    expect(resetsKeyInput({ type: "network" })).toBe(false);
+    expect(resetsKeyInput({ type: "empty" })).toBe(false);
+  });
+
+  it("clears + refocuses when (re)presenting the modal or after a rejected key", () => {
+    expect(resetsKeyInput({ type: "boot", hasKey: false })).toBe(true);
+    expect(resetsKeyInput({ type: "bootNetwork" })).toBe(true);
+    expect(resetsKeyInput({ type: "invalid" })).toBe(true);
+    expect(resetsKeyInput({ type: "forget" })).toBe(true);
+    expect(resetsKeyInput({ type: "openModal", mode: "settings" })).toBe(true);
+  });
+
+  it("does not touch the field on events that hide the modal", () => {
+    expect(resetsKeyInput({ type: "unlock" })).toBe(false);
+    expect(resetsKeyInput({ type: "closeModal" })).toBe(false);
   });
 });
 

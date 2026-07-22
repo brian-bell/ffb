@@ -5,7 +5,7 @@
 
 import { renderBoard } from "../src/render";
 import { validateVersion, BOARD_VERSION } from "../src/board";
-import { makeStore, nextState, initialState, type UiState, type UiEvent } from "../src/state";
+import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import type { Board } from "../src/types";
 
 const POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"];
@@ -50,6 +50,12 @@ let active = "ALL";
 function dispatch(event: UiEvent): void {
   ui = nextState(ui, event);
   applyUi();
+  // Clear + refocus the field only when the modal is freshly presented — never
+  // on a retryable failure, which would wipe the key the user just typed.
+  if (ui.modal !== "hidden" && resetsKeyInput(event)) {
+    inputEl.value = "";
+    setTimeout(() => inputEl.focus(), 50);
+  }
 }
 
 function applyUi(): void {
@@ -69,10 +75,6 @@ function applyUi(): void {
   }
   errEl.hidden = ui.error == null;
   errEl.textContent = ui.error ?? "";
-  if (ui.modal !== "hidden") {
-    inputEl.value = "";
-    setTimeout(() => inputEl.focus(), 50);
-  }
 }
 
 // ---- board rendering ----

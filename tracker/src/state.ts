@@ -57,6 +57,28 @@ export function nextState(state: UiState, event: UiEvent): UiState {
   }
 }
 
+/**
+ * Whether an event should clear + refocus the key input. Presenting the modal
+ * fresh (open, first-run gate, rejected key, forget) starts empty; retryable
+ * failures (`network`, `empty`) keep whatever the user already typed so a
+ * transient hiccup doesn't force a re-paste on mobile.
+ */
+export function resetsKeyInput(event: UiEvent): boolean {
+  switch (event.type) {
+    case "boot":
+    case "bootNetwork":
+    case "invalid":
+    case "forget":
+    case "openModal":
+      return true;
+    case "unlock":
+    case "closeModal":
+    case "empty":
+    case "network":
+      return false;
+  }
+}
+
 export interface Store {
   get(): string | null;
   set(v: string): void;
