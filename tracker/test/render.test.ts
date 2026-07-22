@@ -102,3 +102,16 @@ describe("renderBoard — VORP micro-bar magnitude", () => {
     expect(rowFor(html, "Christian McCaffrey")).toContain("--w:100%");
   });
 });
+
+describe("renderBoard — draft availability", () => {
+  it("omits picked player keys by default and renders annotated history on request", () => {
+    const picked = new Map([["k0", { overall_pick: 1, team_name: "Brian" }]]);
+    const available = renderBoard(board, "ALL", { picked });
+    expect(available).not.toContain("Christian McCaffrey");
+
+    const history = renderBoard(board, "ALL", { picked, mode: "drafted" });
+    expect(history).toContain("Christian McCaffrey");
+    expect(history).toContain("1.01 · Brian");
+    expect(history).not.toContain("Ja'Marr Chase");
+  });
+});

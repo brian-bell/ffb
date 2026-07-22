@@ -60,8 +60,8 @@ tracker/            # SEPARATE TS Cloudflare Worker subtree (own npm/vitest) —
 
 `tracker/` is a **TypeScript Cloudflare Worker**, isolated from the Python
 package (own `package.json`, `wrangler.jsonc`, `vitest`; uv stays Python-only).
-It's the slice-6 draft-tracker skeleton: a thin render/auth layer that consumes
-the pipeline's `board.json` **v1** contract as its input API — the only
+It's the slice-7 draft tracker: a thin render/auth layer that consumes the
+pipeline's `board.json` **v1** contract as its input API — the only
 cross-boundary coupling is `tracker/` reading `../exports/board.json` at publish
 time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about it.
 
@@ -76,10 +76,15 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   ("redeploy the tracker") on drift — this is what `board.py`'s `version` field
   is for. The committed `tracker/test/fixtures/board.json` keeps tracker tests
   green independent of the live pipeline.
-- **Pure testable core:** `src/{auth,board,render,state}.ts` are pure/DOM-free and
-  unit-tested; `public/app.ts` is thin DOM wiring bundled to `public/app.js`
-  (esbuild, gitignored). D1 is **provisioned but unused** this slice (metadata-only
-  migration); pick recording is slice 7.
+- **D1 draft state:** migration `0002_draft_state.sql` stores one configurable
+  current draft, ordered teams, and immutable pick snapshots. `src/draft-store.ts`
+  is the only D1 query gateway; `draft.ts`, `suggestions.ts`, and `render.ts` are
+  DOM-free behavior. The Worker derives snake order rather than persisting it,
+  validates stale expected-pick writes, supports latest-only undo, and resets by
+  explicitly deleting picks, teams, then draft (never relying on FK cascade).
+- **Pure testable core:** `src/{auth,board,draft,suggestions,render,state}.ts` are
+  pure/DOM-free and unit-tested; `public/app.ts` is thin DOM wiring bundled to
+  `public/app.js` (esbuild, gitignored).
 - CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
   of the Python `uv` job. Binding ids in `wrangler.jsonc` are placeholders filled
   in during the one-time HITL Cloudflare setup (see README).

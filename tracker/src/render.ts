@@ -5,6 +5,16 @@
 
 import type { Board, Player } from "./types";
 
+export interface PickAnnotation {
+  overall_pick: number;
+  team_name: string;
+}
+
+export interface RenderOptions {
+  picked?: ReadonlyMap<string, PickAnnotation>;
+  mode?: "available" | "drafted";
+}
+
 // Positions that don't carry a meaningful positional rank suffix in the meta line.
 const NO_POSRANK = new Set(["DEF", "K"]);
 
@@ -57,10 +67,14 @@ function metaLine(p: Player, showTier: boolean): string {
   return meta;
 }
 
-function row(p: Player, maxVorp: number, showTier: boolean): string {
+function row(p: Player, maxVorp: number, showTier: boolean, pick?: PickAnnotation): string {
   const adpNa = p.adp == null ? " na" : "";
+  const annotation = pick
+    ? `<span class="picknote">${pick.overall_pick}.${String(((pick.overall_pick - 1) % 100) + 1).padStart(2, "0")} · ${esc(pick.team_name)}</span>`
+    : "";
   return (
-    `<div class="rowA">` +
+    `<div class="rowA${pick ? " drafted" : ""}">` +
+    annotation +
     `<span class="rk tnum">${p.rank}</span>` +
     `<span class="nm"><b>${esc(p.name)}</b><i>${esc(metaLine(p, showTier))}</i></span>` +
     vorpCell(p, maxVorp) +
@@ -80,12 +94,15 @@ function tierDivider(pos: string, tier: number | null): string {
  * - `"ALL"`: every player in board (rank) order, tier shown inline per row.
  * - a position: only that position, with sticky tier dividers between tiers.
  */
-export function renderBoard(board: Board, filter: string): string {
+export function renderBoard(board: Board, filter: string, options: RenderOptions = {}): string {
   const players = board.players;
   const maxVorp = players.reduce((m, p) => (p.vorp != null && p.vorp > m ? p.vorp : m), 0);
+  const picked = options.picked ?? new Map<string, PickAnnotation>();
+  const history = options.mode === "drafted";
 
   const all = filter === "ALL";
-  const rows = all ? players : players.filter((p) => p.pos === filter);
+  let rows = (all ? players : players.filter((p) => p.pos === filter)).filter((p) => (history ? picked.has(p.key) : !picked.has(p.key)));
+  if (history) rows = [...rows].sort((a, b) => picked.get(a.key)!.overall_pick - picked.get(b.key)!.overall_pick);
 
   let html = "";
   let curTier: number | null | undefined = undefined;
@@ -94,7 +111,7 @@ export function renderBoard(board: Board, filter: string): string {
       curTier = p.tier;
       html += tierDivider(filter, p.tier);
     }
-    html += row(p, maxVorp, all);
+    html += row(p, maxVorp, all, picked.get(p.key));
   }
   return html;
 }

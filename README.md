@@ -115,20 +115,25 @@ Test-driven; CI runs lint + format + tests on every push and PR.
 
 ## Draft tracker (`tracker/`)
 
-[`tracker/`](tracker/) is a **separate TypeScript Cloudflare Worker** — a thin
-render/auth layer that consumes the pipeline's `board.json` **v1** contract at a
-file boundary (it never imports the Python package). On draft day it serves the
-cheat sheet to a phone, grouped by position → tier ("Draft Room" — a dark, dense,
-terminal-style board). Picks and "your turn" recommendations are later slices;
-this is the deployable skeleton.
+[`tracker/`](tracker/) is a **separate TypeScript Cloudflare Worker** that
+consumes the pipeline's `board.json` **v1** contract at a file boundary (it never
+imports the Python package). On draft day it serves the phone-friendly Draft Room,
+records a single manual snake draft, and keeps the available board current.
 
-Architecture: the board blob lives in a **KV** namespace (`BOARD`, key
-`board:current`); the Worker serves it from an auth-gated `GET /api/board`.
-**D1** is provisioned for slice-7 pick state (metadata-only migration for now).
-Every `/api/*` request needs `Authorization: Bearer <TRACKER_API_KEY>`; the
-static shell is public so the phone can load and enter the key (saved in
-`localStorage`). Re-publishing is a **data update, no code deploy** — the board
-is swapped in KV.
+Architecture: the immutable board blob lives in **KV** (`BOARD`, key
+`board:current`) and is served verbatim from `GET /api/board`; live configuration,
+ordered teams, and picks live separately in **D1**. The client joins them by
+`player.key`, so publishing a new board never changes draft history. Every
+`/api/*` request needs `Authorization: Bearer <TRACKER_API_KEY>`; the static shell
+is public so the phone can load and enter the key (saved in `localStorage`).
+
+The first authenticated use opens setup: enter 2–20 teams in first-round order,
+choose Brian’s team, and set 1–30 rounds. The Worker derives the snake order,
+validates the expected pick on each write, snapshots player identity in D1, and
+only permits LIFO undo. `DELETE /api/draft` resets the one current draft (picks,
+then teams, then configuration) but deliberately leaves the published board in
+KV untouched. The other state routes are `GET`/`PUT /api/draft`, `POST /api/picks`,
+and `DELETE /api/picks/latest`.
 
 ```sh
 cd tracker
@@ -137,6 +142,7 @@ npm test                     # vitest + @cloudflare/vitest-pool-workers (offline
 npm run typecheck
 npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
 npm run publish:board        # seed the LOCAL dev KV from ../exports/board.json
+npx wrangler d1 migrations apply ffb-tracker --local
 ```
 
 For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
@@ -162,3 +168,7 @@ npm run publish:board:remote                         # load the live board into 
 
 Then open the URL on a phone, enter the key, and the board renders by tier.
 Rotate the key any time with another `wrangler secret put TRACKER_API_KEY`.
+
+Apply the committed D1 migrations separately to production before the first
+draft: `npx wrangler d1 migrations apply ffb-tracker --remote`. Local and remote
+databases are distinct; applying `--local` does not affect production.

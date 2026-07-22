@@ -13,7 +13,7 @@
     <div class="row1">
       <span class="brand">DRAFT<b>ROOM</b></span>
       <span class="right">
-        <span class="clock" data-clock>1.07 · YOU in 2<span class="dir" role="img" aria-label="draft order heading up toward you">&#x2B06;&#xFE0E;</span></span>
+        <span class="clock" data-clock>Set up draft</span>
         <button class="gear" data-gear aria-label="Board settings and API key">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
@@ -23,6 +23,10 @@
   </div>
 
   <div class="tabs" role="tablist" data-tabs></div>
+  <div class="viewtabs" data-view-tabs>
+    <button class="viewtab" data-view="available" aria-pressed="true">Available</button>
+    <button class="viewtab" data-view="drafted" aria-pressed="false">Drafted</button>
+  </div>
 
   <div class="colhead" aria-hidden="true">
     <span class="h-rk">#</span>
@@ -33,7 +37,30 @@
   </div>
 
   <div class="list" data-list></div>
+  <section class="recent" data-recent hidden></section>
   <div class="footbar" data-foot>board.json —</div>
+
+  <section class="setup" data-setup hidden>
+    <h2>Set up draft</h2>
+    <label>Draft name <input data-draft-name placeholder="2026 Draft" /></label>
+    <label>Rounds <input data-rounds type="number" min="1" max="30" value="16" /></label>
+    <label>Teams, first-round order (one per line)<textarea data-team-names rows="5" placeholder="Brian&#10;Team 2"></textarea></label>
+    <label>Brian’s team <select data-user-team></select></label>
+    <button data-save-draft>Save draft setup</button>
+  </section>
+
+  <section class="pickpanel" data-pick-panel hidden>
+    <p class="onclock" data-on-clock></p>
+    <div class="suggestions" data-suggestions></div>
+    <label class="searchlabel" for="player-search">Player search</label>
+    <input id="player-search" data-player-search role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Search available players" />
+    <div class="searchresults" data-search-results role="listbox"></div>
+    <p class="selected" data-selected>No player selected.</p>
+    <p class="status" data-draft-error aria-live="polite"></p>
+    <button class="record" data-record-pick disabled>Record pick</button>
+    <button class="undo" data-undo-pick disabled>Undo latest pick</button>
+    <button class="reset" data-reset-draft>Reset draft…</button>
+  </section>
 
   <!-- API-key modal: first-run gate + settings -->
   <div class="lock" data-lock hidden>
