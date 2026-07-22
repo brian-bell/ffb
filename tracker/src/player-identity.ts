@@ -43,7 +43,8 @@ export function playersEquivalent(a: PlayerIdentity, b: PlayerIdentity): boolean
   const bTeam = normalizedTeam(b.team);
   if (aPos === "DEF" && bPos === "DEF" && aTeam !== null && aTeam === bTeam) return true;
   if (!isFallback(a.key) && !isFallback(b.key)) return false;
-  if (aPos !== bPos || aPos === null || normalizedName(a.name) !== normalizedName(b.name)) return false;
+  if (aPos !== bPos || normalizedName(a.name) !== normalizedName(b.name)) return false;
+  if (aPos === null) return isManual(a.key) && isManual(b.key) && aTeam === bTeam;
   if (aTeam !== null && aTeam === bTeam) return true;
   return aTeam === null && bTeam === null && isManual(a.key) && isManual(b.key);
 }

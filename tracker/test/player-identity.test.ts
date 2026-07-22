@@ -19,5 +19,9 @@ describe("player identity", () => {
       { key: "manual:one", name: "Mystery Player", pos: "WR", team: null },
       { key: "manual:two", name: "Mystery Player", pos: "WR", team: null },
     )).toBe(true);
+    expect(playersEquivalent(
+      { key: "manual:one", name: "Mystery Player", pos: null, team: "BUF" },
+      { key: "manual:two", name: "Mystery Player", pos: "Unknown", team: "buf" },
+    )).toBe(true);
   });
 });
