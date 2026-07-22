@@ -12,12 +12,20 @@ FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
 XWALK_FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 
 
-def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path):
+def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path, monkeypatch):
+    called = False
+
+    def crosswalk_should_not_load(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("ffb.cli.ensure_crosswalk", crosswalk_should_not_load)
     env = {"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")}
     sync = runner.invoke(
         app, ["league", "sync", "--season", "2024", "--fixture", str(FIXTURE)], env=env
     )
     assert sync.exit_code == 0, sync.output
+    assert not called
 
     shown = runner.invoke(app, ["league", "show", "--season", "2024"], env=env)
     assert shown.exit_code == 0, shown.output

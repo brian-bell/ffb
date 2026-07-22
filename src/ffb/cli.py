@@ -59,16 +59,16 @@ def league_sync(  # noqa: B008
     store = Store(paths.db_path())
     store.init_schema()
     # A fixture sync may be the first command against a fresh database. Load
-    # the identity spine first so Yahoo roster ids are stored canonically rather
-    # than stranded under fallback keys until the user runs another command.
-    # Match the rest of the CLI's best-effort behavior: an unavailable
-    # crosswalk must not prevent an otherwise valid fixture from being synced.
-    try:
-        ensure_crosswalk(store, SnapshotCache(paths.snapshot_dir()))
-    except Exception as exc:  # noqa: BLE001 - fixture state remains useful without it
-        console.print(
-            f"[yellow]Crosswalk unavailable ({exc}); roster players may be unmatched.[/yellow]"
-        )
+    # the identity spine before resolving nonempty Yahoo rosters so their ids
+    # are stored canonically rather than stranded under fallback keys. Empty
+    # settings-only fixtures have nothing to resolve, so keep them offline.
+    if any(roster["players"] for roster in bundle.rosters):
+        try:
+            ensure_crosswalk(store, SnapshotCache(paths.snapshot_dir()))
+        except Exception as exc:  # noqa: BLE001 - fixture state remains useful without it
+            console.print(
+                f"[yellow]Crosswalk unavailable ({exc}); roster players may be unmatched.[/yellow]"
+            )
     result = store.replace_league_state(bundle)
     store.close()
     console.print(
