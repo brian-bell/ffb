@@ -1,0 +1,501 @@
+/* "Draft Room" — a single, committed dark theme (slice-6 §3c-i). One visual
+   world for a phone at a draft table, not a light/dark pair. Tokens live on
+   :root; everything styles through them. */
+:root {
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --dr-screen: #0f141b; /* board ground */
+  --dr-chrome: #0b0f15; /* app bar / tab bar / footer */
+  --dr-line: #1c242e; /* hairline rules */
+  --dr-line-soft: #161d25; /* row separators */
+  --dr-ink: #e8eef4; /* names, primary numerics */
+  --dr-muted: #7e8b99; /* meta line, ADP */
+  --dr-faint: #4d5764; /* disabled / na */
+  --dr-accent: #f5a623; /* amber — tiers, on-the-clock, selected pill */
+  --good: #34d17a; /* +/- falls to you */
+  --reach: #ff6b6b; /* +/- reach */
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--dr-screen);
+  color: var(--dr-ink);
+  font-family: var(--sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background: var(--dr-screen);
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* ---------- app bar ---------- */
+.appbar {
+  flex: none;
+  padding: max(9px, env(safe-area-inset-top)) 14px 5px;
+  background: var(--dr-chrome);
+  border-bottom: 1px solid var(--dr-line);
+}
+.appbar .row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.appbar .brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 740;
+  letter-spacing: -0.01em;
+  color: #fff;
+  font-size: 16px;
+}
+.appbar .brand b {
+  color: var(--dr-accent);
+}
+.appbar .right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The clock pill + snake arrow are presentational this slice (static copy);
+   they go live off D1 draft state in slice 7. The slot is reserved now. */
+.appbar .clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 700 10.5px/1 var(--mono);
+  padding: 5px 6px 5px 8px;
+  border-radius: 999px;
+  background: #2a1e08;
+  color: var(--dr-accent);
+  border: 1px solid #52400f;
+  letter-spacing: 0.02em;
+}
+.appbar .clock .dir {
+  display: inline-flex;
+  padding-left: 6px;
+  margin-left: 1px;
+  border-left: 1px solid #52400f;
+  font-size: 12px;
+  line-height: 1;
+}
+.gear {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 1px solid #263041;
+  background: #141b24;
+  color: #cdd6e0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.gear:hover {
+  color: var(--dr-accent);
+  border-color: #52400f;
+}
+.gear:focus-visible {
+  outline: 2px solid var(--dr-accent);
+  outline-offset: 2px;
+}
+.appbar .sub {
+  font: 500 11px/1.3 var(--mono);
+  color: var(--dr-muted);
+  letter-spacing: 0.02em;
+  margin-top: 4px;
+}
+
+/* ---------- position pills ---------- */
+.tabs {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--dr-chrome);
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tab {
+  flex: none;
+  border: 0;
+  cursor: pointer;
+  font: 640 12.5px/1 var(--sans);
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: #171e26;
+  color: var(--dr-muted);
+}
+.tab[aria-selected="true"] {
+  background: var(--dr-accent);
+  color: #1a1204;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--dr-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- column header ---------- */
+.colhead {
+  flex: none;
+  display: grid;
+  grid-template-columns: 22px 1fr 56px 40px 40px;
+  gap: 9px;
+  padding: 9px 14px 8px;
+  background: var(--dr-chrome);
+  border-bottom: 1px solid var(--dr-line);
+  font: 700 9.5px/1 var(--mono);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #6d7a89;
+}
+.colhead span {
+  text-align: right;
+}
+.colhead .h-nm {
+  text-align: left;
+}
+.colhead .h-delta {
+  text-align: center;
+}
+
+/* ---------- board list ---------- */
+.list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  background: var(--dr-screen);
+}
+.list::-webkit-scrollbar {
+  width: 0;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.trule {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--dr-screen);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 10px/1 var(--mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dr-accent);
+  padding: 11px 14px 6px;
+}
+.trule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, #3a2c0c, transparent);
+}
+
+.rowA {
+  display: grid;
+  grid-template-columns: 22px 1fr 56px 40px 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--dr-line-soft);
+}
+.rowA .rk {
+  font: 600 11px/1 var(--mono);
+  color: #5f6b7a;
+  text-align: right;
+}
+.nm {
+  min-width: 0;
+}
+.nm b {
+  font-weight: 630;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nm i {
+  font-style: normal;
+  font: 500 10px/1.2 var(--mono);
+  color: #6d7a89;
+  letter-spacing: 0.02em;
+}
+.num {
+  font: 600 12.5px/1 var(--mono);
+  text-align: right;
+  position: relative;
+}
+.num.vorp {
+  color: var(--dr-ink);
+  padding: 5px 7px;
+  min-width: 54px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.num.vorp .bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--w);
+  background: rgba(245, 166, 35, 0.16);
+}
+.num.vorp span {
+  position: relative;
+}
+.num.adp {
+  color: var(--dr-muted);
+  min-width: 34px;
+}
+.num.na {
+  color: var(--dr-faint);
+}
+.chip {
+  font: 700 10.5px/1 var(--mono);
+  text-align: center;
+  padding: 5px 0;
+  border-radius: 5px;
+}
+.chip.up {
+  color: var(--good);
+  background: rgba(52, 209, 122, 0.12);
+}
+.chip.dn {
+  color: var(--reach);
+  background: rgba(255, 107, 107, 0.12);
+}
+.chip.zero {
+  color: #6d7a89;
+  background: rgba(120, 130, 145, 0.1);
+}
+.chip.na {
+  color: var(--dr-faint);
+  background: transparent;
+}
+
+.footbar {
+  flex: none;
+  font: 500 10.5px/1 var(--mono);
+  padding: 9px 16px calc(9px + env(safe-area-inset-bottom));
+  text-align: center;
+  background: var(--dr-chrome);
+  color: #6d7a89;
+  border-top: 1px solid var(--dr-line);
+}
+
+/* A whole-list state message (empty board, contract drift). */
+.notice {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--dr-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.notice b {
+  color: var(--dr-ink);
+  display: block;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+.notice code {
+  font: 600 0.88em/1 var(--mono);
+  background: #12181f;
+  border: 1px solid var(--dr-line);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--dr-ink);
+}
+
+/* ---------- locked state + key modal ---------- */
+.screen.locked .tabs,
+.screen.locked .colhead,
+.screen.locked .list {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.lock {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(6, 9, 13, 0.72);
+  backdrop-filter: blur(3px);
+}
+.lock[hidden] {
+  display: none;
+}
+.lockcard {
+  width: 100%;
+  max-width: 320px;
+  background: #12181f;
+  border: 1px solid #29323e;
+  border-radius: 18px;
+  padding: 22px 20px 18px;
+  position: relative;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.lockcard .close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid #2b3542;
+  background: #171e26;
+  color: var(--dr-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.lockcard .close[hidden] {
+  display: none;
+}
+.lockcard .close:hover {
+  color: var(--dr-ink);
+}
+.keyicon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: #2a1e08;
+  border: 1px solid #52400f;
+  color: var(--dr-accent);
+  margin-bottom: 14px;
+}
+.lockcard h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.lockcard .desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--dr-muted);
+}
+.lockcard label {
+  display: block;
+  font: 700 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dr-muted);
+  margin: 0 0 7px;
+}
+.lockcard input {
+  width: 100%;
+  font: 500 14px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--dr-ink);
+  background: #0d1218;
+  border: 1px solid #2b3542;
+  border-radius: 10px;
+  padding: 12px;
+}
+.lockcard input::placeholder {
+  color: var(--dr-faint);
+  letter-spacing: normal;
+}
+.lockcard input:focus-visible {
+  outline: none;
+  border-color: var(--dr-accent);
+  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
+}
+.lockcard .err {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--reach);
+}
+.lockcard .err[hidden] {
+  display: none;
+}
+.save {
+  width: 100%;
+  margin-top: 14px;
+  border: 0;
+  cursor: pointer;
+  border-radius: 10px;
+  font: 700 14px/1 var(--sans);
+  padding: 13px;
+  background: var(--dr-accent);
+  color: #1a1204;
+}
+.save:hover {
+  background: #ffb838;
+}
+.save:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.hint {
+  margin: 13px 0 0;
+  font-size: 11.5px;
+  color: #6d7a89;
+  line-height: 1.45;
+}
+.hint code {
+  font: 600 0.9em/1 var(--mono);
+  color: var(--dr-ink);
+}
+.forget {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: 600 12px/1 var(--sans);
+  color: var(--dr-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.forget[hidden] {
+  display: none;
+}
+.forget:hover {
+  color: var(--reach);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tab,
+  .save,
+  .gear {
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+}

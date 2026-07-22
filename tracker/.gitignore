@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+dist/
+# Built client bundle (generated from public/app.ts by `npm run build:client`).
+public/app.js
+public/app.js.map
+# Local wrangler secrets / vars, if ever used.
+.dev.vars

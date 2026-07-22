@@ -1,0 +1,24 @@
+{
+  "name": "ffb-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Draft-tracker web app (Cloudflare Worker) consuming ffb board.json v1",
+  "type": "module",
+  "scripts": {
+    "build:client": "esbuild public/app.ts --bundle --format=iife --target=es2022 --outfile=public/app.js",
+    "dev": "npm run build:client && wrangler dev",
+    "deploy": "npm run build:client && wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "publish:board": "wrangler kv key put --binding BOARD board:current --path ../exports/board.json --local --preview",
+    "publish:board:remote": "wrangler kv key put --binding BOARD board:current --path ../exports/board.json --remote --preview false"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.0",
+    "@cloudflare/workers-types": "^5.20260721.0",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.0",
+    "vitest": "~3.2.0",
+    "wrangler": "^4.103.0"
+  }
+}

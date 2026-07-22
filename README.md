@@ -112,3 +112,53 @@ uv run ruff format .       # format
 ```
 
 Test-driven; CI runs lint + format + tests on every push and PR.
+
+## Draft tracker (`tracker/`)
+
+[`tracker/`](tracker/) is a **separate TypeScript Cloudflare Worker** — a thin
+render/auth layer that consumes the pipeline's `board.json` **v1** contract at a
+file boundary (it never imports the Python package). On draft day it serves the
+cheat sheet to a phone, grouped by position → tier ("Draft Room" — a dark, dense,
+terminal-style board). Picks and "your turn" recommendations are later slices;
+this is the deployable skeleton.
+
+Architecture: the board blob lives in a **KV** namespace (`BOARD`, key
+`board:current`); the Worker serves it from an auth-gated `GET /api/board`.
+**D1** is provisioned for slice-7 pick state (metadata-only migration for now).
+Every `/api/*` request needs `Authorization: Bearer <TRACKER_API_KEY>`; the
+static shell is public so the phone can load and enter the key (saved in
+`localStorage`). Re-publishing is a **data update, no code deploy** — the board
+is swapped in KV.
+
+```sh
+cd tracker
+npm install
+npm test                     # vitest + @cloudflare/vitest-pool-workers (offline)
+npm run typecheck
+npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
+npm run publish:board        # seed the LOCAL dev KV from ../exports/board.json
+```
+
+For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
+`tracker/.dev.vars` (gitignored). Regenerate the board with `uv run ffb
+cheatsheet --export` (writes `exports/board.json`), then `npm run publish:board`
+to reload the dev store.
+
+### One-time Cloudflare setup (HITL)
+
+The KV/D1 ids in `wrangler.jsonc` are **placeholders**; they are not secrets and
+are filled in once. Run from `tracker/`:
+
+```sh
+npx wrangler login
+npx wrangler kv namespace create BOARD               # → id      → wrangler.jsonc
+npx wrangler kv namespace create BOARD --preview     # → preview_id → wrangler.jsonc
+npx wrangler d1 create ffb-tracker                   # → database_id → wrangler.jsonc
+npx wrangler d1 migrations apply ffb-tracker --remote
+npx wrangler secret put TRACKER_API_KEY              # the shared key (never committed)
+npm run deploy                                       # note the *.workers.dev URL
+npm run publish:board:remote                         # load the live board into prod KV
+```
+
+Then open the URL on a phone, enter the key, and the board renders by tier.
+Rotate the key any time with another `wrangler secret put TRACKER_API_KEY`.

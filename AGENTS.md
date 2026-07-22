@@ -52,7 +52,37 @@ docs/plans/         # per-slice implementation plans (gitignored, local-only)
 snapshots/          # raw API pulls, offline replay cache (gitignored)
 exports/            # `ffb cheatsheet --export` output (board.json etc.; gitignored)
 data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
+tracker/            # SEPARATE TS Cloudflare Worker subtree (own npm/vitest) — draft
+                    #   tracker consuming board.json v1; not part of the uv package
 ```
+
+## Draft tracker (`tracker/`) — separate TS subtree
+
+`tracker/` is a **TypeScript Cloudflare Worker**, isolated from the Python
+package (own `package.json`, `wrangler.jsonc`, `vitest`; uv stays Python-only).
+It's the slice-6 draft-tracker skeleton: a thin render/auth layer that consumes
+the pipeline's `board.json` **v1** contract as its input API — the only
+cross-boundary coupling is `tracker/` reading `../exports/board.json` at publish
+time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about it.
+
+- **Board data path:** the whole board blob lives in a **KV** namespace (`BOARD`,
+  key `board:current`); the Worker serves it verbatim from an auth-gated `GET
+  /api/board` (streams KV text straight through — the pipeline owns the shape).
+  Re-publishing = `npm run publish:board` (a KV write, **no code redeploy**).
+- **Auth:** single shared bearer key (`TRACKER_API_KEY`, a Wrangler secret,
+  constant-time compared) gates `/api/*`; the static shell is public so the phone
+  can load and enter the key (saved in `localStorage`, in-memory fallback).
+- **Contract pin:** the client asserts `board.version === 1` and degrades loudly
+  ("redeploy the tracker") on drift — this is what `board.py`'s `version` field
+  is for. The committed `tracker/test/fixtures/board.json` keeps tracker tests
+  green independent of the live pipeline.
+- **Pure testable core:** `src/{auth,board,render,state}.ts` are pure/DOM-free and
+  unit-tested; `public/app.ts` is thin DOM wiring bundled to `public/app.js`
+  (esbuild, gitignored). D1 is **provisioned but unused** this slice (metadata-only
+  migration); pick recording is slice 7.
+- CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
+  of the Python `uv` job. Binding ids in `wrangler.jsonc` are placeholders filled
+  in during the one-time HITL Cloudflare setup (see README).
 
 ## Key modules & responsibilities
 
