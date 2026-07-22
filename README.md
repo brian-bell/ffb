@@ -31,8 +31,11 @@ Crosswalk misses are never dropped — they rank source-only and are reported.
 ## Setup
 
 ```sh
-uv sync
+make init                 # installs Python and tracker dependencies
 ```
+
+This runs `uv sync` at the repository root and `npm i` in `tracker/`. To install
+only the Python package, run `uv sync` directly.
 
 ## Usage
 
@@ -168,17 +171,27 @@ to reload the dev store.
 The production KV namespace, D1 database, and `ffb.bbell.dev` custom-domain route
 are already provisioned. Their IDs are committed in `wrangler.jsonc`; resource
 IDs are deployment configuration, not secrets. `TRACKER_API_KEY` remains a
-Wrangler secret. From `tracker/`, authenticate the machine and deploy with:
+Wrangler secret. Authenticate the machine and set the secret on first deploy
+(or rotate it later) from `tracker/`:
 
 ```sh
 npx wrangler login
-npx wrangler d1 migrations apply ffb-tracker --remote
 npx wrangler secret put TRACKER_API_KEY              # first deploy or key rotation only
-npm run deploy
-npm run publish:board:remote                         # load the live board into prod KV
 ```
 
+After that, use the root Makefile for production updates:
+
+```sh
+make deploy-board    # refresh sources, export board.json, publish production KV only
+make deploy-app      # typecheck/test, apply remote D1 migrations, deploy app/assets
+make deploy-all      # deploy the app first, then publish a fresh board
+```
+
+Use `deploy-board` for projection, ADP, scoring, or ranking updates that do not
+change tracker code. Use `deploy-app` for Worker or browser-app changes; it
+applies committed D1 migrations before deploying code that needs them.
+
 Then open `https://ffb.bbell.dev` on a phone and enter the key. Apply committed
-D1 migrations before deploying code that needs them; local and remote databases
+D1 migrations locally during development as before; local and remote databases
 are distinct, so applying `--local` never affects production. Rotate the key any
-time with another `wrangler secret put TRACKER_API_KEY`.
+time with another `wrangler secret put TRACKER_API_KEY` from `tracker/`.

@@ -9,7 +9,17 @@ context for agents changing the code.
 
 ## Build, test, run
 
-Managed with **uv** (Python ≥ 3.12).
+The root Makefile installs both toolchains and exposes the production deploy
+workflows:
+
+```sh
+make init                     # uv sync + npm install in tracker/
+make deploy-board             # refresh/export board.json, then publish production KV
+make deploy-app               # tracker checks + remote D1 migrations + Worker deploy
+make deploy-all               # app first, then board
+```
+
+The Python package is managed with **uv** (Python ≥ 3.12).
 
 ```sh
 uv sync                      # install deps from uv.lock
@@ -30,6 +40,13 @@ npm test
 npm run build:client
 ```
 
+`deploy-board` is intentionally a data-only deployment: it runs `ffb
+cheatsheet --refresh --export`, verifies `exports/board.json` is nonempty, and
+writes `board:current` to production KV without redeploying code. `deploy-app`
+runs the tracker typecheck and tests, applies pending remote D1 migrations, then
+builds and deploys the Worker and static assets. Both require an authenticated
+Wrangler session; first-time secret setup and key rotation remain manual.
+
 CI (`.github/workflows/ci.yml`) runs two independent jobs on every push to
 `main` and every PR. The Python job runs `uv sync --frozen`, `ruff check`, `ruff
 format --check`, and `pytest`; the tracker job runs `npm ci`, `typecheck`, and
@@ -40,6 +57,7 @@ commit `tracker/package-lock.json` too.
 ## Layout
 
 ```
+Makefile            # install, board-publish, and tracker-deploy workflows
 src/ffb/
   cli.py            # Typer app; `ffb rankings` + `ffb cheatsheet` commands + rich tables
   config.py         # paths, season, scoring weights, ESPN maps, league shape, FFC/VORP/tier knobs
@@ -80,7 +98,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
 - **Board data path:** the whole board blob lives in a **KV** namespace (`BOARD`,
   key `board:current`); the Worker serves it verbatim from an auth-gated `GET
   /api/board` (streams KV text straight through — the pipeline owns the shape).
-  Re-publishing = `npm run publish:board` (a KV write, **no code redeploy**).
+  Local re-publishing = `npm run publish:board`; production re-publishing =
+  `make deploy-board` from the repository root. Both are KV writes with **no
+  code redeploy**.
 - **Auth:** single shared bearer key (`TRACKER_API_KEY`, a Wrangler secret,
   constant-time compared) gates `/api/*`; the static shell is public so the phone
   can load and enter the key (saved in `localStorage`, in-memory fallback).
