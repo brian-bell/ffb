@@ -3,10 +3,11 @@
 Everything else (ingest, rankings, CLI) goes through this class. A test
 (``test_only_store_module_imports_duckdb``) enforces that contract.
 
-Projections are keyed by a canonical ``player_key`` (nflverse ``mfl_id``) so
-multiple sources align for consensus; the ``crosswalk`` table maps each source's
-native id onto it, and ``source``/``scope`` columns keep weekly projections
-(slice 9) additive. Scoring is NOT stored — points are computed from
+Projections are keyed by a canonical ``player_key`` (nflverse ``mfl_id`` for
+players, ``def:<team>`` for defenses) so multiple sources align for consensus;
+the ``crosswalk`` table maps each player's native id onto it, while ``source``
+and ``scope`` keep weekly projections (slice 9) additive. Scoring is NOT stored —
+points are computed from
 ``stats_json`` at read time so rankings stay reproducible and league re-scoring
 (slice 4) is a config swap.
 """
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+
+from ffb import identity
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS crosswalk (
@@ -34,11 +37,11 @@ CREATE INDEX IF NOT EXISTS ix_xwalk_sleeper ON crosswalk (sleeper_id);
 CREATE INDEX IF NOT EXISTS ix_xwalk_espn    ON crosswalk (espn_id);
 
 CREATE TABLE IF NOT EXISTS players (
-    player_key VARCHAR PRIMARY KEY,   -- canonical, or 'source:native_id' fallback
+    player_key VARCHAR PRIMARY KEY,   -- canonical player/defense, or source fallback
     full_name  VARCHAR,
     position   VARCHAR,
     team       VARCHAR,
-    matched    BOOLEAN                 -- false when identity is a crosswalk miss
+    matched    BOOLEAN                 -- true when identity is canonical
 );
 
 CREATE TABLE IF NOT EXISTS projections (
@@ -53,7 +56,7 @@ CREATE TABLE IF NOT EXISTS projections (
 );
 
 CREATE TABLE IF NOT EXISTS adp (
-    player_key    VARCHAR,             -- canonical, or 'ffc:<player_id>' fallback
+    player_key    VARCHAR,             -- canonical player/defense, or FFC fallback
     season        INTEGER,
     source        VARCHAR,             -- 'ffc' (format/teams live in config)
     native_id     VARCHAR,             -- FFC player_id (provenance)
@@ -493,10 +496,11 @@ class Store:
         """True if any stored ``(season, source)`` row no longer matches how it
         would resolve against the current crosswalk.
 
-        For each row the expected key is the crosswalk match if the native id is
-        present, else the ``source:native_id`` fallback. A row is stale when its
-        stored ``player_key`` differs from that, which covers three cases:
+        For each row the expected key is a valid synthetic defense key, then the
+        crosswalk match if present, else the ``source:native_id`` fallback. A row
+        is stale when its stored ``player_key`` differs, covering four cases:
 
+        - a legacy source-specific defense row can now use a canonical key;
         - a late crosswalk now resolves a fallback row to a canonical key;
         - a native id was reassigned to a different canonical key upstream;
         - a native id **disappeared** from a refreshed crosswalk, so a row still
@@ -512,17 +516,25 @@ class Store:
         seasonal re-ingest forever without ever fixing it.
         """
         column = self._source_column(source)
-        result = self.conn.execute(
+        rows = self.conn.execute(
             f"""
-            SELECT COUNT(*)
+            SELECT p.player_key, p.native_id, c.player_key,
+                   pl.position, pl.team
             FROM projections p
+            JOIN players pl ON pl.player_key = p.player_key
             LEFT JOIN crosswalk c ON c.{column} = p.native_id
             WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
-              AND p.player_key <> COALESCE(c.player_key, ? || ':' || p.native_id)
             """,
-            [season, source, source],
-        ).fetchone()
-        return bool(result and result[0] > 0)
+            [season, source],
+        ).fetchall()
+        for stored_key, native_id, crosswalk_key, position, team in rows:
+            defense = identity.canonical_defense_key(position, team)
+            expected_key = (
+                defense[0] if defense is not None else crosswalk_key or f"{source}:{native_id}"
+            )
+            if stored_key != expected_key:
+                return True
+        return False
 
     def projection_rows(
         self,

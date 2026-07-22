@@ -46,10 +46,10 @@ def test_keeps_only_configured_company(raw):
 
 
 def test_row_count(raw):
-    # 8 raw rows: 2 dropped (null player, missing position), 1 dropped (company).
-    assert len(parse_projections(raw)) == 5
+    # 10 raw rows: 2 dropped (null player, missing position), 1 dropped (company).
+    assert len(parse_projections(raw)) == 7
 
 
 def test_positions_present(raw):
     positions = {r["position"] for r in parse_projections(raw)}
-    assert positions == {"RB", "QB", "WR"}
+    assert positions == {"RB", "QB", "WR", "K", "DEF"}

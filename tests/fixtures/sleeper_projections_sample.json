@@ -74,6 +74,35 @@
     }
   },
   {
+    "player_id": "1264",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "fgm_40_49": 9.0, "fgm_50p": 5.0, "xpm": 48.0,
+      "pts_ppr": 108.0
+    },
+    "player": {
+      "first_name": "Justin", "last_name": "Tucker",
+      "position": "K", "team": "BAL", "fantasy_positions": ["K"]
+    }
+  },
+  {
+    "player_id": "SF",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "blk_kick": 1.0, "def_fum_td": 1.0, "fum_rec": 10.0,
+      "int": 14.0, "pass_int_td": 2.0, "pts_allow_0": 1.0,
+      "sack": 47.0, "safe": 1.0, "pts_ppr": 99.0
+    },
+    "player": {
+      "first_name": "San Francisco", "last_name": "49ers",
+      "position": "DEF", "team": "SF", "fantasy_positions": ["DEF"]
+    }
+  },
+  {
     "player_id": "9999",
     "company": "rotowire",
     "season": "2024",

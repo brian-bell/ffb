@@ -129,7 +129,7 @@ later drive consensus weighting.
 ## Open items (deferred, small)
 
 - Thursday-night check for TNF players (mini-run or fold into Tuesday report).
-- K/DST projection coverage in free sources is spottier — Yahoo's own
-  projections are the likely fallback.
+- Yahoo projections may become a third K/DEF source if their coverage proves
+  useful beyond the current Sleeper + ESPN consensus.
 - Email sending mechanism (Gmail app-password SMTP vs. a service like Resend).
 - Whether Yahoo's draft endpoint updates live (tracker auto-record upgrade).

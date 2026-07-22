@@ -358,7 +358,7 @@ def _value_delta(row: dict) -> str:
 
 
 def _report_board_unmatched(rows: list[dict]) -> None:
-    """Surface crosswalk misses among the shown board players."""
+    """Surface unresolved identities among the shown board players."""
     misses = [r for r in rows if not r["matched"]]
     if not misses:
         return
@@ -427,7 +427,7 @@ def _report_scoring_provenance(league: object) -> None:
 
 
 def _report_unmatched(rows: list[dict]) -> None:
-    """Surface crosswalk misses among the shown players (never silently drop)."""
+    """Surface unresolved identities among shown players (never silently drop)."""
     misses = [r for r in rows if not r["matched"]]
     if not misses:
         return

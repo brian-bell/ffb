@@ -71,6 +71,26 @@ def test_cheatsheet_export_writes_all_three_files(tmp_path):
     assert "board.json" in result.output
 
 
+def test_cheatsheet_joins_defense_projection_consensus_and_adp(tmp_path):
+    export = tmp_path / "out"
+    result = runner.invoke(
+        app,
+        ["cheatsheet", "--season", "2024", "--export", "--export-dir", str(export)],
+        env=_env(tmp_path),
+    )
+
+    assert result.exit_code == 0, result.output
+    players = json.loads((export / "board.json").read_text())["players"]
+    defenses = [player for player in players if player["key"] == "def:SFO"]
+    assert len(defenses) == 1
+    assert defenses[0]["pos"] == "DEF"
+    assert defenses[0]["team"] == "SFO"
+    assert defenses[0]["points"] is not None
+    assert defenses[0]["n_sources"] == 2
+    assert defenses[0]["adp"] == 118.0
+    assert defenses[0]["matched"] is True
+
+
 def test_cheatsheet_degrades_when_ffc_fails(tmp_path, monkeypatch):
     import ffb.cli as cli
 
@@ -129,8 +149,22 @@ def test_cheatsheet_refresh_invalid_ffc_drops_stale_adp(tmp_path, monkeypatch):
     env = _env(tmp_path, with_ffc=True)
     assert runner.invoke(app, ["cheatsheet", "--season", "2024"], env=env).exit_code == 0
 
+    import ffb.sources.crosswalk as crosswalk_src
+    import ffb.sources.espn as espn_src
     import ffb.sources.ffc as ffc_src
+    import ffb.sources.sleeper as sleeper_src
 
+    monkeypatch.setattr(crosswalk_src, "fetch_playerids", lambda: json.loads(XWALK_FIX.read_text()))
+    monkeypatch.setattr(
+        sleeper_src,
+        "fetch_projections",
+        lambda *a, **k: json.loads(SLEEPER_FIX.read_text()),
+    )
+    monkeypatch.setattr(
+        espn_src,
+        "fetch_projections",
+        lambda *a, **k: json.loads(ESPN_FIX.read_text()),
+    )
     monkeypatch.setattr(ffc_src, "fetch_adp", lambda *a, **k: {"status": "Error"})
     export = tmp_path / "out3"
     result = runner.invoke(

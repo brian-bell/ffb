@@ -60,15 +60,28 @@ def test_ingest_resolves_matched_and_fallback_keys(store, tmp_path):
     # Suffix-stripped match: "Michael Pittman Jr." -> crosswalk "Michael Pittman".
     assert rows["5310"]["player_key"] == "22222"
     assert rows["5310"]["matched"] is True
-    # Crosswalk miss (DEF not in ff_playerids) -> ffc: fallback, never dropped.
-    assert rows["9001"]["player_key"] == "ffc:9001"
-    assert rows["9001"]["matched"] is False
+    # Team defenses use a source-independent synthetic identity.
+    assert rows["9001"]["player_key"] == "def:SFO"
+    assert rows["9001"]["matched"] is True
     assert rows["9001"]["full_name"] == "San Francisco Defense"
 
     assert recon.source == "ffc"
-    assert recon.matched == 4
-    assert recon.unmatched == recon.n_rows - 4
+    assert recon.matched == 5
+    assert recon.unmatched == recon.n_rows - 5
     assert recon.unmatched_names  # surfaced for the footer
+
+
+def test_defense_adp_uses_canonical_team_identity(store, tmp_path):
+    cache = _prime(tmp_path / "snap")
+
+    recon = ensure_adp_ingested(store, cache, season=2024, fetch=_no_network)
+
+    defense = next(r for r in store.adp_rows(2024) if r["native_id"] == "9001")
+    assert defense["player_key"] == "def:SFO"
+    assert defense["position"] == "DEF"
+    assert defense["team"] == "SFO"
+    assert defense["matched"] is True
+    assert "San Francisco Defense" not in recon.unmatched_names
 
 
 def test_ingest_self_heals_after_late_crosswalk(store, tmp_path):

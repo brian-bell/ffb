@@ -16,7 +16,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "ffb"
 _FORBIDDEN = ("import httpx", "import duckdb", "ffb.store", "ffb.snapshot", "ffb.ingest")
 
 
-@pytest.mark.parametrize("module", ["vorp.py", "tiers.py", "board.py", "names.py"])
+@pytest.mark.parametrize("module", ["vorp.py", "tiers.py", "board.py", "names.py", "identity.py"])
 def test_pure_modules_have_no_io_imports(module):
     text = (SRC / module).read_text()
     offenders = [needle for needle in _FORBIDDEN if needle in text]

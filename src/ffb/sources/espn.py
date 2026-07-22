@@ -74,7 +74,7 @@ def _translate_stats(espn_stats: dict[str, Any]) -> dict[str, float]:
     for raw_id, value in espn_stats.items():
         key = config.ESPN_STAT_MAP.get(int(raw_id))
         if key is not None and value is not None:
-            out[key] = value
+            out[key] = out.get(key, 0.0) + float(value)
     return out
 
 
@@ -99,12 +99,9 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
             native_id = str(native_id)
             stats = _translate_stats(espn_stats)
             if not stats:
-                # Nothing scorable decoded — kickers and D/ST report ESPN stat
-                # ids not yet in ESPN_STAT_MAP. Skip rather than emit a 0-point
-                # row: a crosswalk-matched kicker would otherwise consense against
-                # Sleeper at half value. Self-healing — once those ids are mapped
-                # (a separate spike), these rows carry stats and flow through.
-                log.debug("skip ESPN row with no scorable stats (e.g. K/DST): %s", native_id)
+                # Nothing scorable decoded. Skip rather than emit a 0-point row,
+                # which would incorrectly dilute a cross-source consensus.
+                log.debug("skip ESPN row with no scorable stats: %s", native_id)
                 continue
             if native_id in seen:
                 continue
@@ -115,7 +112,7 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
                     "native_id": native_id,
                     "full_name": player.get("fullName"),
                     "position": config.ESPN_POSITION_MAP.get(player.get("defaultPositionId")),
-                    "team": None,  # ESPN gives numeric proTeamId; identity comes from crosswalk
+                    "team": config.ESPN_PRO_TEAM_MAP.get(player.get("proTeamId")),
                     "season": season,
                     "source": "espn",
                     "scope": "season",
