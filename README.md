@@ -103,6 +103,7 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 | `store.py` | **the only** module that touches DuckDB |
 | `season_data.py` | explicit sync/status/unmatched application service |
 | `scoring.py` / `config.py` | pure PPR scoring (computed, never stored) |
+| `identity.py` | canonical NFL team and DEF/DST identities (pure) |
 | `names.py` | name normalization + `(name, pos)` crosswalk match (pure) |
 | `rankings.py` | single-source ranked list |
 | `consensus.py` | per-source points pivoted + averaged per player |
@@ -202,14 +203,17 @@ npx wrangler secret put TRACKER_API_KEY              # first deploy or key rotat
 After that, use the root Makefile for production updates:
 
 ```sh
-make deploy-board    # refresh sources, export board.json, publish production KV only
+uv run ffb season sync 2026 --refresh  # when fresh source data is required
+make deploy-board SEASON=2026          # export persisted data and publish production KV
 make deploy-app      # typecheck/test, apply remote D1 migrations, deploy app/assets
-make deploy-all      # deploy the app first, then publish a fresh board
+make deploy-all      # deploy the app, then export/publish the persisted board
 ```
 
-Use `deploy-board` for projection, ADP, scoring, or ranking updates that do not
-change tracker code. Use `deploy-app` for Worker or browser-app changes; it
-applies committed D1 migrations before deploying code that needs them.
+`deploy-board` never fetches source data; it exports the current DuckDB state,
+checks that `exports/board.json` is nonempty, and publishes that file. Run the
+explicit `season sync` first for projection or ADP updates. Use `deploy-app` for
+Worker or browser-app changes; it applies committed D1 migrations before
+deploying code that needs them.
 
 Publishing a GitHub Release runs `make deploy-app`, which validates the tracker,
 applies remote D1 migrations, and deploys the Worker and static assets. Configure

@@ -36,7 +36,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense + K/DEF stat lines) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
-| Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Live (mock only)** |
+| Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | Live league scoring, roster slots, teams, rosters | Planned (Task 2b) |
 | nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
 | Sleeper trending / player status | REST JSON | none | Trending adds/drops, injury status | Planned (slice 11) |
@@ -171,8 +171,9 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
   GET https://fantasyfootballcalculator.com/api/v1/adp/{fmt}?teams={N}&year={season}
   ```
   One format/teams combo matching the league: `fmt = config.FFC_FORMAT` (`"ppr"`),
-  `N = config.LEAGUE_NUM_TEAMS` (`12`). Header `User-Agent: ffb/0.1 (personal
-  use)`, `Accept: application/json`, 30s timeout. **No auth.**
+  while `N` comes from the stored league context and falls back to
+  `config.LEAGUE_NUM_TEAMS` (`12`). Header `User-Agent: ffb/0.1 (personal use)`,
+  `Accept: application/json`, 30s timeout. **No auth.**
 - **Response** — `{"status", "meta": {type, teams, rounds, total_drafts,
   start_date, end_date}, "players": [{player_id, name, position, team, adp,
   adp_formatted, times_drafted, high, low, stdev, bye}]}` (~200 players; positions
@@ -211,8 +212,10 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
   - Expect an unmatched ADP tail from nickname/ambiguous misses like "Hollywood
     Brown" or two "Mike Williams"; extending `normalize_name`/`TEAM_ALIASES` is
     the tuning loop, not a bug.
-  - One format/teams combo per pull — a 10-team or half-PPR league shifts these
-    (and the VORP baselines), but both are config reads.
+  - One format/teams combo per pull. Changing the stored league team count marks
+    the existing FFC state stale until `ffb season sync SEASON --source ffc`
+    loads the corresponding snapshot. The format is still the configured `ppr`;
+    half-PPR would require a configuration change.
 
 ---
 
@@ -278,8 +281,9 @@ are not ingested today.
   The live adapter will add exact scoring settings, roster slots, teams, rosters, free agents, matchups,
   transactions, draft results, and actual weekly points. OAuth2 (token persisted
   between runs); **read-only** (the pipeline recommends, never sets lineups). The
-  crosswalk already carries `yahoo_id` for the join. Its scoring settings will
-  replace the placeholder `config.LEAGUE_SCORING`.
+  crosswalk already carries `yahoo_id` for the join. Live scoring, roster shape,
+  and team count will use the same stored league-context path the fixture already
+  exercises, with `config` values remaining component-level fallbacks.
 - **nflverse stats / injuries / depth charts** via `nflreadpy` (in-season) —
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Same access pattern as the crosswalk.
