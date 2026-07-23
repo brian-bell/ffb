@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeSetupStore, nextSetupDialog, setupValidation, teamsFromSetup, validateSetup } from "../src/setup";
+import { makeSetupStore, nextSetupDialog, setupValidation, teamOptionsFromSetup, teamsFromSetup, validateSetup } from "../src/setup";
 
 describe("teamsFromSetup", () => {
   it("turns the guided newline form into ordered team input without blank slots", () => {
@@ -7,6 +7,16 @@ describe("teamsFromSetup", () => {
       { name: "Brian", is_user: false },
       { name: "Team 1", is_user: true },
       { name: "Team 2", is_user: false },
+    ]);
+  });
+});
+
+describe("teamOptionsFromSetup", () => {
+  it("preserves literal team names and the selected choice as plain data", () => {
+    expect(teamOptionsFromSetup('Team "One"\n<script>\nBrian\'s Team', "Brian's Team")).toEqual([
+      { name: 'Team "One"', selected: false },
+      { name: "<script>", selected: false },
+      { name: "Brian's Team", selected: true },
     ]);
   });
 });

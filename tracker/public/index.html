@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f15" />
-<title>Draft Room — FFB tracker</title>
+<title>Draft Room</title>
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -20,19 +20,17 @@
         </button>
       </span>
     </div>
-    <div class="sub" data-sub>—</div>
   </div>
 
   <div class="tabs" role="tablist" aria-label="Position filter" data-tabs></div>
   <div class="viewtabs" aria-label="Board availability" data-view-tabs>
     <button class="viewtab" data-view="available" aria-pressed="true">Available</button>
     <button class="viewtab" data-view="drafted" aria-pressed="false">Drafted</button>
-    <span class="order-label" data-order-label>BOARD ORDER</span>
+    <label class="player-search" for="player-search">
+      <span class="sr-only">Search available players</span>
+      <input id="player-search" data-player-search type="search" autocomplete="off" placeholder="Search players" disabled />
+    </label>
   </div>
-  <div class="view-context" aria-live="polite">
-    <b data-view-lead>Overall board</b> · <span data-view-detail>Tier badges stay inline. Choose a position to group by tier.</span>
-  </div>
-
   <div class="colhead" aria-hidden="true">
     <span class="h-rk">#</span>
     <span class="h-nm">Player</span>
@@ -47,38 +45,21 @@
     <div class="dock-summary">
       <div class="dock-copy">
         <p class="onclock" data-on-clock></p>
-        <div class="recommendation-summary" data-recommendation-summary></div>
+        <p class="selection-summary" data-selected>No Player Selected.</p>
       </div>
       <button class="pick-tools-toggle" data-pick-tools-toggle type="button" aria-expanded="false" aria-controls="pick-tools">Pick tools</button>
     </div>
     <div class="pick-tools" data-pick-tools id="pick-tools" hidden>
-      <div data-recommendation-region hidden>
-        <div class="recommendation-wrap" data-recommendation></div>
-        <p class="needs" data-needs></p>
-        <p class="recommendation-warning" data-recommendation-warning></p>
-        <p class="sr-only" data-recommendation-live aria-live="polite"></p>
-      </div>
-      <p class="likely-next">Likely next</p>
-      <div class="suggestions" data-suggestions></div>
-      <label class="searchlabel" for="player-search">Player search</label>
-      <input id="player-search" data-player-search role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" placeholder="Search available players" />
-      <div class="searchresults" data-search-results role="listbox"></div>
-      <button class="unlisted" data-unlisted type="button">Record unlisted player…</button>
-      <form class="manual" data-manual-form hidden>
-        <label class="searchlabel" for="manual-name">Unlisted player name</label>
-        <input id="manual-name" data-manual-name maxlength="100" autocomplete="off" />
-        <label class="searchlabel" for="manual-pos">Position</label>
-        <select id="manual-pos" data-manual-pos><option>Unknown</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DEF</option></select>
-        <label class="searchlabel" for="manual-team">Team (optional)</label>
-        <input id="manual-team" data-manual-team maxlength="8" autocomplete="off" />
-        <button class="unlisted" data-manual-select type="submit">Use unlisted player</button>
-        <button class="unlisted" data-manual-cancel type="button">Cancel</button>
-      </form>
-      <p class="selected" data-selected>No player selected.</p>
       <p class="status" data-draft-error aria-live="polite"></p>
       <button class="record" data-record-pick disabled>Record pick</button>
-      <button class="undo" data-undo-pick disabled>Undo latest pick</button>
-      <button class="reset" data-reset-draft>Reset draft…</button>
+      <div class="utility-actions">
+        <button class="icon-action clear-pick" data-clear-pick type="button" aria-label="Clear selected player" title="Clear selected player" data-tooltip="Clear selected player" disabled>
+          <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>
+        </button>
+        <button class="icon-action undo" data-undo-pick type="button" aria-label="Undo latest pick" title="Undo latest pick" data-tooltip="Undo latest pick" disabled>
+          <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v2"/></svg>
+        </button>
+      </div>
     </div>
   </section>
   <div class="footbar" data-foot>board.json —</div>
@@ -96,8 +77,8 @@
       <input id="apikey" data-input type="password" autocomplete="off" spellcheck="false" placeholder="paste your key…" />
       <p class="err" data-err hidden></p>
       <button class="save" data-save>Unlock board</button>
-      <p class="hint">Set on the Worker with <code>wrangler secret put TRACKER_API_KEY</code>. Stored only on this device — never sent anywhere but your board.</p>
       <button class="forget" data-forget hidden>Forget key on this device</button>
+      <button class="reset-draft-setting" data-reset-draft type="button" hidden>Reset draft…</button>
     </div>
   </div>
 </div>
