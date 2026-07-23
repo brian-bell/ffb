@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeBoardView, initialBoardView, nextBoardView } from "../src/board-view";
+import { initialBoardView, nextBoardView } from "../src/board-view";
 
 describe("board view state", () => {
   it("starts with every available player and collapsed pick tools", () => {
@@ -7,6 +7,8 @@ describe("board view state", () => {
       position: "ALL",
       mode: "available",
       pickToolsExpanded: false,
+      searchQuery: "",
+      selectedKey: null,
     });
   });
 
@@ -15,6 +17,8 @@ describe("board view state", () => {
       position: "RB",
       mode: "available",
       pickToolsExpanded: false,
+      searchQuery: "",
+      selectedKey: null,
     });
   });
 
@@ -25,6 +29,8 @@ describe("board view state", () => {
       position: "RB",
       mode: "drafted",
       pickToolsExpanded: false,
+      searchQuery: "",
+      selectedKey: null,
     });
   });
 
@@ -38,6 +44,8 @@ describe("board view state", () => {
       position: "RB",
       mode: "available",
       pickToolsExpanded: false,
+      searchQuery: "",
+      selectedKey: null,
     });
   });
 
@@ -46,6 +54,36 @@ describe("board view state", () => {
       ...initialBoardView,
       pickToolsExpanded: true,
     });
+  });
+
+  it("selects a player and expands pick tools, then clears a repeated selection without collapsing", () => {
+    const selected = nextBoardView(initialBoardView, { type: "playerSelected", key: "k0" });
+
+    expect(selected).toEqual({ ...initialBoardView, selectedKey: "k0", pickToolsExpanded: true });
+    expect(nextBoardView(selected, { type: "playerSelected", key: "k0" })).toEqual({
+      ...initialBoardView,
+      pickToolsExpanded: true,
+    });
+  });
+
+  it("clears an explicit selection without collapsing pick tools", () => {
+    const selected = nextBoardView(initialBoardView, { type: "playerSelected", key: "k0" });
+
+    expect(nextBoardView(selected, { type: "selectionCleared" })).toEqual({
+      ...initialBoardView,
+      pickToolsExpanded: true,
+    });
+  });
+
+  it("keeps the underlying mode and position untouched while search starts and clears", () => {
+    const draftedRb = nextBoardView(
+      nextBoardView(initialBoardView, { type: "selectPosition", position: "RB" }),
+      { type: "selectMode", mode: "drafted" },
+    );
+    const searching = nextBoardView(draftedRb, { type: "searchChanged", query: "allen" });
+
+    expect(searching).toEqual({ ...draftedRb, searchQuery: "allen" });
+    expect(nextBoardView(searching, { type: "searchChanged", query: "" })).toEqual(draftedRb);
   });
 
   it("collapses expanded pick tools on a second toggle", () => {
@@ -60,6 +98,19 @@ describe("board view state", () => {
     expect(nextBoardView(expanded, { type: "pickRecorded" })).toEqual(initialBoardView);
   });
 
+  it("clears search and selection after recording without changing board filters", () => {
+    const rbHistory = nextBoardView(
+      nextBoardView(initialBoardView, { type: "selectPosition", position: "RB" }),
+      { type: "selectMode", mode: "drafted" },
+    );
+    const searching = nextBoardView(
+      nextBoardView(rbHistory, { type: "searchChanged", query: "allen" }),
+      { type: "playerSelected", key: "k2" },
+    );
+
+    expect(nextBoardView(searching, { type: "pickRecorded" })).toEqual(rbHistory);
+  });
+
   it("preserves expanded pick tools when position or mode changes", () => {
     const expanded = nextBoardView(initialBoardView, { type: "togglePickTools" });
     const rbView = nextBoardView(expanded, { type: "selectPosition", position: "RB" });
@@ -67,48 +118,5 @@ describe("board view state", () => {
 
     expect(rbView.pickToolsExpanded).toBe(true);
     expect(history.pickToolsExpanded).toBe(true);
-  });
-});
-
-describe("board view description", () => {
-  it("explains the overall available board order", () => {
-    expect(describeBoardView(initialBoardView)).toEqual({
-      lead: "Overall board",
-      detail: "Tier badges stay inline. Choose a position to group by tier.",
-      orderLabel: "BOARD ORDER",
-    });
-  });
-
-  it("explains positional tier order for available players", () => {
-    const rbView = nextBoardView(initialBoardView, { type: "selectPosition", position: "RB" });
-
-    expect(describeBoardView(rbView)).toEqual({
-      lead: "RB tiers",
-      detail: "Available RBs are grouped by positional tier.",
-      orderLabel: "TIER ORDER",
-    });
-  });
-
-  it("explains chronological order for all drafted players", () => {
-    const history = nextBoardView(initialBoardView, { type: "selectMode", mode: "drafted" });
-
-    expect(describeBoardView(history)).toEqual({
-      lead: "Draft log",
-      detail: "All recorded picks are in chronological order; tiers stay inline.",
-      orderLabel: "PICK ORDER",
-    });
-  });
-
-  it("explains that filtered draft history is not regrouped", () => {
-    const history = nextBoardView(
-      nextBoardView(initialBoardView, { type: "selectPosition", position: "RB" }),
-      { type: "selectMode", mode: "drafted" },
-    );
-
-    expect(describeBoardView(history)).toEqual({
-      lead: "RB draft log",
-      detail: "Filtered RB history stays chronological; no tier regrouping.",
-      orderLabel: "PICK ORDER",
-    });
   });
 });

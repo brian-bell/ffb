@@ -138,10 +138,9 @@ D1 migrations, and exercises the Worker API without live network dependencies.
 [`tracker/`](tracker/) is a **separate TypeScript Cloudflare Worker** that
 consumes the pipeline's `board.json` **v1** contract at a file boundary (it never
 imports the Python package). On draft day it serves the phone-friendly Draft Room,
-records a single manual snake draft, and keeps the available board current. On
-Brian’s turn it also derives one explainable recommendation from board VORP,
-tiers, roster slots, and Brian’s persisted picks; the usual three ADP-led
-“Likely next” choices remain available for every team’s pick.
+records a single manual snake draft, and keeps the available board current. The
+ordered available-player list is the primary recommendation and pick surface:
+select a row, confirm it in Pick tools, and record the pick.
 
 The board opens in **Available + ALL**. Every row carries an inline tier badge;
 choosing a position groups available players under sticky positional tier
@@ -166,12 +165,10 @@ then teams, then configuration) but deliberately leaves the published board in
 KV untouched. The other state routes are `GET`/`PUT /api/draft`, `POST /api/picks`,
 and `DELETE /api/picks/latest`.
 
-If Yahoo selects someone absent from the board, choose **Record unlisted
-player…**, enter their displayed name, position, and optional team, then use the
-same separate **Record pick** confirmation. This preserves snake order without
-inventing a board key. Before a live mock, use a fresh local draft and verify
-recommendations at Brian turns, a snake wheel, after undo, and after an
-unlisted-player entry.
+The write API retains validated `manual_player` snapshots for compatibility when
+a Yahoo pick is absent from the board, although the current client intentionally
+offers only board-row selection. Before a live mock, use a fresh local draft and
+verify row selection, search replacement/restoration, record, undo, and reset.
 
 ```sh
 cd tracker

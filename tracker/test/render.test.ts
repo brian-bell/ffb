@@ -136,6 +136,13 @@ describe("renderBoard — VORP micro-bar magnitude", () => {
 });
 
 describe("renderBoard — draft availability", () => {
+  it("renders selectable available rows as buttons with stable player keys and pressed state", () => {
+    const html = renderBoard(board, "ALL", { selectable: true, selectedKey: "k0" });
+
+    expect(html).toContain('<button type="button" class="rowA selectable selected" data-player-key="k0" aria-pressed="true">');
+    expect(html).toContain('<button type="button" class="rowA selectable" data-player-key="k1" aria-pressed="false">');
+  });
+
   it("omits picked player keys by default and renders annotated history on request", () => {
     const picked = new Map([["k0", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }]]);
     const available = renderBoard(board, "ALL", { picked });
@@ -152,6 +159,15 @@ describe("renderBoard — draft availability", () => {
     const history = renderBoard(board, "ALL", { picked, mode: "drafted" });
     expect(history).toContain("2.01 · Brian");
     expect(history).not.toContain("13.13");
+  });
+
+  it("keeps drafted rows read-only even when selectable rendering is requested", () => {
+    const picked = new Map([["k0", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }]]);
+    const history = renderBoard(board, "ALL", { picked, mode: "drafted", selectable: true, selectedKey: "k0" });
+
+    expect(history).toContain('<div class="rowA drafted">');
+    expect(history).not.toContain("data-player-key");
+    expect(history).not.toContain("<button");
   });
 
   it("renders Drafted + ALL in chronological pick order with inline tiers", () => {
@@ -209,5 +225,26 @@ describe("renderBoard — draft availability", () => {
 
     expect(history).toContain("Unlisted &lt;Rookie>");
     expect(history).toContain("2.05 · Brian &amp; Co");
+  });
+});
+
+describe("renderBoard — search replacement", () => {
+  it("renders supplied results in relevance order without position filtering or tier grouping", () => {
+    const results = [board.players.find((player) => player.key === "k2")!, board.players.find((player) => player.key === "k0")!];
+    const html = renderBoard(board, "RB", { selectable: true, searchResults: results });
+
+    expect(html.match(/<button type="button" class="rowA selectable"/g)).toHaveLength(2);
+    expect(html.indexOf("Josh Allen")).toBeLessThan(html.indexOf("Christian McCaffrey"));
+    expect(html).not.toContain('class="trule"');
+    expect(html).not.toContain("Bijan Robinson");
+    expect(html).toContain("--w:100%");
+  });
+
+  it("renders an explicit list-level state when search has no matches", () => {
+    const html = renderBoard(board, "ALL", { selectable: true, searchResults: [] });
+
+    expect(html).toContain('<div class="notice"><b>No matching available players.</b>');
+    expect(html).toContain("No matching available players.");
+    expect(html).not.toContain('class="rowA');
   });
 });

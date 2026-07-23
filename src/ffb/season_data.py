@@ -244,7 +244,9 @@ class SeasonDataService:
         return {
             "version": 1,
             "season": season,
-            "complete": all(source["state"] == "ready" for source in sources),
+            "complete": all(
+                source["state"] == "ready" and not source["stale"] for source in sources
+            ),
             "sources": sources,
             "league": {
                 "state": "ready" if stored_league else "missing",
