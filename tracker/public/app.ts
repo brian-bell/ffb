@@ -7,7 +7,7 @@ import { renderBoard } from "../src/render";
 import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import { searchPlayers } from "../src/suggestions";
-import { makeSetupStore, nextSetupDialog, replaceTeamOptions, setupValidation, teamsFromSetup } from "../src/setup";
+import { makeSetupStore, nextSetupDialog, setupValidation, teamOptionsFromSetup, teamsFromSetup } from "../src/setup";
 import {
   boardNoticeHtml,
   initialBoardView,
@@ -221,8 +221,14 @@ function clearSetupInvalid(): void {
 }
 
 function refreshUserTeams(): void {
-  const names = teamNamesEl.value.split("\n").map((name) => name.trim()).filter(Boolean);
-  replaceTeamOptions(userTeamEl, names);
+  const options = teamOptionsFromSetup(teamNamesEl.value, userTeamEl.value).map(({ name, selected }) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    option.selected = selected;
+    return option;
+  });
+  userTeamEl.replaceChildren(...options);
 }
 
 function setupFromDraftState(state: DraftState): DraftConfigInput | null {

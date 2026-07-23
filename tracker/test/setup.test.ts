@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeSetupStore, nextSetupDialog, replaceTeamOptions, setupValidation, teamsFromSetup, validateSetup } from "../src/setup";
+import { makeSetupStore, nextSetupDialog, setupValidation, teamOptionsFromSetup, teamsFromSetup, validateSetup } from "../src/setup";
 
 describe("teamsFromSetup", () => {
   it("turns the guided newline form into ordered team input without blank slots", () => {
@@ -11,27 +11,13 @@ describe("teamsFromSetup", () => {
   });
 });
 
-describe("replaceTeamOptions", () => {
-  it("preserves team names as literal option values and labels", () => {
-    const rendered: Array<{ value: string; textContent: string }> = [];
-    const select = {
-      value: "Brian's Team",
-      ownerDocument: {
-        createElement: () => ({ value: "", textContent: "" }),
-      },
-      replaceChildren: (...options: Array<{ value: string; textContent: string }>) => {
-        rendered.push(...options);
-      },
-    };
-
-    replaceTeamOptions(select as unknown as HTMLSelectElement, ['Team "One"', "<script>", "Brian's Team"]);
-
-    expect(rendered).toEqual([
-      { value: 'Team "One"', textContent: 'Team "One"' },
-      { value: "<script>", textContent: "<script>" },
-      { value: "Brian's Team", textContent: "Brian's Team" },
+describe("teamOptionsFromSetup", () => {
+  it("preserves literal team names and the selected choice as plain data", () => {
+    expect(teamOptionsFromSetup('Team "One"\n<script>\nBrian\'s Team', "Brian's Team")).toEqual([
+      { name: 'Team "One"', selected: false },
+      { name: "<script>", selected: false },
+      { name: "Brian's Team", selected: true },
     ]);
-    expect(select.value).toBe("Brian's Team");
   });
 });
 

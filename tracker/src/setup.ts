@@ -57,24 +57,22 @@ export function nextSetupDialog(_open: boolean, event: SetupDialogEvent): boolea
 
 /** Translate the setup form's first-round order into the API's team payload. */
 export function teamsFromSetup(namesText: string, userTeamName: string): TeamInput[] {
+  return teamOptionsFromSetup(namesText, userTeamName)
+    .map(({ name, selected }) => ({ name, is_user: selected }));
+}
+
+export interface SetupTeamOption {
+  name: string;
+  selected: boolean;
+}
+
+/** Derive browser-agnostic user-team choices from the guided setup fields. */
+export function teamOptionsFromSetup(namesText: string, selectedName: string): SetupTeamOption[] {
   return namesText
     .split("\n")
     .map((name) => name.trim())
     .filter(Boolean)
-    .map((name) => ({ name, is_user: name === userTeamName }));
-}
-
-/** Replace the user-team choices without parsing team names as HTML. */
-export function replaceTeamOptions(select: HTMLSelectElement, names: string[]): void {
-  const selectedName = select.value;
-  const options = names.map((name) => {
-    const option = select.ownerDocument.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    return option;
-  });
-  select.replaceChildren(...options);
-  if (names.includes(selectedName)) select.value = selectedName;
+    .map((name) => ({ name, selected: name === selectedName }));
 }
 
 /** Local feedback for the few setup errors we can explain before a network call. */
