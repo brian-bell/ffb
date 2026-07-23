@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setupValidation, teamsFromSetup, validateSetup } from "../src/setup";
+import { makeSetupStore, nextSetupDialog, setupValidation, teamsFromSetup, validateSetup } from "../src/setup";
 
 describe("teamsFromSetup", () => {
   it("turns the guided newline form into ordered team input without blank slots", () => {
@@ -26,5 +26,53 @@ describe("validateSetup", () => {
     expect(setupValidation("Brian", "Brian")).toMatchObject({ field: "teams" });
     expect(setupValidation("Brian\nTeam 1", "")).toMatchObject({ field: "user_team" });
     expect(setupValidation("Brian\nTeam 1", "Brian", 0)).toMatchObject({ field: "rounds" });
+  });
+});
+
+describe("nextSetupDialog", () => {
+  it("closes setup after the draft is reset", () => {
+    expect(nextSetupDialog(true, { type: "draftReset" })).toBe(false);
+  });
+
+  it("opens setup only when the user requests it", () => {
+    expect(nextSetupDialog(false, { type: "close" })).toBe(false);
+    expect(nextSetupDialog(false, { type: "open" })).toBe(true);
+  });
+});
+
+describe("makeSetupStore", () => {
+  it("remembers the last successful draft setup across page loads", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+    };
+    const setup = {
+      name: "Home league",
+      rounds: 15,
+      teams: [
+        { name: "Brian", is_user: true },
+        { name: "Opponent", is_user: false },
+      ],
+    };
+
+    makeSetupStore(storage).set(setup);
+
+    expect(makeSetupStore(storage).get()).toEqual(setup);
+  });
+
+  it("ignores incomplete stored setup instead of prefilling a broken form", () => {
+    const storage = {
+      getItem: () => JSON.stringify({
+        name: "Broken",
+        teams: [
+          { name: "Brian", is_user: true },
+          { name: "Opponent", is_user: false },
+        ],
+      }),
+      setItem: () => undefined,
+    };
+
+    expect(makeSetupStore(storage).get()).toBeNull();
   });
 });

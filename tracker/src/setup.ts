@@ -1,4 +1,59 @@
-import type { TeamInput } from "./draft-store";
+import type { DraftConfigInput, TeamInput } from "./draft-store";
+
+interface SetupStorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+export interface SetupStore {
+  get(): DraftConfigInput | null;
+  set(config: DraftConfigInput): void;
+}
+
+const SETUP_STORAGE_KEY = "ffb.lastDraftSetup";
+
+function parseStoredSetup(raw: string | null): DraftConfigInput | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<DraftConfigInput>;
+    if (typeof value.name !== "string" || typeof value.rounds !== "number" || !Array.isArray(value.teams)) return null;
+    if (!value.teams.every((team) => typeof team?.name === "string" && typeof team?.is_user === "boolean")) return null;
+    if (value.teams.filter((team) => team.is_user).length !== 1) return null;
+    if (setupValidation(value.teams.map((team) => team.name).join("\n"), value.teams.find((team) => team.is_user)?.name ?? "", value.rounds) !== null) return null;
+    return { name: value.name, rounds: value.rounds, teams: value.teams };
+  } catch {
+    return null;
+  }
+}
+
+/** Browser-local memory of the most recently successful draft configuration. */
+export function makeSetupStore(storage: SetupStorageLike | null): SetupStore {
+  let memory: DraftConfigInput | null = null;
+  return {
+    get() {
+      try {
+        return parseStoredSetup(storage?.getItem(SETUP_STORAGE_KEY) ?? null) ?? memory;
+      } catch {
+        return memory;
+      }
+    },
+    set(config) {
+      memory = config;
+      try {
+        storage?.setItem(SETUP_STORAGE_KEY, JSON.stringify(config));
+      } catch {
+        /* memory already holds the setup */
+      }
+    },
+  };
+}
+
+export type SetupDialogEvent = { type: "open" } | { type: "close" } | { type: "draftReset" };
+
+/** Keep setup presentation explicit instead of deriving it from draft configuration. */
+export function nextSetupDialog(_open: boolean, event: SetupDialogEvent): boolean {
+  return event.type === "open";
+}
 
 /** Translate the setup form's first-round order into the API's team payload. */
 export function teamsFromSetup(namesText: string, userTeamName: string): TeamInput[] {
