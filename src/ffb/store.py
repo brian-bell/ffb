@@ -73,6 +73,21 @@ CREATE TABLE IF NOT EXISTS adp (
     PRIMARY KEY (player_key, season, source)
 );
 
+CREATE TABLE IF NOT EXISTS season_source_state (
+    season INTEGER,
+    source VARCHAR,
+    latest_attempt_status VARCHAR,
+    last_attempt_at VARCHAR,
+    last_success_at VARCHAR,
+    row_count INTEGER,
+    match_count INTEGER,
+    snapshot_key VARCHAR,
+    snapshot_modified_at VARCHAR,
+    snapshot_sha256 VARCHAR,
+    latest_error VARCHAR,
+    PRIMARY KEY (season, source)
+);
+
 CREATE TABLE IF NOT EXISTS league_settings (
     season INTEGER PRIMARY KEY,
     league_id VARCHAR, league_key VARCHAR, name VARCHAR, current_week INTEGER,
@@ -290,6 +305,19 @@ class Store:
             [season, source, scope],
         )
 
+    def replace_projections(
+        self, rows: list[dict[str, Any]], season: int, source: str, scope: str = "season"
+    ) -> None:
+        """Atomically mirror one projection slice."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.delete_projections(season, source, scope)
+            self.upsert_projections(rows)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     # --- ADP (name-resolved source values, not computed) ------------------
     def upsert_adp(self, rows: list[dict[str, Any]]) -> None:
         """Insert-or-replace ADP rows, keyed by ``(player_key, season, source)``.
@@ -321,6 +349,110 @@ class Store:
             "DELETE FROM adp WHERE season = ? AND source = ?",
             [season, source],
         )
+
+    def replace_adp(self, rows: list[dict[str, Any]], season: int, source: str = "ffc") -> None:
+        """Atomically mirror one ADP slice."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.delete_adp(season, source)
+            self.upsert_adp(rows)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
+    def season_source_state(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM season_source_state WHERE season = ?"
+        params: list[Any] = [season]
+        if source is not None:
+            query += " AND source = ?"
+            params.append(source)
+        query += " ORDER BY source"
+        cursor = self.conn.execute(query, params)
+        cols = [column[0] for column in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
+    def upsert_season_source_state(self, row: dict[str, Any]) -> None:
+        columns = (
+            "season",
+            "source",
+            "latest_attempt_status",
+            "last_attempt_at",
+            "last_success_at",
+            "row_count",
+            "match_count",
+            "snapshot_key",
+            "snapshot_modified_at",
+            "snapshot_sha256",
+            "latest_error",
+        )
+        updates = ", ".join(
+            f"{column} = excluded.{column}"
+            for column in columns
+            if column not in ("season", "source")
+        )
+        self.conn.execute(
+            f"""
+            INSERT INTO season_source_state ({", ".join(columns)})
+            VALUES ({", ".join("?" * len(columns))})
+            ON CONFLICT (season, source) DO UPDATE SET {updates}
+            """,
+            [row.get(column) for column in columns],
+        )
+
+    def source_counts(self, season: int, source: str) -> tuple[int, int]:
+        if source == "crosswalk":
+            result = self.conn.execute("SELECT COUNT(*) FROM crosswalk").fetchone()
+            count = int(result[0]) if result else 0
+            return count, count
+        if source == "ffc":
+            result = self.conn.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(CASE WHEN matched THEN 1 ELSE 0 END), 0)
+                FROM adp WHERE season = ? AND source = ?
+                """,
+                [season, source],
+            ).fetchone()
+        else:
+            result = self.conn.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(CASE WHEN pl.matched THEN 1 ELSE 0 END), 0)
+                FROM projections p JOIN players pl USING (player_key)
+                WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
+                """,
+                [season, source],
+            ).fetchone()
+        return (int(result[0]), int(result[1])) if result else (0, 0)
+
+    def unmatched_rows(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
+        """Return current unmatched projection/ADP source identities."""
+        projection_query = """
+            SELECT p.source, p.native_id, p.player_key, pl.full_name,
+                   pl.position, pl.team
+            FROM projections p
+            JOIN players pl USING (player_key)
+            WHERE p.season = ? AND p.scope = 'season' AND NOT pl.matched
+        """
+        projection_params: list[Any] = [season]
+        if source is not None:
+            projection_query += " AND p.source = ?"
+            projection_params.append(source)
+        projection_cursor = self.conn.execute(projection_query, projection_params)
+        columns = [column[0] for column in projection_cursor.description]
+        rows = [dict(zip(columns, values, strict=True)) for values in projection_cursor.fetchall()]
+        if source is None or source == "ffc":
+            adp_cursor = self.conn.execute(
+                """
+                SELECT source, native_id, player_key, full_name, position, team
+                FROM adp WHERE season = ? AND NOT matched
+                """,
+                [season],
+            )
+            adp_columns = [column[0] for column in adp_cursor.description]
+            rows.extend(
+                dict(zip(adp_columns, values, strict=True)) for values in adp_cursor.fetchall()
+            )
+        return sorted(rows, key=lambda row: (row["source"], row["full_name"], row["native_id"]))
 
     # --- league state ----------------------------------------------------
     def replace_league_state(self, bundle: Any) -> dict[str, int]:

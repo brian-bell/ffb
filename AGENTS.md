@@ -27,8 +27,9 @@ uv sync                      # install deps from uv.lock
 uv run pytest                # test suite (offline, deterministic)
 uv run ruff check .          # lint
 uv run ruff format .         # format  (CI uses --check)
-uv run ffb rankings --pos RB --sources   # consensus rankings
-uv run ffb cheatsheet --export           # draft board + board.json export
+uv run ffb season sync 2026 --refresh    # explicit season data refresh
+uv run ffb rankings 2026 -p RB --show-sources
+uv run ffb board export 2026              # board.json + markdown + CSV
 ```
 
 The tracker has its own Node toolchain:
@@ -48,9 +49,10 @@ backend boundary using committed fixtures and isolated temporary storage, with
 no live network or Cloudflare dependencies. Set `FFB_E2E_KEEP_TMP=1` to retain
 the temporary database, snapshots, and export when diagnosing a failure.
 
-`deploy-board` is intentionally a data-only deployment: it runs `ffb
-cheatsheet --refresh --export`, verifies `exports/board.json` is nonempty, and
-writes `board:current` to production KV without redeploying code. `deploy-app`
+`deploy-board` is intentionally a data-only deployment: it runs a strict `ffb
+season sync $(SEASON) --refresh`, exports the persisted board, verifies
+`exports/board.json` is nonempty, and writes `board:current` to production KV
+without redeploying code. `deploy-app`
 runs the tracker typecheck and tests, applies pending remote D1 migrations, then
 builds and deploys the Worker and static assets. Both require an authenticated
 Wrangler session; first-time secret setup and key rotation remain manual.
@@ -68,10 +70,11 @@ tracker dependencies change, commit `tracker/package-lock.json` too.
 ```
 Makefile            # install, board-publish, and tracker-deploy workflows
 src/ffb/
-  cli.py            # Typer app; `ffb rankings` + `ffb cheatsheet` commands + rich tables
+  cli.py            # thin Typer rendering for season/rankings/board/league commands
   config.py         # paths, season, scoring weights, ESPN maps, league shape, FFC/VORP/tier knobs
   paths.py          # db/snapshot/export dirs, honoring FFB_DB_PATH / FFB_SNAPSHOT_DIR / FFB_EXPORT_DIR
-  snapshot.py       # SnapshotCache: fetch-or-replay raw responses (offline)
+  snapshot.py       # explicit missing-only/refresh/offline cache + SHA/time metadata
+  season_data.py    # sync/status/unmatched application service
   store.py          # THE ONLY module that imports duckdb
   scoring.py        # pure PPR scoring (no I/O)
   names.py          # normalize_name + (name, pos) crosswalk match, team tiebreak (pure)
@@ -92,7 +95,7 @@ tests/              # pytest; fixtures/ are trimmed real API responses
   e2e/              # snapshot primer + isolated CLI-to-Worker orchestration
 docs/plans/         # per-slice implementation plans (gitignored, local-only)
 snapshots/          # raw API pulls, offline replay cache (gitignored)
-exports/            # `ffb cheatsheet --export` output (board.json etc.; gitignored)
+exports/            # `ffb board export` output (board.json etc.; gitignored)
 data/ffb.duckdb     # the store (gitignored, rebuilt from snapshots)
 tracker/            # SEPARATE TS Cloudflare Worker subtree (own npm/vitest) — draft
                     #   tracker consuming board.json v1; not part of the uv package
@@ -160,7 +163,13 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   `has_stale_resolution`). Plus the `adp` table (keyed by `(player_key, season,
   source)`, carrying FFC's own name/pos/team + ADP fields) with
   `upsert_adp`/`delete_adp`/`adp_rows`, and `crosswalk_rows` (a spine read the
-  name matcher consumes, keeping `duckdb` confined here).
+  name matcher consumes, keeping `duckdb` confined here). `season_source_state`
+  tracks the latest attempt, last success, row/match counts, snapshot provenance,
+  and error for crosswalk/Sleeper/ESPN/FFC. Projection and ADP slice replacement
+  is atomic.
+- **season_data.py** — the application service between Typer and ingestion.
+  Expands source selectors, applies explicit snapshot policies, attempts every
+  requested source, persists source state, and exposes status/unmatched reads.
 - **ingest.py** — `ensure_crosswalk` loads the spine; `ensure_ingested` (Sleeper)
   and `ensure_espn_ingested` load a source, resolving each native id to a
   canonical `player_key`. Each re-ingest replaces the source's `(season, source)`
@@ -204,8 +213,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   *unmatched*, never a guess (a wrong merge silently corrupts the board). There's
   no id-based staleness detector for name-resolved rows, so ADP just re-parses +
   re-resolves from the cached snapshot on every run (delete-then-insert mirror) —
-  which buys the late-crosswalk self-heal for free. Network is still only touched
-  on `--refresh` or the first pull.
+  which buys the late-crosswalk self-heal for free. Network is touched only by
+  explicit `season sync` according to its cache policy.
 - **board.json is a versioned, self-contained contract.** `board.py` emits it with
   a `version` (bumped on any breaking shape change — the slice-6 tracker pins
   against it) and everything the tracker needs (tiers, ADP, positions, names). The
@@ -226,17 +235,21 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   that drops or reassigns a native id upstream can't leave a stale row for
   `resolve` to match. An empty parse is treated as a bad pull and leaves the
   existing spine untouched.
-- **Best-effort degradation.** The CLI ranks even when pieces are missing: a
-  failed crosswalk load leaves players unmatched (not a crash), a failed ESPN
-  fetch falls back to Sleeper-only, and a failed FFC pull drops the ADP columns.
-  Each prints a yellow notice; only a missing Sleeper snapshot while offline is
-  fatal. `rankings` and `cheatsheet` share the ingest block via `_ingest_sources`.
-- **Offline by default.** Every raw pull is snapshotted under `snapshots/` and
-  replayed; `--refresh` forces a network re-fetch. Tests/CI use `tests/fixtures/`
-  (committed), not `snapshots/` (gitignored).
+- **Explicit synchronization; read-only reads.** `season sync` is the only
+  projection/ADP ingest command. It defaults to missing-only, supports strict
+  refresh, offline replay, and rebuild, aggregates failures, and never replaces
+  known-good data with an invalid/empty pull. `rankings` and `board` never fetch
+  or ingest. They use any persisted projection sources, warn about
+  missing/failed/stale/untracked inputs, and fail only when no projection source
+  is available.
+- **Snapshots are policy-driven.** Every raw pull is snapshotted under
+  `snapshots/`; sync chooses missing-only, refresh, or offline policy. Snapshot
+  key, modification time, and SHA-256 are recorded in source state. Tests/CI use
+  `tests/fixtures/` (committed), not `snapshots/` (gitignored).
 - **TDD.** Red → green per behavior; fixtures are small, hand-trimmed real
   responses. Keep tests behavior-level (public interfaces), not implementation.
-- **Layering:** `cli → {consensus, rankings, board, ingest} → {store, scoring}`;
+- **Layering:** `cli → season_data → ingest → store`; read commands use
+  `cli → {consensus, board} → {store, scoring}`;
   `board → {vorp, tiers}`; `sources → snapshot`; `names` is pure, imported by
   ingest only. `consensus`/`rankings`/`vorp`/`tiers`/`board`/`names` are pure
   (data in, data out) — `test_layering` guards them against I/O imports.
@@ -286,7 +299,7 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   rows) reaches an existing `data/ffb.duckdb`. Delete it and re-ingest (offline,
   from snapshots) after such a change. The DB is a disposable cache, so this is
   cheap.
-- **Yahoo is fixture-backed only.** `ffb league sync --fixture PATH` stores mock
+- **Yahoo is fixture-backed only.** `ffb league sync [SEASON] --fixture PATH` stores mock
   league settings, teams, and current-week rosters atomically; it has no OAuth or
   live requests. Task 2b adds YFPY behind the existing provider boundary. Yahoo
   projections remain future work (Task 9).

@@ -24,7 +24,7 @@ _ID_COLS = ("sleeper_id", "espn_id", "yahoo_id", "gsis_id")
 
 # nflverse labels place-kickers "PK"; Sleeper/ESPN and the league use "K". Matched
 # players adopt the crosswalk's canonical position, so without this a matched
-# kicker lands under "PK" and `--pos K` (plus alignment with unmatched, source-
+# kicker lands under "PK" and `--position K` (plus alignment with unmatched, source-
 # labeled kickers) silently misses it. Other nflverse labels (PN punters, IDP
 # positions) are out of league scope and pass through untouched.
 _POSITION_NORMALIZE = {"PK": "K"}

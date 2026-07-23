@@ -21,7 +21,7 @@ def snapshot_dir() -> Path:
 
 
 def export_dir() -> Path:
-    """Default directory for ``ffb cheatsheet --export`` output.
+    """Default directory for ``ffb board export`` output.
 
     Defaults to ``<repo>/exports/`` (gitignored); ``FFB_EXPORT_DIR`` overrides so
     tests can point at a temp dir and a user can redirect the board contract.

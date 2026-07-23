@@ -10,7 +10,8 @@ Projections from multiple sources (Sleeper, ESPN) are joined through the nflvers
 **consensus** ranking scored to league settings:
 
 ```
-uv run ffb rankings --pos RB --sources
+uv run ffb season sync 2024 --offline
+uv run ffb rankings 2024 --position RB --show-sources
 ```
 
 ```
@@ -40,41 +41,48 @@ only the Python package, run `uv sync` directly.
 ## Usage
 
 ```sh
-uv run ffb rankings                    # all positions, consensus ranking
-uv run ffb rankings --pos RB           # filter position
-uv run ffb rankings --pos RB --sources # per-source (Sleeper, ESPN) + consensus
-uv run ffb rankings --pos WR --limit 40
-uv run ffb rankings --season 2024      # pick season
-uv run ffb rankings --pos RB --refresh # re-fetch live from all sources
+uv run ffb season sync                          # sync 2026, all datasets
+uv run ffb season sync 2024 --offline           # replay cached 2024 snapshots
+uv run ffb season sync 2026 --source projections
+uv run ffb season sync 2026 --refresh           # strict live refresh
+uv run ffb season status 2026 --json
+uv run ffb season unmatched 2026 --source ffc
+
+uv run ffb rankings 2026                        # persisted consensus ranking
+uv run ffb rankings 2026 --position RB
+uv run ffb rankings 2026 -p RB --show-sources
+uv run ffb rankings 2026 -p WR --limit 40
 ```
 
-By default runs are **offline**: each raw response (Sleeper, ESPN, the nflverse
-crosswalk) is snapshotted under `snapshots/` on first fetch and replayed on later
-runs. `--refresh` forces a new network pull and updates the snapshots; validation
-keeps a bad crosswalk or FFC response from replacing its last known-good cache.
-Without `--sources`, Sleeper is the only projection source fetched (consensus
-over one source = that source).
+Synchronization is explicit. `season sync` defaults to missing-only behavior:
+it replays existing snapshots and fetches only absent datasets. `--refresh`
+fetches every selected source, `--offline` prohibits network access, and
+`--rebuild` forces cached data through parsing and atomic DB replacement.
+Validation prevents an empty or invalid refresh from replacing the last
+known-good snapshot or persisted slice. `rankings`, `board show`, and `board
+export` never fetch or ingest; they use persisted sources and warn when data is
+missing, failed, stale, or untracked.
 
 ## Draft cheat sheet
 
-`ffb cheatsheet` turns the consensus into a draft board: it ingests **ADP** from
-the Fantasy Football Calculator, computes **VORP** (value over a replacement-level
+`ffb board` turns the persisted consensus and **ADP** from Fantasy Football
+Calculator into a draft board. It computes **VORP** (value over a replacement-level
 baseline derived from the league's roster shape) and **positional tiers** over the
-league-scored consensus, and can export the whole thing.
+league-scored consensus and can export the whole thing.
 
 ```sh
-uv run ffb cheatsheet                       # rich terminal board
-uv run ffb cheatsheet --pos RB --limit 20   # one position
-uv run ffb cheatsheet --export              # cheatsheet.md + .csv + board.json -> exports/
-uv run ffb cheatsheet --export --export-dir out/   # ...to a chosen dir
-uv run ffb cheatsheet --season 2026 --refresh      # live pull once sources publish
+uv run ffb board show 2026                       # rich terminal board
+uv run ffb board show 2026 -p RB --limit 20      # one position
+uv run ffb board export 2026                     # all three files -> exports/
+uv run ffb board export 2026 --format json       # board.json only
+uv run ffb board export 2026 --output-dir out/
 ```
 
 The terminal columns are `Rank · Tier · Player · Pos · Team · Bye · Proj · VORP ·
 ADP · +/−`, where `+/−` is `adp_rank − rank` (positive = the market drafts them
-later than we value them — a value pick). `--export` always writes the **full**
-board (ignoring `--pos`/`--limit`) to `exports/` (or `--export-dir`, or
-`$FFB_EXPORT_DIR`); `board.json` is the versioned, self-contained data contract
+later than we value them — a value pick). Export always writes the **full**
+board to `exports/` (or `--output-dir`, or `$FFB_EXPORT_DIR`); `board.json` is
+the versioned, self-contained data contract
 the draft tracker consumes — no runtime dependency on this pipeline.
 
 FFC has no id in the crosswalk, so ADP resolves by **normalized name + position**
@@ -92,6 +100,7 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 | `sources/crosswalk.py` | nflverse `ff_playerids` → canonical identity spine |
 | `snapshot.py` | on-disk raw-response cache (offline replay) |
 | `store.py` | **the only** module that touches DuckDB |
+| `season_data.py` | explicit sync/status/unmatched application service |
 | `scoring.py` / `config.py` | pure PPR scoring (computed, never stored) |
 | `names.py` | name normalization + `(name, pos)` crosswalk match (pure) |
 | `rankings.py` | single-source ranked list |
@@ -99,7 +108,7 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 | `vorp.py` / `tiers.py` | replacement baselines + largest-gap tiers (pure) |
 | `board.py` | consensus ⋈ ADP + VORP + tiers → board rows + serializers (pure) |
 | `ingest.py` | snapshot → parse → **resolve to player_key** → store |
-| `cli.py` | `ffb rankings` / `ffb cheatsheet`, rich table output |
+| `cli.py` | thin `season`, `rankings`, `board`, and `league` command rendering |
 
 Every source's native id resolves to a canonical `player_key` (nflverse
 `mfl_id`) via the crosswalk, so consensus aligns players across sources; misses
@@ -174,9 +183,9 @@ npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
 ```
 
 For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
-`tracker/.dev.vars` (gitignored). Regenerate the board with `uv run ffb
-cheatsheet --export` (writes `exports/board.json`), then `npm run publish:board`
-to reload the dev store.
+`tracker/.dev.vars` (gitignored). Regenerate the board with `uv run ffb season
+sync` followed by `uv run ffb board export` (writes `exports/board.json`), then
+`npm run publish:board` to reload the dev store.
 
 ### Provisioned Cloudflare deployment (HITL)
 
@@ -220,8 +229,8 @@ Live Yahoo OAuth is deliberately deferred. To use mock league scoring, roster
 shape, team count, and current-week rosters locally, sync an offline fixture:
 
 ```sh
-uv run ffb league sync --season 2024 --fixture tests/fixtures/yahoo_league_minimal.json
-uv run ffb league show --season 2024 --rosters
+uv run ffb league sync 2024 --fixture tests/fixtures/yahoo_league_minimal.json
+uv run ffb league show 2024 --rosters
 ```
 
 Fixture settings are visibly labeled as mock. League state is stored as source
