@@ -12,22 +12,12 @@ FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
 XWALK_FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 
 
-def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path, monkeypatch):
-    called = False
-
-    def crosswalk_should_not_load(*args, **kwargs):
-        nonlocal called
-        called = True
-
-    monkeypatch.setattr("ffb.cli.ensure_crosswalk", crosswalk_should_not_load)
+def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path):
     env = {"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")}
-    sync = runner.invoke(
-        app, ["league", "sync", "--season", "2024", "--fixture", str(FIXTURE)], env=env
-    )
+    sync = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
     assert sync.exit_code == 0, sync.output
-    assert not called
 
-    shown = runner.invoke(app, ["league", "show", "--season", "2024"], env=env)
+    shown = runner.invoke(app, ["league", "show", "2024"], env=env)
     assert shown.exit_code == 0, shown.output
     for value in ("Mock League", "Passing Yards", "QB", "Brian's Team", "0"):
         assert value in shown.output
@@ -39,7 +29,7 @@ def test_league_sync_without_fixture_explains_live_yahoo_is_pending(tmp_path):
     assert "Task 2b" in result.output
 
 
-def test_league_sync_loads_crosswalk_before_resolving_rosters(tmp_path):
+def test_league_sync_uses_explicitly_synced_crosswalk_to_resolve_rosters(tmp_path):
     fixture = json.loads(FIXTURE.read_text())
     fixture["rosters"][0]["players"] = [
         {
@@ -59,10 +49,21 @@ def test_league_sync_loads_crosswalk_before_resolving_rosters(tmp_path):
     xwalk_snapshot.parent.mkdir(parents=True)
     xwalk_snapshot.write_text(XWALK_FIXTURE.read_text())
 
+    env = {
+        "FFB_DB_PATH": str(tmp_path / "ffb.duckdb"),
+        "FFB_SNAPSHOT_DIR": str(snapshots),
+    }
+    season_sync = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--source", "sleeper"],
+        env=env,
+    )
+    assert "crosswalk" in season_sync.output
+
     result = runner.invoke(
         app,
-        ["league", "sync", "--season", "2024", "--fixture", str(fixture_path)],
-        env={"FFB_DB_PATH": str(tmp_path / "ffb.duckdb"), "FFB_SNAPSHOT_DIR": str(snapshots)},
+        ["league", "sync", "2024", "--fixture", str(fixture_path)],
+        env=env,
     )
 
     assert result.exit_code == 0, result.output
@@ -70,7 +71,7 @@ def test_league_sync_loads_crosswalk_before_resolving_rosters(tmp_path):
 
     shown = runner.invoke(
         app,
-        ["league", "show", "--season", "2024", "--rosters"],
+        ["league", "show", "2024", "--rosters"],
         env={"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")},
     )
     assert shown.exit_code == 0, shown.output

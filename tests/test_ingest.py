@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from ffb.consensus import consensus_rows
 from ffb.ingest import ensure_crosswalk, ensure_espn_ingested, ensure_ingested
 from ffb.snapshot import SnapshotCache
@@ -87,8 +89,8 @@ def test_crosswalk_refresh_preserves_spine_on_empty_pull(store, tmp_path):
 
     # A transient upstream hiccup parses to zero rows. A refresh must not wipe a
     # usable spine over an empty pull — keep the existing mappings.
-    n = ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
-    assert n == 0
+    with pytest.raises(ValueError, match="no usable rows"):
+        ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
     assert store.resolve("sleeper", "3198") == "12626"  # spine preserved
 
 
@@ -101,7 +103,8 @@ def test_crosswalk_refresh_keeps_good_snapshot_on_empty_pull(store, tmp_path):
     # A transient bad --refresh returns empty. It must not overwrite the cached
     # snapshot, or the documented fresh-DB rebuild would replay an empty file and
     # leave every player unmatched.
-    ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
+    with pytest.raises(ValueError, match="no usable rows"):
+        ensure_crosswalk(store, cache, refresh=True, fetch=lambda: [])
 
     # Prove the on-disk snapshot survived by rebuilding a fresh store offline.
     fresh = Store(tmp_path / "fresh.duckdb")

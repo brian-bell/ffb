@@ -1,4 +1,5 @@
 TRACKER := npm --prefix tracker
+SEASON ?= 2026
 
 .PHONY: help init check-app test-backend-e2e export-board deploy-board deploy-app deploy-all
 
@@ -21,7 +22,8 @@ test-backend-e2e:
 	./tests/e2e/run_backend_e2e.sh
 
 export-board:
-	uv run ffb cheatsheet --refresh --export --export-dir exports
+	uv run ffb season sync $(SEASON) --refresh
+	uv run ffb board export $(SEASON) --output-dir exports
 
 deploy-board: export-board
 	test -s exports/board.json

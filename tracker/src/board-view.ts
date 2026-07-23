@@ -69,6 +69,7 @@ export function boardNoticeHtml(driftVersion: unknown | null, malformed = false)
   }
   return (
     '<div class="notice"><b>No board published yet.</b>' +
-    "Run <code>ffb cheatsheet --export</code> then <code>npm run publish:board</code>.</div>"
+    "Run <code>ffb season sync</code> and <code>ffb board export</code>, then " +
+      "<code>npm run publish:board</code>.</div>"
   );
 }

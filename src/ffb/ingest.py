@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ffb import config, identity, names
-from ffb.snapshot import SnapshotCache
+from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import crosswalk, espn, ffc, sleeper
 from ffb.store import Store
 
@@ -43,11 +43,13 @@ def ensure_crosswalk(
     cache: SnapshotCache,
     *,
     refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    rebuild: bool = False,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> int:
     """Ensure the crosswalk spine is loaded. Returns rows ingested (0 if already
     present and not refreshing)."""
-    if store.has_crosswalk() and not refresh:
+    if store.has_crosswalk() and not refresh and not rebuild:
         log.debug("crosswalk already loaded; skipping")
         return 0
 
@@ -59,15 +61,12 @@ def ensure_crosswalk(
         crosswalk.snapshot_key(),
         fetch_fn,
         refresh=refresh,
+        policy=policy,
         is_valid=lambda data: bool(crosswalk.parse_crosswalk(data)),
     )
     rows = crosswalk.parse_crosswalk(raw)
     if not rows:
-        # parse_crosswalk drops malformed records without raising, so a transient
-        # upstream problem can yield zero rows. Never let that empty pull wipe a
-        # usable spine (replace_crosswalk deletes first); keep what we have.
-        log.warning("crosswalk pull parsed to 0 rows; keeping existing spine")
-        return 0
+        raise ValueError("crosswalk pull returned no usable rows")
     # Mirror the source (replace, don't union) so a refresh drops mappings that
     # disappeared or were reassigned upstream, rather than leaving stale rows
     # that resolve() could still match.
@@ -136,8 +135,7 @@ def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str
     resolved, recon = resolve_rows(store, rows, source)
     # Mirror the source: drop the existing slice so a refresh can't leave behind
     # players no longer in the fresh snapshot.
-    store.delete_projections(season, source=source)
-    store.upsert_projections(resolved)
+    store.replace_projections(resolved, season, source)
     log.info(
         "ingested %d %s rows for %s (%d matched, %d unmatched)",
         recon.n_rows,
@@ -177,6 +175,8 @@ def ensure_ingested(
     season: int,
     *,
     refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    rebuild: bool = False,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> Reconciliation:
     """Ensure ``season`` Sleeper projections are stored, resolved to player_key.
@@ -186,13 +186,22 @@ def ensure_ingested(
     (re-resolved offline from the cached snapshot). Returns a
     :class:`Reconciliation` (all-zero when skipped).
     """
-    if _can_skip(store, season, "sleeper", refresh):
+    if _can_skip(store, season, "sleeper", refresh) and not rebuild:
         log.debug("sleeper season %s already ingested; skipping", season)
         return Reconciliation(source="sleeper")
 
     fetch_fn = fetch or (lambda: sleeper.fetch_projections(season))
-    raw = cache.get_json(sleeper.snapshot_key(season), fetch_fn, refresh=refresh)
-    return _finalize(store, sleeper.parse_projections(raw), season, "sleeper")
+    raw = cache.get_json(
+        sleeper.snapshot_key(season),
+        fetch_fn,
+        refresh=refresh,
+        policy=policy,
+        is_valid=lambda data: bool(sleeper.parse_projections(data)),
+    )
+    rows = sleeper.parse_projections(raw)
+    if not rows:
+        raise ValueError(f"Sleeper projections for {season} returned no usable rows")
+    return _finalize(store, rows, season, "sleeper")
 
 
 def ensure_espn_ingested(
@@ -201,19 +210,30 @@ def ensure_espn_ingested(
     season: int,
     *,
     refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    rebuild: bool = False,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> Reconciliation:
     """Ensure ``season`` ESPN projections are stored, resolved to player_key.
 
     Same idempotency + late-crosswalk self-healing as :func:`ensure_ingested`.
     """
-    if _can_skip(store, season, "espn", refresh):
+    if _can_skip(store, season, "espn", refresh) and not rebuild:
         log.debug("espn season %s already ingested; skipping", season)
         return Reconciliation(source="espn")
 
     fetch_fn = fetch or (lambda: espn.fetch_projections(season))
-    raw = cache.get_json(espn.snapshot_key(season), fetch_fn, refresh=refresh)
-    return _finalize(store, espn.parse_projections(raw, season), season, "espn")
+    raw = cache.get_json(
+        espn.snapshot_key(season),
+        fetch_fn,
+        refresh=refresh,
+        policy=policy,
+        is_valid=lambda data: bool(espn.parse_projections(data, season)),
+    )
+    rows = espn.parse_projections(raw, season)
+    if not rows:
+        raise ValueError(f"ESPN projections for {season} returned no usable rows")
+    return _finalize(store, rows, season, "espn")
 
 
 def resolve_adp_rows(
@@ -262,6 +282,8 @@ def ensure_adp_ingested(
     season: int,
     *,
     refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    rebuild: bool = False,
     teams: int = config.LEAGUE_NUM_TEAMS,
     fmt: str = config.FFC_FORMAT,
     fetch: Callable[[], dict[str, Any]] | None = None,
@@ -281,6 +303,7 @@ def ensure_adp_ingested(
         ffc.snapshot_key(season, teams=teams, fmt=fmt),
         fetch_fn,
         refresh=refresh,
+        policy=policy,
         is_valid=lambda data: bool(ffc.parse_adp(data, season)),
     )
     rows = ffc.parse_adp(raw, season)
@@ -293,8 +316,7 @@ def ensure_adp_ingested(
         raise ValueError(f"FFC ADP pull for {season} returned no usable rows")
 
     resolved, recon = resolve_adp_rows(store, rows)
-    store.delete_adp(season)
-    store.upsert_adp(resolved)
+    store.replace_adp(resolved, season)
     log.info(
         "ingested %d FFC ADP rows for %s (%d matched, %d unmatched)",
         recon.n_rows,

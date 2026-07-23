@@ -7,11 +7,11 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 ## Principles that apply to every source
 
 - **Public / free / read-only.** No paid feeds; no writes back to any service.
-- **Offline by default.** Every raw pull is snapshotted to `snapshots/<key>.json`
-  on first fetch and replayed on later runs, so rebuilds and tests never re-hit
-  the network. `--refresh` forces a re-fetch and updates the snapshot; crosswalk
-  and FFC refreshes validate the parsed payload first so an empty/bad response
-  cannot replace their last known-good cache. Tests and CI read committed
+- **Explicit synchronization.** `ffb season sync` is the only projection/ADP
+  ingest path. Every raw pull is snapshotted to `snapshots/<key>.json`.
+  Missing-only fetches absent snapshots, refresh fetches all selected datasets,
+  and offline prohibits network access. Every source validates parsed payloads
+  so an empty/bad response cannot replace its last known-good cache. Tests and CI read committed
   `tests/fixtures/` instead of `snapshots/` (gitignored).
 - **Thin fetch + pure parse.** Each source module is a `fetch_*` (network, returns
   raw JSON) paired with a pure `parse_*` (raw → normalized rows, never raises on a
@@ -47,8 +47,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 
 ### 1. Sleeper — season projections
 
-`src/ffb/sources/sleeper.py`. The always-on primary projection source (a run with
-no `--sources` uses Sleeper alone).
+`src/ffb/sources/sleeper.py`. The primary projection source.
 
 - **Endpoint**
   ```
@@ -89,8 +88,9 @@ no `--sources` uses Sleeper alone).
 
 ### 2. ESPN — season projections
 
-`src/ffb/sources/espn.py`. Second projection source; added with `--sources` to
-form a consensus. **Unofficial, undocumented endpoint** — no auth, may drift.
+`src/ffb/sources/espn.py`. Second projection source, combined with persisted
+Sleeper data to form a consensus. **Unofficial, undocumented endpoint** — no
+auth, may drift.
 
 - **Endpoint**
   ```
@@ -122,7 +122,7 @@ form a consensus. **Unofficial, undocumented endpoint** — no auth, may drift.
 - **Snapshot key** — `espn/projections_{season}`.
 - **Gotchas**
   - Unofficial endpoint: if ESPN changes shape, the committed fixture keeps CI
-    green; re-verify with a fresh `--refresh` pull.
+    green; re-verify with `ffb season sync [SEASON] --refresh --source espn`.
   - K/DEF now form a Sleeper + ESPN consensus. Kickers join through the player
     crosswalk; defenses join through `def:<canonical team>`.
   - `appliedTotal == 0` here — never trust it as a point total.
@@ -144,7 +144,7 @@ Yahoo roster identities.
   id). Every id is **stringified and null-guarded** (nflverse ids are polars
   `Int64`, so joins must be string-to-string). Position is normalized **`PK` → `K`**
   (nflverse labels place-kickers `PK`; sources and the league use `K`, and matched
-  players adopt the crosswalk's position — without this, `--pos K` misses matched
+  players adopt the crosswalk's position — without this, `--position K` misses matched
   kickers). Rows without an `mfl_id` are skipped.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
   `store.resolve` / `resolve_batch` map a source's native id (`sleeper_id`,
@@ -152,7 +152,7 @@ Yahoo roster identities.
   as `yahoo:<id>` fallbacks.
 - **Snapshot key** — `nflverse/ff_playerids`.
 - **Gotchas**
-  - A `--refresh` **mirrors** the source (replace, not union) so ids removed or
+  - A refresh sync **mirrors** the source (replace, not union) so ids removed or
     reassigned upstream don't leave stale mappings — but an empty/malformed pull
     is rejected so it can't wipe a usable spine.
   - **Team defenses are not in `ff_playerids`.** Valid DEF/DST rows bypass it and
@@ -162,8 +162,8 @@ Yahoo roster identities.
 ### 4. Fantasy Football Calculator — ADP
 
 `src/ffb/sources/ffc.py`. Not a projection source — **average draft position**,
-the market's cost-of-acquisition, joined onto the consensus so the cheat sheet can
-show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
+the market's cost-of-acquisition, joined onto the consensus so the board can
+show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
 
 - **Endpoint**
   ```
@@ -199,10 +199,9 @@ show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
   stored** (unlike computed points/VORP/tiers).
 - **Ingest** (`ensure_adp_ingested`) — has no id-based staleness detector (its
   resolution is name-based, invisible to `has_stale_resolution`), so it re-parses +
-  re-resolves from the cached snapshot on **every** run (delete-then-insert mirror).
+  re-resolves whenever explicitly synchronized (atomic replace).
   That keeps the mirror honest and buys the late-crosswalk self-heal for free. An
-  invalid/empty pull is surfaced as a failure so the CLI drops ADP rather than
-  serving a stale slice.
+  invalid/empty pull is surfaced as a failure while retaining known-good ADP.
 - **Snapshot key** — `ffc/adp_{fmt}_{teams}_{season}` (e.g. `ffc/adp_ppr_12_2024`).
 - **Gotchas**
   - Team defenses join projection consensus through `def:<canonical team>` even
@@ -217,13 +216,15 @@ show value (`ffb cheatsheet`). Free, no auth, informal (no SLA, undocumented).
 
 ## The access layer: snapshot cache
 
-`src/ffb/snapshot.py` (`SnapshotCache`). Wraps every fetch so the pipeline is
-offline-first.
+`src/ffb/snapshot.py` (`SnapshotCache`). Wraps every fetch with an explicit
+policy and exposes key, modification time, and SHA-256 metadata.
 
-- `get_json(key, fetch, *, refresh=False, is_valid=None)`:
-  - On a cache **hit** (file exists, not `refresh`): return the parsed JSON,
+- `get_json(key, fetch, *, policy=..., is_valid=None)`:
+  - On a cache **hit** (unless refreshing): return the parsed JSON,
     `fetch` is never called (no network).
-  - On a **miss** (or `refresh`): call `fetch()`, and — if `is_valid` passes —
+  - In offline mode, a cache miss raises an actionable error without calling
+    `fetch`.
+  - On an online **miss** (or refresh): call `fetch()`, and — if `is_valid` passes —
     write it to `snapshots/{key}.json` and return it. `is_valid` gates the write so
     a transient empty/garbage pull can't overwrite a known-good snapshot.
 - Locations honor env overrides: `FFB_SNAPSHOT_DIR` (default `snapshots/`) and
@@ -242,7 +243,8 @@ fetch_*  ──►  SnapshotCache  ──►  parse_*  ──►  resolve_rows  
                                           consensus.py  ◄──  projection_rows
 ```
 
-`ingest.ensure_crosswalk` loads the spine; `ensure_ingested` (Sleeper) and
+`season_data.SeasonDataService` orchestrates explicit sync, status, and unmatched
+diagnostics. `ingest.ensure_crosswalk` loads the spine; `ensure_ingested` (Sleeper) and
 `ensure_espn_ingested` load each projection source, resolving native ids to
 `player_key`. `resolve_rows` gives matched players the canonical crosswalk
 identity (so one source can't clobber another's name/team) and keeps misses under
@@ -256,7 +258,7 @@ the current roster week. `league_context.py` selects complete fixture scoring an
 roster components independently, falling back to placeholders safely.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
-name (`names.py`) into the `adp` table. `ffb cheatsheet` then left-joins that ADP
+name (`names.py`) into the `adp` table. `ffb board show/export` then left-joins that ADP
 onto the consensus in `board.py`, adds VORP (`vorp.py`) and positional tiers
 (`tiers.py`), and renders the board / `board.json` — all computed at read time, so
 a scoring or roster-shape change re-derives everything with no re-ingest.
@@ -270,7 +272,7 @@ are not ingested today.
 
 - **Yahoo Fantasy API** via `yfpy` (Task 2b) — the live adapter for the league's
   own state. Fixture-backed current-week league state is already supported through
-  `ffb league sync --fixture`; no credentials or live requests exist in this slice.
+  `ffb league sync [SEASON] --fixture`; no credentials or live requests exist in this slice.
   The live adapter will add exact scoring settings, roster slots, teams, rosters, free agents, matchups,
   transactions, draft results, and actual weekly points. OAuth2 (token persisted
   between runs); **read-only** (the pipeline recommends, never sets lineups). The
@@ -288,5 +290,5 @@ are not ingested today.
 Public/free endpoints, personal use, polite request rates, everything snapshotted
 so rebuilds don't re-fetch. A shared `User-Agent: ffb/0.1 (personal use)`
 identifies the client. No source is written to. If a live endpoint drifts, the
-committed fixtures keep CI green while the parser is re-verified against a fresh
-`--refresh` pull.
+committed fixtures keep CI green while the parser is re-verified with an
+explicit refresh sync.

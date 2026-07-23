@@ -20,9 +20,8 @@ DATA_DIR = REPO_ROOT / "data"
 SNAPSHOT_DIR = REPO_ROOT / "snapshots"
 DB_PATH = DATA_DIR / "ffb.duckdb"
 
-# Season we build against. 2024 is complete and stable; flip to the live
-# season via the CLI --season flag once Sleeper publishes it.
-DEFAULT_SEASON = 2024
+# Default for optional positional CLI season arguments.
+DEFAULT_SEASON = 2026
 
 # Sleeper returns multiple projection companies per player; pin one for
 # determinism in the walking skeleton. Consensus across companies/sources

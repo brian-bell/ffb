@@ -60,11 +60,15 @@ run_phase "snapshot priming" \
 
 run_phase "Yahoo league fixture sync" \
     env FFB_DB_PATH="$db_path" FFB_SNAPSHOT_DIR="$snapshot_dir" \
-    uv run ffb league sync --season 2024 --fixture tests/fixtures/yahoo_league_minimal.json || exit $?
+    uv run ffb league sync 2024 --fixture tests/fixtures/yahoo_league_minimal.json || exit $?
+
+run_phase "season data sync" \
+    env FFB_DB_PATH="$db_path" FFB_SNAPSHOT_DIR="$snapshot_dir" \
+    uv run ffb season sync 2024 --offline || exit $?
 
 run_phase "board export" \
     env FFB_DB_PATH="$db_path" FFB_SNAPSHOT_DIR="$snapshot_dir" FFB_EXPORT_DIR="$export_dir" \
-    uv run ffb cheatsheet --season 2024 --export --export-dir "$export_dir" || exit $?
+    uv run ffb board export 2024 --output-dir "$export_dir" || exit $?
 
 run_phase "board validation" \
     uv run python -c '

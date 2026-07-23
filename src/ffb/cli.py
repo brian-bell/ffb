@@ -14,24 +14,22 @@ from rich.table import Table
 from ffb import board as board_mod
 from ffb import config, paths
 from ffb.consensus import consensus_rows
-from ffb.ingest import (
-    Reconciliation,
-    ensure_adp_ingested,
-    ensure_crosswalk,
-    ensure_espn_ingested,
-    ensure_ingested,
-)
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
-from ffb.snapshot import SnapshotCache
+from ffb.season_data import SeasonDataService
+from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.store import Store
 
 app = typer.Typer(help="Fantasy football pipeline (walking skeleton).", no_args_is_help=True)
 league_app = typer.Typer(help="Sync and inspect stored league state.", no_args_is_help=True)
+season_app = typer.Typer(help="Synchronize and inspect season datasets.", no_args_is_help=True)
+board_app = typer.Typer(help="Show or export the persisted draft board.", no_args_is_help=True)
 app.add_typer(league_app, name="league")
+app.add_typer(season_app, name="season")
+app.add_typer(board_app, name="board")
 console = Console()
 
-# Per-source columns shown by --sources, in display order.
+# Per-source columns shown by --show-sources, in display order.
 _SOURCE_COLUMNS = ("sleeper", "espn")
 
 
@@ -42,7 +40,7 @@ def main() -> None:
 
 @league_app.command("sync")
 def league_sync(  # noqa: B008
-    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="League season."),
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
     fixture: Path | None = typer.Option(  # noqa: B008
         None, "--fixture", help="Offline LeagueBundle JSON fixture."
     ),
@@ -58,17 +56,6 @@ def league_sync(  # noqa: B008
         raise typer.Exit(code=1) from exc
     store = Store(paths.db_path())
     store.init_schema()
-    # A fixture sync may be the first command against a fresh database. Load
-    # the identity spine before resolving nonempty Yahoo rosters so their ids
-    # are stored canonically rather than stranded under fallback keys. Empty
-    # settings-only fixtures have nothing to resolve, so keep them offline.
-    if any(roster["players"] for roster in bundle.rosters):
-        try:
-            ensure_crosswalk(store, SnapshotCache(paths.snapshot_dir()))
-        except Exception as exc:  # noqa: BLE001 - fixture state remains useful without it
-            console.print(
-                f"[yellow]Crosswalk unavailable ({exc}); roster players may be unmatched.[/yellow]"
-            )
     result = store.replace_league_state(bundle)
     store.close()
     console.print(
@@ -80,7 +67,7 @@ def league_sync(  # noqa: B008
 
 @league_app.command("show")
 def league_show(
-    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="League season."),
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
     rosters: bool = typer.Option(False, "--rosters", help="Expand current-week roster players."),
 ) -> None:
     """Display persisted league source state without network access."""
@@ -91,7 +78,7 @@ def league_show(
         store.close()
         console.print(
             f"[yellow]No league state for {season}. Run: ffb league sync "
-            f"--season {season} --fixture PATH[/yellow]"
+            f"{season} --fixture PATH[/yellow]"
         )
         raise typer.Exit(code=1)
     console.print(
@@ -126,71 +113,161 @@ def league_show(
     store.close()
 
 
-def _ingest_sources(
-    store: Store,
-    cache: SnapshotCache,
-    season: int,
-    *,
-    refresh: bool,
-    with_espn: bool,
-) -> list[str]:
-    """Run the crosswalk + Sleeper (+ optional ESPN) ingest, returning the
-    sources that actually succeeded (so consensus averages only those).
+def _service(store: Store) -> SeasonDataService:
+    return SeasonDataService(store, SnapshotCache(paths.snapshot_dir()))
 
-    Best-effort degradation (shared by ``rankings`` and ``cheatsheet``): a failed
-    crosswalk leaves players unmatched; a failed ESPN falls back to Sleeper-only;
-    only a missing Sleeper snapshot while offline is fatal.
-    """
+
+@season_app.command("sync")
+def season_sync(  # noqa: B008
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
+    source: list[str] | None = typer.Option(  # noqa: B008
+        None, "--source", help="all, projections, adp, sleeper, espn, or ffc; repeatable."
+    ),
+    missing_only: bool = typer.Option(
+        False, "--missing-only", help="Fetch only missing snapshots."
+    ),
+    refresh: bool = typer.Option(False, "--refresh", help="Fetch every selected snapshot."),
+    offline: bool = typer.Option(False, "--offline", help="Prohibit network access."),
+    rebuild: bool = typer.Option(False, "--rebuild", help="Reprocess cached data."),
+) -> None:
+    """Synchronize selected season datasets and record each outcome."""
+    selected_policies = sum((missing_only, refresh, offline))
+    if selected_policies > 1:
+        raise typer.BadParameter("choose only one of --missing-only, --refresh, or --offline")
+    if offline and refresh:
+        raise typer.BadParameter("--offline and --refresh cannot be combined")
+    policy = (
+        SnapshotPolicy.REFRESH
+        if refresh
+        else SnapshotPolicy.OFFLINE
+        if offline
+        else SnapshotPolicy.MISSING_ONLY
+    )
+    store = Store(paths.db_path())
+    store.init_schema()
     try:
-        ensure_crosswalk(store, cache, refresh=refresh)
-    except Exception as exc:  # noqa: BLE001 - degrade, don't crash
-        console.print(f"[yellow]Crosswalk unavailable ({exc}); players may be unmatched.[/yellow]")
+        results = _service(store).sync(season, selectors=source, policy=policy, rebuild=rebuild)
+    except ValueError as exc:
+        store.close()
+        raise typer.BadParameter(str(exc)) from exc
+    store.close()
+    failed = False
+    for result in results:
+        if result.state == "ready":
+            console.print(
+                f"[green]ready[/green] {result.source}: {result.rows} row(s), "
+                f"{result.matched} matched"
+            )
+        else:
+            failed = True
+            console.print(f"[red]failed[/red] {result.source}: {result.error}")
+    if failed:
+        raise typer.Exit(code=1)
 
+
+@season_app.command("status")
+def season_status(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
+    as_json: bool = typer.Option(False, "--json", help="Emit versioned JSON."),
+) -> None:
+    """Report persisted source and league state without network access."""
+    store = Store(paths.db_path())
+    store.init_schema()
+    status = _service(store).status(season)
+    store.close()
+    if as_json:
+        console.print_json(data=status)
+        return
+    completeness = (
+        "[green]complete[/green]" if status["complete"] else "[yellow]incomplete[/yellow]"
+    )
+    console.print(f"{season} season data: {completeness}")
+    table = Table()
+    table.add_column("Source")
+    table.add_column("Kind")
+    table.add_column("State")
+    table.add_column("Rows", justify="right")
+    table.add_column("Matched", justify="right")
+    table.add_column("Last success")
+    table.add_column("Snapshot")
+    for source_status in status["sources"]:
+        table.add_row(
+            source_status["name"],
+            source_status["kind"],
+            source_status["state"],
+            str(source_status["row_count"]),
+            str(source_status["match_count"]),
+            source_status["last_success_at"] or "—",
+            source_status["snapshot"]["key"] if source_status["snapshot"] else "—",
+        )
+    console.print(table)
+    for source_status in status["sources"]:
+        if source_status["error"]:
+            console.print(f"[red]{source_status['name']}:[/red] {source_status['error']}")
+    console.print(f"League: {status['league']['state']}")
+
+
+@season_app.command("unmatched")
+def season_unmatched(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
+    source: str | None = typer.Option(None, "--source", help="Filter to sleeper, espn, or ffc."),
+) -> None:
+    """List current rows that did not resolve to canonical identities."""
+    store = Store(paths.db_path())
+    store.init_schema()
     try:
-        ensure_ingested(store, cache, season=season, refresh=refresh)
-    except FileNotFoundError as exc:
-        console.print(f"[red]No Sleeper snapshot and offline:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
-
-    active_sources = ["sleeper"]
-    if with_espn:
-        try:
-            ensure_espn_ingested(store, cache, season=season, refresh=refresh)
-            active_sources.append("espn")
-        except Exception as exc:  # noqa: BLE001 - fall back to Sleeper only
-            console.print(f"[yellow]ESPN unavailable ({exc}); showing Sleeper only.[/yellow]")
-    return active_sources
+        rows = _service(store).unmatched(season, source)
+    except ValueError as exc:
+        store.close()
+        raise typer.BadParameter(str(exc)) from exc
+    store.close()
+    if not rows:
+        scope = f" for {source}" if source else ""
+        console.print(f"No unmatched rows for {season}{scope}.")
+        return
+    table = Table()
+    table.add_column("Source")
+    table.add_column("Native ID")
+    table.add_column("Player Key")
+    table.add_column("Name")
+    table.add_column("Pos")
+    table.add_column("Team")
+    for row in rows:
+        table.add_row(
+            row["source"],
+            row["native_id"],
+            row["player_key"],
+            row["full_name"],
+            row["position"] or "—",
+            row["team"] or "—",
+        )
+    console.print(table)
 
 
 @app.command()
 def rankings(
-    pos: str = typer.Option(None, "--pos", help="Filter by position (e.g. RB). Omit for all."),
-    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="Projection season."),
-    limit: int = typer.Option(30, "--limit", help="Max rows to show."),
-    sources: bool = typer.Option(
-        False, "--sources", help="Add ESPN and show per-source + consensus columns."
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
+    pos: str = typer.Option(
+        None, "-p", "--position", help="Filter by position (e.g. RB). Omit for all."
     ),
-    refresh: bool = typer.Option(False, "--refresh", help="Re-fetch sources (network)."),
+    limit: int = typer.Option(30, "--limit", help="Max rows to show."),
+    show_sources: bool = typer.Option(
+        False, "--show-sources", help="Show per-source + consensus columns."
+    ),
 ) -> None:
-    """Print consensus-ranked projections (Sleeper, plus ESPN with --sources)."""
+    """Print rankings from persisted projections without ingesting."""
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
     store = Store(paths.db_path())
     store.init_schema()
-    cache = SnapshotCache(paths.snapshot_dir())
-
-    # Crosswalk is best-effort: without it players simply stay unmatched. When it
-    # arrives after a source was first ingested, ingest self-heals — it re-resolves
-    # any stranded rows offline (see Store.has_stale_resolution).
-    active_sources = _ingest_sources(store, cache, season, refresh=refresh, with_espn=sources)
-
-    # Consensus uses only the sources that actually succeeded this run, so a
-    # failed ESPN fetch can't leave stale ESPN rows silently feeding the average,
-    # and the same command stays deterministic regardless of what a prior run
-    # persisted.
-    # Score with THIS league's settings, not generic PPR. Placeholder config for
-    # now; slice 2 swaps this one call for a store read (Yahoo settings), keeping
-    # config.LEAGUE_SCORING as the offline fallback.
+    active_sources = [
+        source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
+    ]
+    if not active_sources:
+        store.close()
+        console.print(f"[red]No projection sources are available for {season}.[/red]")
+        raise typer.Exit(code=1)
+    _warn_source_states(_service(store).status(season), include_adp=False)
     league = load_league_context(store, season)
     rows = consensus_rows(
         store,
@@ -207,105 +284,145 @@ def rankings(
         raise typer.Exit(code=0)
 
     rows = rows[:limit]
-    _render(rows, season=season, pos=pos, sources=sources)
+    _render(rows, season=season, pos=pos, sources=show_sources)
     _report_unmatched(rows)
     _report_scoring_provenance(league)
 
 
-@app.command()
-def cheatsheet(
-    pos: str = typer.Option(None, "--pos", help="Filter the terminal board by position."),
-    season: int = typer.Option(config.DEFAULT_SEASON, "--season", help="Projection season."),
-    limit: int = typer.Option(50, "--limit", help="Max rows to show in the terminal."),
-    refresh: bool = typer.Option(False, "--refresh", help="Re-fetch sources (network)."),
-    export: bool = typer.Option(
-        False, "--export", help="Write cheatsheet.md/.csv + board.json (the data contract)."
-    ),
-    export_dir: str = typer.Option(
-        None,
-        "--export-dir",
-        help="Directory for --export (default: exports/, or $FFB_EXPORT_DIR).",
-    ),
-) -> None:
-    """Draft cheat sheet: consensus + ADP + VORP + tiers, with a board.json export.
-
-    ``--pos``/``--limit`` shape only the terminal view; ``--export`` always writes
-    the full board (the slice-6 tracker's data contract).
-    """
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-
+def _load_board(season: int) -> tuple[list[dict], object, dict]:
     store = Store(paths.db_path())
     store.init_schema()
-    cache = SnapshotCache(paths.snapshot_dir())
-
-    active_sources = _ingest_sources(store, cache, season, refresh=refresh, with_espn=True)
-
-    # ADP is best-effort like ESPN: a failed FFC pull just drops the ADP columns.
+    active_sources = [
+        source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
+    ]
+    if not active_sources:
+        store.close()
+        console.print(f"[red]No projection sources are available for {season}.[/red]")
+        raise typer.Exit(code=1)
+    status = _service(store).status(season)
+    _warn_source_states(status, include_adp=True)
     league = load_league_context(store, season)
-    adp_recon = Reconciliation(source="ffc")
-    adp_failed = False
-    try:
-        adp_recon = ensure_adp_ingested(
-            store, cache, season=season, refresh=refresh, teams=league.num_teams
-        )
-    except Exception as exc:  # noqa: BLE001 - degrade, render without ADP
-        adp_failed = True
-        console.print(f"[yellow]ADP unavailable ({exc}); showing the board without ADP.[/yellow]")
-
     consensus = consensus_rows(
         store,
         season=season,
-        position=None,  # board is full; --pos filters only the terminal view
+        position=None,
         sources=active_sources,
         cfg=league.scoring,
     )
-    # On failure, ignore any ADP persisted by a prior run — otherwise the board
-    # (and export) would serve stale ADP/ranks despite the "unavailable" notice.
-    adp = [] if adp_failed else store.adp_rows(season)
+    adp = store.adp_rows(season)
     store.close()
-
-    board = board_mod.board_rows(
-        consensus,
-        adp,
-        roster_slots=league.roster_slots,
-        num_teams=league.num_teams,
+    return (
+        board_mod.board_rows(
+            consensus,
+            adp,
+            roster_slots=league.roster_slots,
+            num_teams=league.num_teams,
+        ),
+        league,
+        status,
     )
 
+
+@board_app.command("show")
+def board_show(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
+    pos: str = typer.Option(None, "-p", "--position", help="Filter terminal rows."),
+    limit: int = typer.Option(50, "--limit", help="Max rows to show."),
+) -> None:
+    """Show a board computed only from persisted season data."""
+    board, league, _ = _load_board(season)
     if not board:
-        console.print(f"[yellow]No projections or ADP for {season}.[/yellow]")
-        raise typer.Exit(code=0)
-
-    if export:
-        out_dir = Path(export_dir) if export_dir else paths.export_dir()
-        _export_board(board, season=season, out_dir=out_dir, league=league)
-
+        console.print(f"[yellow]No board rows for {season}.[/yellow]")
+        return
     shown = [r for r in board if pos is None or (r["pos"] or "").upper() == pos.upper()]
-    shown = shown[:limit]
-    _render_board(shown, season=season, pos=pos)
-    _report_board_unmatched(shown)
-    _report_adp_unmatched(adp_recon)
+    _render_board(shown[:limit], season=season, pos=pos)
+    _report_board_unmatched(shown[:limit])
     _report_scoring_provenance(league)
 
 
-def _export_board(board: list[dict], *, season: int, out_dir: Path, league: object) -> None:
-    """Write cheatsheet.md, cheatsheet.csv, and board.json into ``out_dir``."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    doc = board_mod.to_board_json(
+@board_app.command("export")
+def board_export(  # noqa: B008
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
+    formats: list[str] | None = typer.Option(  # noqa: B008
+        None, "--format", help="json, csv, or markdown; repeatable (default: all)."
+    ),
+    output_dir: Path | None = typer.Option(  # noqa: B008
+        None, "--output-dir", help="Export directory."
+    ),
+) -> None:
+    """Export the full persisted board in one or more formats."""
+    board, league, _ = _load_board(season)
+    selected = formats or ["json", "csv", "markdown"]
+    invalid = sorted(set(selected) - {"json", "csv", "markdown"})
+    if invalid:
+        raise typer.BadParameter(f"unsupported format(s): {', '.join(invalid)}")
+    _export_board(
         board,
         season=season,
-        num_teams=league.num_teams,
-        roster_slots=league.roster_slots,
-        generated_at=generated_at,
-        scoring=league.scoring_provenance,
+        out_dir=output_dir or paths.export_dir(),
+        league=league,
+        formats=list(dict.fromkeys(selected)),
     )
-    (out_dir / "cheatsheet.md").write_text(board_mod.to_markdown(board, season=season))
-    (out_dir / "cheatsheet.csv").write_text(board_mod.to_csv(board))
-    (out_dir / "board.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False))
-    console.print(
-        f"[green]Wrote[/green] {out_dir / 'cheatsheet.md'}, "
-        f"{out_dir / 'cheatsheet.csv'}, {out_dir / 'board.json'}"
-    )
+
+
+def _export_board(
+    board: list[dict], *, season: int, out_dir: Path, league: object, formats: list[str]
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    written: list[Path] = []
+    if "markdown" in formats:
+        path = out_dir / "cheatsheet.md"
+        path.write_text(board_mod.to_markdown(board, season=season))
+        written.append(path)
+    if "csv" in formats:
+        path = out_dir / "cheatsheet.csv"
+        path.write_text(board_mod.to_csv(board))
+        written.append(path)
+    if "json" in formats:
+        doc = board_mod.to_board_json(
+            board,
+            season=season,
+            num_teams=league.num_teams,
+            roster_slots=league.roster_slots,
+            generated_at=generated_at,
+            scoring=league.scoring_provenance,
+        )
+        path = out_dir / "board.json"
+        path.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
+        written.append(path)
+    console.print("[green]Wrote[/green] " + ", ".join(str(path) for path in written))
+
+
+def _warn_source_states(status: dict, *, include_adp: bool) -> None:
+    wanted = {"crosswalk", "sleeper", "espn"}
+    if include_adp:
+        wanted.add("ffc")
+    for source in status["sources"]:
+        if source["name"] not in wanted:
+            continue
+        if source.get("stale"):
+            if source["name"] == "ffc":
+                console.print(
+                    "[yellow]Warning: ffc ADP was synced for a different league size; "
+                    f"run `ffb season sync {status['season']} --source ffc`.[/yellow]"
+                )
+            else:
+                console.print(
+                    f"[yellow]Warning: {source['name']} has stale identity resolution; "
+                    f"run `ffb season sync {status['season']} --rebuild`.[/yellow]"
+                )
+        if source["state"] == "ready":
+            continue
+        retained = (
+            f"; using retained data from {source['last_success_at']}"
+            if source["row_count"] and source["last_success_at"]
+            else ""
+        )
+        error = f": {source['error']}" if source["error"] else ""
+        console.print(
+            f"[yellow]Warning: {source['name']} is {source['state']}{error}{retained}.[/yellow]"
+        )
 
 
 def _render_board(rows: list[dict], *, season: int, pos: str | None) -> None:
@@ -367,17 +484,6 @@ def _report_board_unmatched(rows: list[dict]) -> None:
     console.print(
         f"[yellow]⚠ {len(misses)} shown player(s) unmatched to crosswalk "
         f"(source-only): {names}{more}[/yellow]"
-    )
-
-
-def _report_adp_unmatched(recon: Reconciliation) -> None:
-    """Surface ADP rows that didn't resolve to the crosswalk (DEF, name misses)."""
-    if not recon.unmatched:
-        return
-    names = ", ".join(recon.unmatched_names[:8])
-    more = "…" if recon.unmatched > 8 else ""
-    console.print(
-        f"[yellow]⚠ {recon.unmatched} ADP player(s) unmatched to crosswalk: {names}{more}[/yellow]"
     )
 
 
