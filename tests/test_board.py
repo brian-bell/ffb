@@ -69,21 +69,16 @@ def test_board_joins_adp_and_leaves_missing_adp_null():
     assert rows["r2"]["adp"] is None  # projection but no ADP row -> null
 
 
-def test_board_includes_adp_only_rows_with_null_points():
+def test_board_excludes_unmatched_adp_only_rows():
     rows = {r["key"]: r for r in _board()}
-    dst = rows["ffc:def"]
-    assert dst["points"] is None  # ADP-only, no consensus counterpart
-    assert dst["vorp"] is None
-    assert dst["adp"] == 120.0
-    assert dst["matched"] is False
-    assert dst["name"] == "Some Defense"
+    assert "ffc:def" not in rows
 
 
-def test_board_sorted_by_vorp_desc_with_adp_only_sinking():
+def test_board_sorted_by_vorp_desc_after_excluding_unmatched():
     board = _board()
-    # w1 vorp 90 > r1 vorp 40 > r2 vorp 0; adp-only DEF sinks to the bottom.
-    assert [r["key"] for r in board] == ["w1", "r1", "r2", "ffc:def"]
-    assert [r["rank"] for r in board] == [1, 2, 3, 4]
+    # w1 vorp 90 > r1 vorp 40 > r2 vorp 0.
+    assert [r["key"] for r in board] == ["w1", "r1", "r2"]
+    assert [r["rank"] for r in board] == [1, 2, 3]
 
 
 def test_board_stamps_pos_rank_and_adp_rank():
@@ -94,7 +89,6 @@ def test_board_stamps_pos_rank_and_adp_rank():
     # adp_rank is by ADP ascending across all rows that have an ADP.
     assert rows["r1"]["adp_rank"] == 1  # 1.5
     assert rows["w1"]["adp_rank"] == 2  # 2.0
-    assert rows["ffc:def"]["adp_rank"] == 3  # 120.0
     assert rows["r2"]["adp_rank"] is None  # no ADP row
 
 
@@ -136,15 +130,17 @@ def test_to_board_json_contract_shape_and_nulls():
         "adp_stdev",
         "matched",
     }
-    dst = next(p for p in parsed["players"] if p["key"] == "ffc:def")
-    assert dst["points"] is None  # nulls survive the round-trip
+    without_adp = next(p for p in parsed["players"] if p["key"] == "r2")
+    assert without_adp["bye"] is None
+    assert without_adp["adp"] is None
+    assert without_adp["adp_rank"] is None
 
 
 def test_to_csv_has_header_and_a_row_per_player():
     csv_text = to_csv(_board())
     lines = csv_text.strip().splitlines()
     assert lines[0].startswith("key,name,pos,team,bye,points")
-    assert len(lines) == 1 + 4  # header + 4 players
+    assert len(lines) == 1 + 3  # header + 3 matched players
     assert any("Big Wideout" in line for line in lines)
 
 

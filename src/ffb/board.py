@@ -6,7 +6,7 @@ contained ``board.json`` contract (§3g) plus markdown/CSV renderings.
 
 ``board_rows`` left-joins ADP onto consensus by ``player_key`` (a projection
 with no ADP keeps ``adp=None``), appends ADP-only rows that have no consensus
-counterpart (rankable by ADP with ``points=None``),
+counterpart (rankable by ADP with ``points=None``), excludes unmatched rows,
 computes VORP over the rows that have points, tiers per position, sorts by VORP
 desc (ADP-only rows sink to the bottom by ADP), and stamps
 ``rank``/``pos_rank``/``adp_rank``.
@@ -60,6 +60,8 @@ def board_rows(
     pools: dict[str, int] = config.POSITION_POOL,
 ) -> list[dict[str, Any]]:
     """Return board rows (§3g shape) sorted by VORP desc, fully ranked."""
+    consensus = [row for row in consensus if row["matched"]]
+    adp = [row for row in adp if row["matched"]]
     adp_by_key = {r["player_key"]: r for r in adp}
 
     # Working rows carry vorp/tiers-friendly keys (player_key/position/points).

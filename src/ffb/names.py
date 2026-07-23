@@ -63,7 +63,8 @@ def match_by_name(
     """Resolve ``(name, position)`` to a canonical ``player_key`` via the index.
 
     Ambiguity resolves to ``None`` (unmatched), never a guess: a wrong merge
-    silently corrupts the board, an unmatched row is visible and rankable.
+    silently corrupts the board. Unmatched rows remain visible in diagnostics
+    but are excluded from rankings.
     """
     candidates = index.get((normalize_name(name), position))
     if not candidates:

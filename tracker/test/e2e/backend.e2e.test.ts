@@ -53,9 +53,9 @@ describe("generated backend contract", () => {
 
   it("persists a complete snake draft in derived team order", async () => {
     const board = (await api.getBoard()).json;
-    expect(board?.players.length).toBeGreaterThanOrEqual(6);
+    expect(board?.players.length).toBeGreaterThanOrEqual(4);
     if (!board) throw new Error("generated board did not decode");
-    const players = board.players.slice(0, 6);
+    const players = board.players.slice(0, 4);
 
     const configured = await api.configureDraft({
       name: "Snake E2E",
@@ -63,7 +63,6 @@ describe("generated backend contract", () => {
       teams: [
         { name: "A", is_user: true },
         { name: "B", is_user: false },
-        { name: "C", is_user: false },
       ],
     });
     expect(configured.status).toBe(200);
@@ -80,14 +79,12 @@ describe("generated backend contract", () => {
     expect(latestPicks).toMatchObject([
       { overall_pick: 1, round: 1, round_pick: 1, team_name: "A" },
       { overall_pick: 2, round: 1, round_pick: 2, team_name: "B" },
-      { overall_pick: 3, round: 1, round_pick: 3, team_name: "C" },
-      { overall_pick: 4, round: 2, round_pick: 1, team_name: "C" },
-      { overall_pick: 5, round: 2, round_pick: 2, team_name: "B" },
-      { overall_pick: 6, round: 2, round_pick: 3, team_name: "A" },
+      { overall_pick: 3, round: 2, round_pick: 1, team_name: "B" },
+      { overall_pick: 4, round: 2, round_pick: 2, team_name: "A" },
     ]);
-    expect(revisions).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(revisions).toEqual([1, 2, 3, 4]);
     expect((await api.getDraft()).json).toMatchObject({
-      revision: 6,
+      revision: 4,
       complete: true,
       next: null,
     });

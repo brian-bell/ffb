@@ -219,9 +219,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
 - **Canonical identity via the crosswalk (plus team-defense keys).** Player
   sources resolve to an nflverse `mfl_id`; team defenses, which are absent from
   `ff_playerids`, resolve to `def:<canonical MFL team code>`. Valid canonical
-  identities carry `matched=True`. Anything unresolved is never dropped: it
-  falls back to `source:native_id` with `matched=False` and is surfaced in the
-  `Reconciliation`, WARNING logs, and CLI footer.
+  identities carry `matched=True`. Anything unresolved is retained under
+  `source:native_id` with `matched=False` for diagnostics and later self-healing,
+  and is surfaced in the `Reconciliation`, WARNING logs, and `season unmatched`.
+  Rankings and the draft board include only matched projection/ADP identities.
 - **Late crosswalk self-heals.** A source ingested before the crosswalk was
   available is stranded under fallback keys. On the next run, `has_stale_resolution`
   detects rows that now map to a different (canonical) key and forces an offline
@@ -286,8 +287,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   codes remain source fallbacks rather than risking a wrong merge. The remaining
   unmatched ADP tail is typically nickname/ambiguous misses like "Hollywood
   Brown" or two "Mike Williams"; extending `normalize_name`/`TEAM_ALIASES` is the
-  tuning loop. A player whose position doesn't map (`None`) is still boarded
-  (never dropped) under an "Unknown" section.
+  tuning loop. A matched player whose position doesn't map (`None`) is still
+  boarded under an "Unknown" section.
 - **Schema or parse-logic changes need a fresh DB.** The store uses `CREATE TABLE
   IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
   present, so neither a column change nor a parse/normalization change that alters
