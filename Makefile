@@ -22,7 +22,6 @@ test-backend-e2e:
 	./tests/e2e/run_backend_e2e.sh
 
 export-board:
-	uv run ffb season sync $(SEASON) --refresh
 	uv run ffb board export $(SEASON) --output-dir exports
 
 deploy-board: export-board
