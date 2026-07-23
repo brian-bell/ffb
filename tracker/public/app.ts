@@ -7,7 +7,7 @@ import { renderBoard } from "../src/render";
 import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
 import { searchPlayers, suggestPlayers } from "../src/suggestions";
-import { setupValidation, teamsFromSetup } from "../src/setup";
+import { makeSetupStore, nextSetupDialog, setupValidation, teamsFromSetup } from "../src/setup";
 import {
   boardNoticeHtml,
   describeBoardView,
@@ -19,7 +19,7 @@ import {
 import { deriveRecommendation } from "../src/recommendation";
 import { needsHtml, recommendationHtml, recommendationSummaryHtml } from "../src/recommendation-view";
 import { isAvailable, playersEquivalent } from "../src/player-identity";
-import type { DraftState } from "../src/draft-store";
+import type { DraftConfigInput, DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
 const POSITIONS: BoardPosition[] = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"];
@@ -32,7 +32,9 @@ function localStorageOrNull(): Storage | null {
   }
 }
 
-const store = makeStore(localStorageOrNull());
+const browserStorage = localStorageOrNull();
+const store = makeStore(browserStorage);
+const setupStore = makeSetupStore(browserStorage);
 
 // ---- DOM refs ----
 const $ = <T extends Element>(sel: string): T => {
@@ -56,12 +58,14 @@ const listEl = $<HTMLElement>("[data-list]");
 const footEl = $<HTMLElement>("[data-foot]");
 const subEl = $<HTMLElement>("[data-sub]");
 const clockEl = $<HTMLElement>("[data-clock]");
+const setupDraftEl = $<HTMLButtonElement>("[data-setup-draft]");
 const viewTabsEl = $<HTMLElement>("[data-view-tabs]");
 const orderLabelEl = $<HTMLElement>("[data-order-label]");
 const viewLeadEl = $<HTMLElement>("[data-view-lead]");
 const viewDetailEl = $<HTMLElement>("[data-view-detail]");
 const setupModalEl = $<HTMLElement>("[data-setup-modal]");
 const setupEl = $<HTMLElement>("[data-setup]");
+const closeSetupEl = $<HTMLButtonElement>("[data-close-setup]");
 const draftNameEl = $<HTMLInputElement>("[data-draft-name]");
 const roundsEl = $<HTMLInputElement>("[data-rounds]");
 const teamNamesEl = $<HTMLTextAreaElement>("[data-team-names]");
@@ -106,6 +110,7 @@ type PickSelection = { kind: "board"; player: Player } | { kind: "manual"; playe
 let selected: PickSelection | null = null;
 let writing = false;
 let setupPresented = false;
+let setupOpen = false;
 let focusPickTools = false;
 
 function dispatch(event: UiEvent): void {
@@ -220,16 +225,36 @@ function refreshUserTeams(): void {
   if (names.includes(selectedName)) userTeamEl.value = selectedName;
 }
 
+function setupFromDraftState(state: DraftState): DraftConfigInput | null {
+  if (!state.configured || !state.draft || !state.teams) return null;
+  return {
+    name: state.draft.name,
+    rounds: state.draft.rounds,
+    teams: state.teams.map((team) => ({ name: team.name, is_user: team.is_user })),
+  };
+}
+
+function populateSetup(config: DraftConfigInput): void {
+  draftNameEl.value = config.name;
+  roundsEl.value = String(config.rounds);
+  teamNamesEl.value = config.teams.map((team) => team.name).join("\n");
+  refreshUserTeams();
+  userTeamEl.value = config.teams.find((team) => team.is_user)?.name ?? "";
+  clearSetupInvalid();
+  setSetupError("");
+}
+
 function renderDraft(): void {
   const configured = draft?.configured === true;
-  const showSetup = !configured && !ui.locked;
+  const showSetup = setupOpen && !configured && !ui.locked;
   setupModalEl.hidden = !showSetup;
   screenEl.toggleAttribute("inert", showSetup);
   screenEl.setAttribute("aria-hidden", String(showSetup));
+  setupDraftEl.hidden = configured;
+  clockEl.hidden = !configured;
   pickPanelEl.hidden = !configured;
   renderPickTools();
   if (!configured) {
-    clockEl.textContent = "Set up draft";
     subEl.textContent = board ? `${board.num_teams}-team · ${board.scoring} scoring` : "—";
     renderList();
     if (showSetup && !setupPresented) setTimeout(() => draftNameEl.focus(), 0);
@@ -362,6 +387,8 @@ async function loadDraft(): Promise<LoadResult> {
   if (!res.ok) return "network";
   try {
     draft = (await res.json()) as DraftState;
+    const currentSetup = setupFromDraftState(draft);
+    if (currentSetup) setupStore.set(currentSetup);
     renderDraft();
     return "ok";
   } catch {
@@ -395,6 +422,13 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       return false;
     }
     draft = response;
+    if (path === "/api/draft" && method === "PUT" && draft.configured) {
+      const currentSetup = setupFromDraftState(draft);
+      if (currentSetup) setupStore.set(currentSetup);
+      setupOpen = nextSetupDialog(setupOpen, { type: "close" });
+    } else if (path === "/api/draft" && method === "DELETE") {
+      setupOpen = nextSetupDialog(setupOpen, { type: "draftReset" });
+    }
     if (path === "/api/picks" && method === "POST") {
       boardView = nextBoardView(boardView, { type: "pickRecorded" });
     }
@@ -497,6 +531,20 @@ viewTabsEl.addEventListener("click", (e) => {
 pickToolsToggleEl.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "togglePickTools" });
   renderPickTools();
+});
+
+setupDraftEl.addEventListener("click", () => {
+  if (draft?.configured) return;
+  const rememberedSetup = setupStore.get();
+  if (rememberedSetup) populateSetup(rememberedSetup);
+  setupOpen = nextSetupDialog(setupOpen, { type: "open" });
+  renderDraft();
+});
+
+closeSetupEl.addEventListener("click", () => {
+  setupOpen = nextSetupDialog(setupOpen, { type: "close" });
+  renderDraft();
+  setupDraftEl.focus();
 });
 
 teamNamesEl.addEventListener("input", refreshUserTeams);
