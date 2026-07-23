@@ -15,9 +15,9 @@ workflows:
 ```sh
 make init                     # uv sync + npm install in tracker/
 make test-backend-e2e         # offline fixture -> CLI -> DuckDB/board -> Worker KV/D1 journey
-make deploy-board             # refresh/export board.json, then publish production KV
+make deploy-board             # export persisted board.json, then publish production KV
 make deploy-app               # tracker checks + remote D1 migrations + Worker deploy
-make deploy-all               # app first, then board
+make deploy-all               # app first, then export/publish the persisted board
 ```
 
 The Python package is managed with **uv** (Python ≥ 3.12).
@@ -49,13 +49,14 @@ backend boundary using committed fixtures and isolated temporary storage, with
 no live network or Cloudflare dependencies. Set `FFB_E2E_KEEP_TMP=1` to retain
 the temporary database, snapshots, and export when diagnosing a failure.
 
-`deploy-board` is intentionally a data-only deployment: it runs a strict `ffb
-season sync $(SEASON) --refresh`, exports the persisted board, verifies
+`deploy-board` is intentionally a data-only deployment: it does **not** fetch or
+sync sources. It exports the currently persisted season, verifies
 `exports/board.json` is nonempty, and writes `board:current` to production KV
-without redeploying code. `deploy-app`
-runs the tracker typecheck and tests, applies pending remote D1 migrations, then
-builds and deploys the Worker and static assets. Both require an authenticated
-Wrangler session; first-time secret setup and key rotation remain manual.
+without redeploying code. Run `ffb season sync $(SEASON) --refresh` explicitly
+first when fresh source data is required. `deploy-app` runs the tracker
+typecheck and tests, applies pending remote D1 migrations, then builds and
+deploys the Worker and static assets. Both require an authenticated Wrangler
+session; first-time secret setup and key rotation remain manual.
 
 CI (`.github/workflows/ci.yml`) runs three independent jobs on every push to
 `main` and every PR. The Python job runs `uv sync --frozen`, `ruff check`, `ruff
@@ -77,6 +78,7 @@ src/ffb/
   season_data.py    # sync/status/unmatched application service
   store.py          # THE ONLY module that imports duckdb
   scoring.py        # pure PPR scoring (no I/O)
+  identity.py       # canonical NFL team + DEF/DST identity helpers (pure)
   names.py          # normalize_name + (name, pos) crosswalk match, team tiebreak (pure)
   rankings.py       # single-source ranked list (pure compute over store)
   consensus.py      # per-source points pivoted + averaged per player (pure)
@@ -136,7 +138,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   canonical/fallback/manual and DEF/DST equivalence so search, available rows,
   and the write API exclude the same drafted player representations.
 - **Pure testable core:** `src/{auth,board,board-view,draft,player-identity,
-  suggestions,render,setup,state}.ts` are pure/DOM-free and unit-tested;
+  suggestions,render,selection,setup,state}.ts` are DOM-free or operate through
+  narrow DOM-like interfaces and are unit-tested;
   `types.ts` mirrors the `board.json` v1 contract; `index.ts` is the Worker entry
   (auth-gate + KV board stream + fall through to Static Assets), and
   `draft-api.ts` the API router. `public/app.ts` is thin DOM wiring bundled to
@@ -161,8 +164,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   `upsert_adp`/`delete_adp`/`adp_rows`, and `crosswalk_rows` (a spine read the
   name matcher consumes, keeping `duckdb` confined here). `season_source_state`
   tracks the latest attempt, last success, row/match counts, snapshot provenance,
-  and error for crosswalk/Sleeper/ESPN/FFC. Projection and ADP slice replacement
-  is atomic.
+  and error for crosswalk/Sleeper/ESPN/FFC. `league_settings`, `league_teams`,
+  and `league_rosters` hold validated provider-neutral league state. Projection,
+  ADP, crosswalk, and league-state replacement paths are atomic.
 - **season_data.py** — the application service between Typer and ingestion.
   Expands source selectors, applies explicit snapshot policies, attempts every
   requested source, persists source state, and exposes status/unmatched reads.
@@ -182,13 +186,15 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   source's stat line, and averages the points; carries `n` (source count). The
   `sources` argument restricts which sources contribute, so output depends on the
   request rather than on whatever a prior run happened to persist.
-- **names.py / vorp.py / tiers.py / board.py** — the cheat-sheet compute stack, all
-  pure (dicts in, dicts/strings out; enforced by `test_layering`). `names` does
-  `(normalized name, position)` matching with an FA-drop + team tiebreak; `vorp`
-  derives per-position replacement baselines by greedily filling every league
-  starting slot (flex-aware) and subtracts them; `tiers` splits each position at its
-  largest point drops; `board` left-joins ADP onto consensus, appends ADP-only rows,
-  computes VORP + tiers, ranks, and serializes to the `board.json` contract / md / csv.
+- **identity.py / names.py / vorp.py / tiers.py / board.py** — the cheat-sheet
+  compute stack, all pure (dicts in, dicts/strings out; enforced by
+  `test_layering`). `identity` canonicalizes NFL teams and DEF/DST keys; `names`
+  does `(normalized name, position)` matching with an FA-drop + team tiebreak;
+  `vorp` derives per-position replacement baselines by greedily filling every
+  league starting slot (flex-aware) and subtracts them; `tiers` splits each
+  position at its largest point drops; `board` left-joins ADP onto consensus,
+  appends matched ADP-only rows, computes VORP + tiers, ranks, and serializes to
+  the `board.json` contract / md / csv.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
   `snapshot_key`. No plugin abstraction yet; three projection/ADP sources.
 
@@ -247,9 +253,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   responses. Keep tests behavior-level (public interfaces), not implementation.
 - **Layering:** `cli → season_data → ingest → store`; read commands use
   `cli → {consensus, board} → {store, scoring}`;
-  `board → {vorp, tiers}`; `sources → snapshot`; `names` is pure, imported by
-  ingest only. `consensus`/`rankings`/`vorp`/`tiers`/`board`/`names` are pure
-  (data in, data out) — `test_layering` guards them against I/O imports.
+  `board → {vorp, tiers}`; `sources → snapshot`; `identity` and `names` are pure,
+  imported by ingest only. `consensus`/`rankings`/`vorp`/`tiers`/`board`/
+  `identity`/`names` are pure (data in, data out) — `test_layering` guards them
+  against I/O imports.
 - **Git:** never commit to `main`; branch per slice (e.g.
   `slice-03-crosswalk-espn-consensus`). `docs/plans/`, `snapshots/`, and `data/`
   are gitignored.
@@ -279,8 +286,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   status (so the snapshot `is_valid` gate treats a bad refresh as empty) and
   normalizes `PK→K` + aliases team codes (`SF→SFO`, via `config.TEAM_ALIASES`)
   so the name matcher's team tiebreak compares like with like. We pull one
-  format/teams combo (`config.FFC_FORMAT`/`LEAGUE_NUM_TEAMS`); a 10-team or
-  half-PPR league shifts that (and the VORP baselines) — both config reads.
+  format/teams combo: `config.FFC_FORMAT` plus the stored league team count
+  (falling back to `LEAGUE_NUM_TEAMS`). A league-size change makes existing FFC
+  state stale until `ffb season sync SEASON --source ffc` loads the matching
+  snapshot; scoring format remains the configured `ppr`.
 - **Team defenses share synthetic canonical identity.** DEF isn't in
   `ff_playerids`, so valid team-defense rows bypass player-name resolution and
   use `def:<canonical MFL team code>` across Sleeper, ESPN, and FFC. Unknown team

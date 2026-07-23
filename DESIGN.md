@@ -1,7 +1,9 @@
 # Fantasy Football Pipeline — Design
 
 Decisions reached via design interview, 2026-07-20. This is the shared
-understanding the implementation plan builds on.
+understanding the implementation plan builds on. Draft support described below
+reflects the current implementation; weekly-management sections remain target
+design unless noted otherwise.
 
 ## Purpose & scope
 
@@ -25,7 +27,7 @@ Two deliverables:
 | League state (roster, free agents, matchups, scoring settings, transactions) | Yahoo Fantasy API via `yfpy` | OAuth2; token refresh must persist between scheduled runs |
 | Projections (weekly + rest-of-season) | Sleeper projection endpoints, ESPN (unofficial API), candidate: Yahoo's own projected points | Averaged into a consensus, then re-scored with exact Yahoo league scoring |
 | ADP | Fantasy Football Calculator free API | Draft value-vs-cost |
-| Historical stats / usage (snaps, targets), injuries & practice reports, depth charts | nflverse via `nfl_data_py` (parquet, DuckDB-native) | Free, excellent, canonical |
+| Historical stats / usage (snaps, targets), injuries & practice reports, depth charts | nflverse via `nflreadpy` (parquet → polars) | Free, excellent, canonical |
 | Player status + trending adds/drops | Sleeper API | Feeds waiver signal |
 | News headlines/blurbs | ESPN news endpoints, RSS | LLM-digested, never directly numeric |
 | Player identity crosswalk | nflverse `ff_playerids` | Canonical join spine across yahoo/sleeper/espn/gsis IDs |
@@ -54,17 +56,19 @@ tiers, scoring-adjusted, ADP alongside for value-vs-cost.
 **Draft tracker** — web app on Cloudflare (Workers + D1), mobile-friendly:
 
 - Knows the teams and snake draft order.
-- For each pick, prompts for the current team's selection: **3 suggested
-  players** (most-likely picks by ADP among those available) plus a name
-  autocomplete input; records the pick.
-- When it's Brian's turn: recommends the position and player to draft
-  (tier- and roster-need-aware).
+- Uses the full available-player board as the primary recommendation and pick
+  surface, with independent position and Available/Drafted filters.
+- Supports player search, row selection, pick confirmation, chronological draft
+  history, and latest-only undo. Positional views group remaining players by
+  tier; the mixed view keeps the pipeline's VORP rank order.
+- Shows the current and next team on the derived snake-draft clock. A future
+  upgrade may add roster-need-aware recommendations for Brian's turns.
 - Auth: API key entry field on the page, saved in localStorage, sent as a
   bearer token and validated by the Worker.
 - **Architecture split**: the Python pipeline computes the board and exports
-  static JSON at deploy time; the Cloudflare app is a thin TS layer that
-  renders, records picks, and runs simple suggestion logic ported to TS. No
-  runtime dependency on the pipeline during the draft.
+  static JSON into Workers KV; the Cloudflare app is a thin TS layer that
+  renders it and stores draft configuration plus immutable pick snapshots in
+  D1. No runtime dependency on the Python pipeline during the draft.
 - Upgrade path (not v1): poll Yahoo's draft endpoint to auto-record picks, if
   a mock draft proves it live-readable.
 
@@ -109,8 +113,8 @@ later drive consensus weighting.
 - **Orchestration**: GitHub Actions cron in a private repo (laptop-
   independent). Secrets: Yahoo tokens, Anthropic key, email creds. DuckDB file
   persisted between runs; Yahoo token refresh persistence handled explicitly.
-- **Tracker hosting**: Cloudflare Workers + D1, deployed separately; consumes
-  pipeline-exported JSON.
+- **Tracker hosting**: Cloudflare Workers + KV + D1, deployed separately;
+  consumes pipeline-exported `board.json` v1.
 - **LLM**: Claude API inside the pipeline for digest/narrative; Claude Code
   interactively for Q&A.
 
