@@ -6,19 +6,17 @@
 import { renderBoard } from "../src/render";
 import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
-import { searchPlayers, suggestPlayers } from "../src/suggestions";
-import { makeSetupStore, nextSetupDialog, setupValidation, teamsFromSetup } from "../src/setup";
+import { searchPlayers } from "../src/suggestions";
+import { makeSetupStore, nextSetupDialog, replaceTeamOptions, setupValidation, teamsFromSetup } from "../src/setup";
 import {
   boardNoticeHtml,
-  describeBoardView,
   initialBoardView,
   nextBoardView,
   type BoardPosition,
   type BoardViewState,
 } from "../src/board-view";
-import { deriveRecommendation } from "../src/recommendation";
-import { needsHtml, recommendationHtml, recommendationSummaryHtml } from "../src/recommendation-view";
 import { isAvailable, playersEquivalent } from "../src/player-identity";
+import { draftClockPresentation, draftPageTitle, nextPick } from "../src/draft";
 import type { DraftConfigInput, DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
@@ -56,13 +54,9 @@ const gearEl = $<HTMLButtonElement>("[data-gear]");
 const tabsEl = $<HTMLElement>("[data-tabs]");
 const listEl = $<HTMLElement>("[data-list]");
 const footEl = $<HTMLElement>("[data-foot]");
-const subEl = $<HTMLElement>("[data-sub]");
 const clockEl = $<HTMLElement>("[data-clock]");
 const setupDraftEl = $<HTMLButtonElement>("[data-setup-draft]");
 const viewTabsEl = $<HTMLElement>("[data-view-tabs]");
-const orderLabelEl = $<HTMLElement>("[data-order-label]");
-const viewLeadEl = $<HTMLElement>("[data-view-lead]");
-const viewDetailEl = $<HTMLElement>("[data-view-detail]");
 const setupModalEl = $<HTMLElement>("[data-setup-modal]");
 const setupEl = $<HTMLElement>("[data-setup]");
 const closeSetupEl = $<HTMLButtonElement>("[data-close-setup]");
@@ -75,26 +69,13 @@ const pickPanelEl = $<HTMLElement>("[data-pick-panel]");
 const pickToolsToggleEl = $<HTMLButtonElement>("[data-pick-tools-toggle]");
 const pickToolsEl = $<HTMLElement>("[data-pick-tools]");
 const onClockEl = $<HTMLElement>("[data-on-clock]");
-const recommendationSummaryEl = $<HTMLElement>("[data-recommendation-summary]");
-const suggestionsEl = $<HTMLElement>("[data-suggestions]");
-const recommendationRegionEl = $<HTMLElement>("[data-recommendation-region]");
-const recommendationEl = $<HTMLElement>("[data-recommendation]");
-const needsEl = $<HTMLElement>("[data-needs]");
-const recommendationWarningEl = $<HTMLElement>("[data-recommendation-warning]");
-const recommendationLiveEl = $<HTMLElement>("[data-recommendation-live]");
 const playerSearchEl = $<HTMLInputElement>("[data-player-search]");
-const searchResultsEl = $<HTMLElement>("[data-search-results]");
-const unlistedEl = $<HTMLButtonElement>("[data-unlisted]");
-const manualFormEl = $<HTMLFormElement>("[data-manual-form]");
-const manualNameEl = $<HTMLInputElement>("[data-manual-name]");
-const manualPosEl = $<HTMLElement>("[data-manual-pos]") as unknown as HTMLSelectElement;
-const manualTeamEl = $<HTMLInputElement>("[data-manual-team]");
-const manualCancelEl = $<HTMLButtonElement>("[data-manual-cancel]");
 const selectedEl = $<HTMLElement>("[data-selected]");
 const draftErrorEl = $<HTMLElement>("[data-draft-error]");
 const setupErrorEl = $<HTMLElement>("[data-setup-error]");
 const setupStatusEl = $<HTMLElement>("[data-setup-status]");
 const recordPickEl = $<HTMLButtonElement>("[data-record-pick]");
+const clearPickEl = $<HTMLButtonElement>("[data-clear-pick]");
 const undoPickEl = $<HTMLButtonElement>("[data-undo-pick]");
 const resetDraftEl = $<HTMLButtonElement>("[data-reset-draft]");
 
@@ -105,9 +86,6 @@ let boardDriftVersion: unknown | null = null;
 let boardMalformed = false;
 let boardView: BoardViewState = initialBoardView;
 let draft: DraftState | null = null;
-interface ManualPlayerInput { name: string; pos: "QB" | "RB" | "WR" | "TE" | "K" | "DEF" | "DST" | "Unknown"; team: string | null; }
-type PickSelection = { kind: "board"; player: Player } | { kind: "manual"; player: ManualPlayerInput };
-let selected: PickSelection | null = null;
 let writing = false;
 let setupPresented = false;
 let setupOpen = false;
@@ -141,10 +119,20 @@ function applyUi(): void {
   }
   errEl.hidden = ui.error == null;
   errEl.textContent = ui.error ?? "";
+  renderSettingsDraftAction();
 }
 
 // ---- board rendering ----
-function renderList(): void {
+function pickedIdentities(): Array<{ key: string; name: string; pos: string | null; team: string | null }> {
+  return draft?.picks.map((pick) => ({
+    key: pick.player_key,
+    name: pick.player_name,
+    pos: pick.player_pos,
+    team: pick.player_team,
+  })) ?? [];
+}
+
+function renderList(resetScroll = true): void {
   if (!board) {
     listEl.innerHTML = boardNoticeHtml(boardDriftVersion, boardMalformed);
     return;
@@ -156,17 +144,23 @@ function renderList(): void {
       if (playersEquivalent(player, { key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) picked.set(player.key, annotation);
     }
   }
+  const searching = boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
+  const searchResults = searching
+    ? searchPlayers(board.players, pickedIdentities(), boardView.searchQuery)
+    : undefined;
   listEl.innerHTML = renderBoard(board, boardView.position, {
     picked,
     mode: boardView.mode,
     draftPicks: draft?.picks,
+    selectable: Boolean(draft?.next) && !writing,
+    selectedKey: boardView.selectedKey,
+    searchResults,
   });
-  listEl.scrollTop = 0;
+  if (resetScroll) listEl.scrollTop = 0;
 }
 
 function renderChrome(): void {
   if (!board) return;
-  subEl.textContent = `${board.num_teams}-team · ${board.scoring} scoring`;
   let when = board.generated_at;
   try {
     when = new Date(board.generated_at).toLocaleString();
@@ -187,15 +181,23 @@ function keyHeader(): HeadersInit {
   return { Authorization: `Bearer ${store.get() ?? ""}` };
 }
 
-function playerByKey(key: string): Player | null {
+function playerByKey(key: string | null): Player | null {
+  if (key === null) return null;
   return board?.players.find((player) => player.key === key) ?? null;
 }
 
-function setSelected(selection: PickSelection | null): void {
-  selected = selection;
-  const player = selection?.player;
-  selectedEl.innerHTML = player ? `Selected: <b>${escapeHtml(player.name)}</b> · ${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")}` : "No player selected.";
-  recordPickEl.disabled = !selection || !draft?.next || writing;
+function renderSelection(): void {
+  const player = playerByKey(boardView.selectedKey);
+  selectedEl.innerHTML = player
+    ? `<b>${escapeHtml(player.name)}</b> · ${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")}`
+    : "No Player Selected.";
+  recordPickEl.disabled = !player || !draft?.next || writing;
+  clearPickEl.disabled = !player || !draft?.next || writing;
+}
+
+function renderSettingsDraftAction(): void {
+  resetDraftEl.hidden = ui.modal !== "settings" || draft?.configured !== true;
+  resetDraftEl.disabled = writing;
 }
 
 function setDraftError(message = ""): void {
@@ -219,10 +221,8 @@ function clearSetupInvalid(): void {
 }
 
 function refreshUserTeams(): void {
-  const selectedName = userTeamEl.value;
   const names = teamNamesEl.value.split("\n").map((name) => name.trim()).filter(Boolean);
-  userTeamEl.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
-  if (names.includes(selectedName)) userTeamEl.value = selectedName;
+  replaceTeamOptions(userTeamEl, names);
 }
 
 function setupFromDraftState(state: DraftState): DraftConfigInput | null {
@@ -246,6 +246,8 @@ function populateSetup(config: DraftConfigInput): void {
 
 function renderDraft(): void {
   const configured = draft?.configured === true;
+  document.title = draftPageTitle(draft?.draft?.name ?? null, Boolean(draft?.next));
+  renderSettingsDraftAction();
   const showSetup = setupOpen && !configured && !ui.locked;
   setupModalEl.hidden = !showSetup;
   screenEl.toggleAttribute("inert", showSetup);
@@ -255,7 +257,6 @@ function renderDraft(): void {
   pickPanelEl.hidden = !configured;
   renderPickTools();
   if (!configured) {
-    subEl.textContent = board ? `${board.num_teams}-team · ${board.scoring} scoring` : "—";
     renderList();
     if (showSetup && !setupPresented) setTimeout(() => draftNameEl.focus(), 0);
     setupPresented = showSetup;
@@ -268,32 +269,42 @@ function renderDraft(): void {
   const next = draft!.next;
   if (!next) {
     clockEl.textContent = "Draft complete";
+    clockEl.removeAttribute("aria-label");
     onClockEl.textContent = "Draft complete — undo the latest pick to reopen it.";
   } else {
-    const pick = `${next.round}.${String(next.round_pick).padStart(2, "0")}`;
-    clockEl.textContent = `${pick} · ${next.is_user ? "YOU · " : ""}${next.team_name} ${next.direction === "forward" ? "↓" : "↑"}`;
+    const followingPick = nextPick(draft!.teams!, draft!.draft!.rounds, next.overall_pick + 1);
+    const presentation = draftClockPresentation(next, followingPick?.team_name ?? null);
+    const summaryEl = document.createElement("span");
+    const nextEl = document.createElement("span");
+    const accessibleEl = document.createElement("span");
+    summaryEl.textContent = presentation.current;
+    summaryEl.setAttribute("aria-hidden", "true");
+    nextEl.className = "next-team";
+    nextEl.textContent = presentation.next;
+    nextEl.title = followingPick ? `Next: ${followingPick.team_name}` : "Next: Draft complete";
+    nextEl.setAttribute("aria-hidden", "true");
+    accessibleEl.className = "sr-only";
+    accessibleEl.textContent = presentation.accessible;
+    clockEl.replaceChildren(summaryEl, nextEl, accessibleEl);
+    clockEl.removeAttribute("aria-label");
     onClockEl.textContent = `Round ${next.round} of ${draft!.draft!.rounds} · Pick ${next.overall_pick} of ${draft!.draft!.team_count * draft!.draft!.rounds} · ${next.team_name} is on the clock`;
   }
-  const picked = draft!.picks.map((pick) => ({ key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team }));
-  const recommendation = board ? deriveRecommendation(board, draft!) : null;
-  recommendationSummaryEl.innerHTML = recommendationSummaryHtml(
-    recommendation ?? { context: null, recommendation: null, warnings: [] },
-  );
-  recommendationRegionEl.hidden = !next?.is_user;
-  recommendationEl.innerHTML = recommendation ? recommendationHtml(recommendation) : "";
-  needsEl.innerHTML = recommendation ? needsHtml(recommendation) : "";
-  recommendationWarningEl.textContent = recommendation?.warnings.join(" ") ?? "";
-  recommendationLiveEl.textContent = recommendation?.recommendation ? `${recommendation.recommendation.position} ${recommendation.recommendation.player.name}: ${recommendation.recommendation.reason}` : "";
-  suggestionsEl.innerHTML = !next || !board ? "" : suggestPlayers(board.players, picked)
-    .map((player) => `<button class="suggestion" data-player-key="${encodeURIComponent(player.key)}"><b>${escapeHtml(player.name)}</b><small>${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")} · ADP ${player.adp ?? "—"}</small></button>`)
-    .join("");
+  const picked = pickedIdentities();
   const canPick = Boolean(next && board);
   playerSearchEl.disabled = !canPick || writing;
-  unlistedEl.disabled = !next || writing;
-  if (selected?.kind === "board" && !isAvailable(selected.player, picked)) selected = null;
+  const selectedPlayer = playerByKey(boardView.selectedKey);
+  if (selectedPlayer && !isAvailable(selectedPlayer, picked)) {
+    boardView = nextBoardView(boardView, { type: "selectionCleared" });
+  }
   undoPickEl.disabled = writing || draft!.picks.length === 0;
-  undoPickEl.textContent = draft!.picks.length ? `Undo ${draft!.picks.at(-1)!.round}.${String(draft!.picks.at(-1)!.round_pick).padStart(2, "0")} — ${draft!.picks.at(-1)!.player_name}` : "Undo latest pick";
-  setSelected(next ? selected : null);
+  const undoLabel = draft!.picks.length
+    ? `Undo ${draft!.picks.at(-1)!.round}.${String(draft!.picks.at(-1)!.round_pick).padStart(2, "0")} — ${draft!.picks.at(-1)!.player_name}`
+    : "Undo latest pick";
+  undoPickEl.setAttribute("aria-label", undoLabel);
+  undoPickEl.title = undoLabel;
+  undoPickEl.dataset.tooltip = undoLabel;
+  renderSelection();
+  renderViewControls();
   renderList();
   if (focusPickTools) {
     focusPickTools = false;
@@ -314,16 +325,17 @@ function renderViewControls(): void {
       (position) => `<button class="tab" role="tab" data-pos="${position}">${position}</button>`,
     ).join("");
   }
+  const searching = boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
   tabsEl.querySelectorAll<HTMLButtonElement>("[data-pos]").forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.pos === boardView.position));
+    tab.disabled = searching;
   });
   viewTabsEl.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((tab) => {
-    tab.setAttribute("aria-pressed", String(tab.dataset.view === boardView.mode));
+    const presentedMode = searching ? "available" : boardView.mode;
+    tab.setAttribute("aria-pressed", String(tab.dataset.view === presentedMode));
+    tab.disabled = searching;
   });
-  const description = describeBoardView(boardView);
-  orderLabelEl.textContent = description.orderLabel;
-  viewLeadEl.textContent = description.lead;
-  viewDetailEl.textContent = description.detail;
+  playerSearchEl.value = boardView.searchQuery;
 }
 
 function renderPickTools(): void {
@@ -428,14 +440,11 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       setupOpen = nextSetupDialog(setupOpen, { type: "close" });
     } else if (path === "/api/draft" && method === "DELETE") {
       setupOpen = nextSetupDialog(setupOpen, { type: "draftReset" });
-    }
-    if (path === "/api/picks" && method === "POST") {
+      boardView = initialBoardView;
+    } else if (path === "/api/picks" && method === "POST") {
       boardView = nextBoardView(boardView, { type: "pickRecorded" });
     }
     if (!wasConfigured && draft.configured) focusPickTools = true;
-    selected = null;
-    playerSearchEl.value = "";
-    searchResultsEl.innerHTML = "";
     setDraftError("");
     setSetupError("");
     renderDraft();
@@ -508,7 +517,7 @@ gearEl.addEventListener("click", () => {
 });
 tabsEl.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".tab");
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   boardView = nextBoardView(boardView, {
     type: "selectPosition",
     position: (btn.dataset.pos ?? "ALL") as BoardPosition,
@@ -519,7 +528,7 @@ tabsEl.addEventListener("click", (e) => {
 
 viewTabsEl.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-view]");
-  if (!button) return;
+  if (!button || button.disabled) return;
   boardView = nextBoardView(boardView, {
     type: "selectMode",
     mode: button.dataset.view === "drafted" ? "drafted" : "available",
@@ -547,8 +556,8 @@ closeSetupEl.addEventListener("click", () => {
   setupDraftEl.focus();
 });
 
-teamNamesEl.addEventListener("input", refreshUserTeams);
 teamNamesEl.addEventListener("input", () => {
+  refreshUserTeams();
   clearSetupInvalid();
   setSetupError("");
 });
@@ -596,68 +605,38 @@ setupEl.addEventListener("keydown", (event) => {
   }
 });
 
-suggestionsEl.addEventListener("click", (e) => {
-  const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-player-key]");
-  if (!button) return;
-  const player = playerByKey(decodeURIComponent(button.dataset.playerKey ?? ""));
-  setSelected(player ? { kind: "board", player } : null);
-});
-
-recommendationEl.addEventListener("click", (e) => {
-  const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-recommendation-key]");
-  if (!button) return;
-  const player = playerByKey(decodeURIComponent(button.dataset.recommendationKey ?? ""));
-  setSelected(player ? { kind: "board", player } : null);
+listEl.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-player-key]");
+  if (!button || !draft?.next || writing) return;
+  const key = decodeURIComponent(button.dataset.playerKey ?? "");
+  if (!playerByKey(key)) return;
+  boardView = nextBoardView(boardView, { type: "playerSelected", key });
+  renderPickTools();
+  renderSelection();
+  renderList(false);
+  listEl.querySelector<HTMLButtonElement>(`button[data-player-key="${encodeURIComponent(key)}"]`)?.focus({ preventScroll: true });
 });
 
 playerSearchEl.addEventListener("input", () => {
-  const picked = draft?.picks.map((pick) => ({ key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) ?? [];
-  const results = board ? searchPlayers(board.players, picked, playerSearchEl.value) : [];
-  playerSearchEl.setAttribute("aria-expanded", String(results.length > 0));
-  searchResultsEl.innerHTML = results.map((player) => `<button class="searchresult" role="option" data-player-key="${encodeURIComponent(player.key)}"><b>${escapeHtml(player.name)}</b> <small>${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")} · ADP ${player.adp ?? "—"}</small></button>`).join("");
-});
-
-searchResultsEl.addEventListener("click", (e) => {
-  const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-player-key]");
-  if (!button) return;
-  const player = playerByKey(decodeURIComponent(button.dataset.playerKey ?? ""));
-  setSelected(player ? { kind: "board", player } : null);
-  playerSearchEl.value = player?.name ?? "";
-  playerSearchEl.setAttribute("aria-expanded", "false");
-  searchResultsEl.innerHTML = "";
-});
-
-unlistedEl.addEventListener("click", () => {
-  manualFormEl.hidden = !manualFormEl.hidden;
-  if (!manualFormEl.hidden) manualNameEl.focus();
-});
-
-manualFormEl.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const name = manualNameEl.value.trim();
-  const pos = manualPosEl.value as ManualPlayerInput["pos"];
-  const team = manualTeamEl.value.trim() || null;
-  if (!name) {
-    setDraftError("Enter the unlisted player's exact display name.");
-    manualNameEl.focus();
-    return;
-  }
-  setSelected({ kind: "manual", player: { name, pos, team } });
-  manualFormEl.hidden = true;
-  setDraftError("");
-});
-
-manualCancelEl.addEventListener("click", () => {
-  manualFormEl.hidden = true;
-  playerSearchEl.focus();
+  boardView = nextBoardView(boardView, { type: "searchChanged", query: playerSearchEl.value });
+  renderViewControls();
+  renderList();
 });
 
 recordPickEl.addEventListener("click", () => {
-  if (!selected || !draft?.next) return;
-  const payload = selected.kind === "board"
-    ? { player_key: selected.player.key, expected_overall_pick: draft.next.overall_pick }
-    : { manual_player: selected.player, expected_overall_pick: draft.next.overall_pick };
-  void writeDraft("/api/picks", "POST", payload);
+  const player = playerByKey(boardView.selectedKey);
+  if (!player || !draft?.next) return;
+  void writeDraft("/api/picks", "POST", {
+    player_key: player.key,
+    expected_overall_pick: draft.next.overall_pick,
+  });
+});
+
+clearPickEl.addEventListener("click", () => {
+  if (boardView.selectedKey === null || writing) return;
+  boardView = nextBoardView(boardView, { type: "selectionCleared" });
+  renderSelection();
+  renderList(false);
 });
 
 undoPickEl.addEventListener("click", () => {
@@ -666,7 +645,10 @@ undoPickEl.addEventListener("click", () => {
 });
 
 resetDraftEl.addEventListener("click", () => {
-  if (window.confirm("Reset this draft? This permanently removes all recorded picks and teams.")) void writeDraft("/api/draft", "DELETE");
+  if (!window.confirm("Reset this draft? This permanently removes all recorded picks and teams.")) return;
+  void writeDraft("/api/draft", "DELETE").then((reset) => {
+    if (reset && store.get()) dispatch({ type: "closeModal" });
+  });
 });
 
 // ---- first run vs. returning device ----

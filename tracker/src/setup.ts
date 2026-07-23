@@ -64,6 +64,19 @@ export function teamsFromSetup(namesText: string, userTeamName: string): TeamInp
     .map((name) => ({ name, is_user: name === userTeamName }));
 }
 
+/** Replace the user-team choices without parsing team names as HTML. */
+export function replaceTeamOptions(select: HTMLSelectElement, names: string[]): void {
+  const selectedName = select.value;
+  const options = names.map((name) => {
+    const option = select.ownerDocument.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    return option;
+  });
+  select.replaceChildren(...options);
+  if (names.includes(selectedName)) select.value = selectedName;
+}
+
 /** Local feedback for the few setup errors we can explain before a network call. */
 export function validateSetup(namesText: string, userTeamName: string, rounds = 16): string | null {
   return setupValidation(namesText, userTeamName, rounds)?.message ?? null;
