@@ -402,10 +402,16 @@ def _warn_source_states(status: dict, *, include_adp: bool) -> None:
         if source["name"] not in wanted:
             continue
         if source.get("stale"):
-            console.print(
-                f"[yellow]Warning: {source['name']} has stale identity resolution; "
-                "run `ffb season sync --rebuild`.[/yellow]"
-            )
+            if source["name"] == "ffc":
+                console.print(
+                    "[yellow]Warning: ffc ADP was synced for a different league size; "
+                    f"run `ffb season sync {status['season']} --source ffc`.[/yellow]"
+                )
+            else:
+                console.print(
+                    f"[yellow]Warning: {source['name']} has stale identity resolution; "
+                    "run `ffb season sync --rebuild`.[/yellow]"
+                )
         if source["state"] == "ready":
             continue
         retained = (

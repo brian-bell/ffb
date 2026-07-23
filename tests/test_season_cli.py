@@ -286,6 +286,34 @@ def test_reads_warn_when_using_retained_data_after_failed_refresh(tmp_path, monk
     assert "Espn" in rankings.output
 
 
+def test_board_warns_when_ffc_adp_was_synced_for_a_different_league_size(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    league = runner.invoke(
+        app,
+        [
+            "league",
+            "sync",
+            "2024",
+            "--fixture",
+            str(FIXTURES / "yahoo_league_minimal.json"),
+        ],
+        env=env,
+    )
+    assert league.exit_code == 0, league.output
+
+    status = runner.invoke(app, ["season", "status", "2024", "--json"], env=env)
+    assert status.exit_code == 0, status.output
+    payload = json.loads(status.output)
+    ffc_status = next(source for source in payload["sources"] if source["name"] == "ffc")
+    assert ffc_status["stale"] is True
+
+    board = runner.invoke(app, ["board", "show", "2024", "--limit", "1"], env=env)
+    assert board.exit_code == 0, board.output
+    assert "ffc ADP was synced for a different league size" in board.output
+    assert "ffb season sync 2024 --source ffc" in " ".join(board.output.split())
+
+
 def test_clean_break_rejects_removed_commands_and_options_and_defaults_to_2026(tmp_path):
     env = {
         "FFB_DB_PATH": str(tmp_path / "ffb.duckdb"),

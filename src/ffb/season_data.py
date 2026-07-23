@@ -201,12 +201,23 @@ class SeasonDataService:
 
     def status(self, season: int) -> dict[str, Any]:
         tracked = {row["source"]: row for row in self.store.season_source_state(season)}
+        league = load_league_context(self.store, season)
         sources = []
         for source in ALL_SOURCES:
             row_count, match_count = self.store.source_counts(season, source)
             row = tracked.get(source)
             state = (
                 row["latest_attempt_status"] if row else ("untracked" if row_count else "missing")
+            )
+            stale = (
+                source in ("sleeper", "espn")
+                and bool(row_count)
+                and self.store.has_stale_resolution(season, source)
+            ) or (
+                source == "ffc"
+                and bool(row_count)
+                and bool(row)
+                and row.get("snapshot_key") != ffc.snapshot_key(season, teams=league.num_teams)
             )
             sources.append(
                 {
@@ -216,9 +227,7 @@ class SeasonDataService:
                     "row_count": row_count,
                     "match_count": match_count,
                     "unmatched_count": row_count - match_count,
-                    "stale": source in ("sleeper", "espn")
-                    and bool(row_count)
-                    and self.store.has_stale_resolution(season, source),
+                    "stale": stale,
                     "last_attempt_at": row.get("last_attempt_at") if row else None,
                     "last_success_at": row.get("last_success_at") if row else None,
                     "snapshot": {
@@ -231,16 +240,16 @@ class SeasonDataService:
                     "error": row.get("latest_error") if row else None,
                 }
             )
-        league = self.store.league_context(season)
+        stored_league = self.store.league_context(season)
         return {
             "version": 1,
             "season": season,
             "complete": all(source["state"] == "ready" for source in sources),
             "sources": sources,
             "league": {
-                "state": "ready" if league else "missing",
-                "source": league["source"] if league else None,
-                "synced_at": league["synced_at"] if league else None,
+                "state": "ready" if stored_league else "missing",
+                "source": stored_league["source"] if stored_league else None,
+                "synced_at": stored_league["synced_at"] if stored_league else None,
             },
         }
 
