@@ -46,8 +46,8 @@ def test_explicit_offline_sync_makes_full_season_ready_and_rankable(tmp_path):
 
     rankings = runner.invoke(app, ["rankings", "2024", "--position", "RB"], env=env)
     assert rankings.exit_code == 0, rankings.output
-    assert "McCaffrey" in rankings.output
     assert "Henry" in rankings.output
+    assert "McCaffrey" not in rankings.output
 
 
 def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, monkeypatch):

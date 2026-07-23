@@ -36,13 +36,34 @@ def test_consensus_averages_source_points_and_counts_n(store):
 def test_single_source_consensus_is_that_source(store):
     store.upsert_projections(
         [
-            _row("espn", "999", "espn:999", "Solo Guy", "WR", {"rec_yd": 1000.0}, matched=False),
+            _row("espn", "999", "999", "Solo Guy", "WR", {"rec_yd": 1000.0}),
         ]
     )
     solo = next(r for r in consensus_rows(store, 2024) if r["full_name"] == "Solo Guy")
     assert solo["n"] == 1
     assert solo["consensus"] == 100.0
     assert solo["source_points"] == {"espn": 100.0}
+
+
+def test_consensus_excludes_unmatched_projection_rows(store):
+    store.upsert_projections(
+        [
+            _row("espn", "1", "qb:1", "Josh Allen", "QB", {"pass_yd": 4000.0}),
+            _row(
+                "espn",
+                "tqb:atl",
+                "espn:tqb:atl",
+                "Falcons TQB",
+                "QB",
+                {"pass_yd": 4500.0},
+                matched=False,
+            ),
+        ]
+    )
+
+    rows = consensus_rows(store, 2024, position="QB")
+
+    assert [row["full_name"] for row in rows] == ["Josh Allen"]
 
 
 def test_consensus_rows_ranked_by_consensus_desc(store):

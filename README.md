@@ -27,7 +27,8 @@ uv run ffb rankings 2024 --position RB --show-sources
 
 Players are aligned on a canonical `player_key` (nflverse `mfl_id`). Consensus is
 the mean of each source's league-scored points; `n` is the source count.
-Crosswalk misses are never dropped — they rank source-only and are reported.
+Crosswalk misses remain stored and are reported by `season unmatched`, but they
+are excluded from rankings and the draft board.
 
 ## Setup
 
@@ -112,7 +113,8 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 
 Every source's native id resolves to a canonical `player_key` (nflverse
 `mfl_id`) via the crosswalk, so consensus aligns players across sources; misses
-fall back to a `source:native_id` key and are reported, never dropped.
+fall back to a stored `source:native_id` key for diagnostics and later
+self-healing, but do not enter rankings or the draft board.
 
 Points are **computed** from stat lines at read time, not stored — so re-scoring
 to different league settings is a config swap, not a re-ingest.

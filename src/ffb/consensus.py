@@ -32,6 +32,9 @@ def consensus_rows(
     stored). Callers pass the active set so output depends on the request, not on
     which sources a prior run happened to persist.
 
+    Unmatched source rows remain stored for diagnostics and later self-healing,
+    but are excluded from consensus.
+
     Each row: ``rank``, ``player_key``, ``full_name``, ``position``, ``team``,
     ``matched``, ``source_points`` ({source: pts}), ``consensus``, ``n``.
     """
@@ -40,6 +43,8 @@ def consensus_rows(
 
     grouped: dict[str, dict[str, Any]] = {}
     for r in rows:
+        if not r["matched"]:
+            continue
         if allowed is not None and r["source"] not in allowed:
             continue
         entry = grouped.setdefault(

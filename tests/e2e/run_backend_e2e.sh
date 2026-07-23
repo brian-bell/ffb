@@ -80,7 +80,10 @@ keys = [player.get("key") for player in board.get("players", [])]
 assert board.get("version") == 1, "expected board version 1"
 assert board.get("season") == 2024, "expected board season 2024"
 assert all(isinstance(key, str) and key for key in keys), "player keys must be nonempty"
-assert len(set(keys)) >= 6, "expected at least six unique player keys"
+assert len(set(keys)) == len(keys), "player keys must be unique"
+assert len(keys) >= 4, "expected at least four matched fixture players"
+assert all(player.get("matched") is True for player in board["players"]), \
+    "board must exclude unmatched players"
 print("board version: {}; player count: {}".format(board["version"], len(keys)))
 ' "$board_path" || exit $?
 

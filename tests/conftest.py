@@ -35,9 +35,8 @@ def store(tmp_path):
 
 @pytest.fixture
 def seeded_store(store, sample_rows):
-    # No crosswalk seeded here, so every player resolves to a fallback key —
-    # rankings still work off source identity. Tests that need matched keys seed
-    # the crosswalk explicitly.
+    # No crosswalk seeded here, so every player resolves to a fallback key.
+    # Tests that need matched keys seed the crosswalk explicitly.
     resolved, _ = resolve_rows(store, sample_rows, "sleeper")
     store.upsert_projections(resolved)
     return store

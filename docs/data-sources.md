@@ -19,10 +19,11 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   `store.py` touches DuckDB.
 - **Canonical identity via the crosswalk.** Every source's native player id is
   resolved to a canonical `player_key` (nflverse `mfl_id`) so consensus aligns the
-  same player across sources. A miss is never dropped — it falls back to a
-  `source:native_id` key with `matched=False` and is surfaced. The one exception
-  is FFC ADP, whose id has no crosswalk column: it resolves by **name + position**
-  instead (`names.py`), with the same never-dropped fallback.
+  same player across sources. A miss is retained under a `source:native_id` key
+  with `matched=False` for diagnostics and later self-healing, but is excluded
+  from rankings and the draft board. The one exception is FFC ADP, whose id has
+  no crosswalk column: it resolves by **name + position** instead (`names.py`),
+  with the same stored fallback.
 - **Points are computed, never stored.** Sources contribute stat lines;
   `scoring.py` scores them at read time. A source's own point total is kept only
   as `src_pts_ppr` for validation.
@@ -193,7 +194,8 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
   mostly retired players on team `FA`) are disambiguated by dropping `FA`
   candidates, then a team tiebreak. **Ambiguity resolves to unmatched, never a
   guess** — a wrong merge silently corrupts the board. A miss falls back to
-  `ffc:<player_id>` (`matched=False`) and is reported in the CLI footer.
+  `ffc:<player_id>` (`matched=False`), appears in `season unmatched`, and is
+  excluded from the draft board.
 - **Storage** — the `adp` table (keyed by `(player_key, season, source)`), carrying
   FFC's own name/pos/team plus the ADP fields. ADP is a **source value, so it is
   stored** (unlike computed points/VORP/tiers).
@@ -248,9 +250,9 @@ diagnostics. `ingest.ensure_crosswalk` loads the spine; `ensure_ingested` (Sleep
 `ensure_espn_ingested` load each projection source, resolving native ids to
 `player_key`. `resolve_rows` gives matched players the canonical crosswalk
 identity (so one source can't clobber another's name/team) and keeps misses under
-a fallback key. `consensus.py` groups by `player_key`, scores each source's stat
-line with `config.LEAGUE_SCORING`, and averages the points (carrying `n`, the
-source count).
+a fallback key. `consensus.py` excludes those unmatched fallbacks, groups matched
+rows by `player_key`, scores each source's stat line with
+`config.LEAGUE_SCORING`, and averages the points (carrying `n`, the source count).
 
 `league.py` validates a closed, provider-neutral `LeagueBundle` before
 `Store.replace_league_state` atomically mirrors settings/teams and replaces only

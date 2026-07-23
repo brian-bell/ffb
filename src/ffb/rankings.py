@@ -21,7 +21,8 @@ def ranked(
     cfg: ScoringConfig = DEFAULT_PPR,
 ) -> list[dict[str, Any]]:
     """Return ranked rows: ``rank``, ``full_name``, ``position``, ``team``,
-    ``points`` (computed), sorted by points descending.
+    ``points`` (computed), sorted by points descending. Unmatched source rows
+    remain stored for diagnostics but are excluded.
     """
     rows = store.projection_rows(season=season, position=position)
     scored = [
@@ -33,6 +34,7 @@ def ranked(
             "points": round(ppr_points(r["stats"], cfg), 2),
         }
         for r in rows
+        if r["matched"]
     ]
     scored.sort(key=lambda r: r["points"], reverse=True)
     if limit is not None:
