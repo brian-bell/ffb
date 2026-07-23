@@ -24,6 +24,9 @@ export interface RenderOptions {
   picked?: ReadonlyMap<string, PickAnnotation>;
   mode?: "available" | "drafted";
   draftPicks?: readonly DraftPickSnapshot[];
+  selectable?: boolean;
+  selectedKey?: string | null;
+  searchResults?: readonly Player[];
 }
 
 // Positions that don't carry a meaningful positional rank suffix in the meta line.
@@ -81,20 +84,24 @@ function metaLine(p: Player): string {
   return `${posLabel(p)} · ${team} · BYE ${bye}`;
 }
 
-function row(p: Player, maxVorp: number, pick?: PickAnnotation): string {
+function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null): string {
   const adpNa = p.adp == null ? " na" : "";
+  const selected = selectable && p.key === selectedKey;
   const annotation = pick
     ? `<span class="picknote">${pick.round}.${String(pick.round_pick).padStart(2, "0")} · ${esc(pick.team_name)}</span>`
     : "";
+  const open = selectable
+    ? `<button type="button" class="rowA selectable${selected ? " selected" : ""}" data-player-key="${encodeURIComponent(p.key)}" aria-pressed="${selected}">`
+    : `<div class="rowA${pick ? " drafted" : ""}">`;
   return (
-    `<div class="rowA${pick ? " drafted" : ""}">` +
+    open +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
     `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${esc(metaLine(p))}</i></span>` +
     vorpCell(p, maxVorp) +
     `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
     deltaChip(p) +
-    `</div>`
+    (selectable ? `</button>` : `</div>`)
   );
 }
 
@@ -142,7 +149,8 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const players = board.players;
   const maxVorp = players.reduce((m, p) => (p.vorp != null && p.vorp > m ? p.vorp : m), 0);
   const picked = options.picked ?? new Map<string, PickAnnotation>();
-  const history = options.mode === "drafted";
+  const searching = options.searchResults !== undefined;
+  const history = !searching && options.mode === "drafted";
 
   if (history && options.draftPicks) {
     return [...options.draftPicks]
@@ -153,8 +161,12 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   }
 
   const all = filter === "ALL";
-  const grouped = !history && !all;
-  let rows = (all ? players : players.filter((p) => p.pos === filter)).filter((p) => (history ? picked.has(p.key) : !picked.has(p.key)));
+  const grouped = !searching && !history && !all;
+  const visiblePlayers = searching ? options.searchResults! : all ? players : players.filter((p) => p.pos === filter);
+  let rows = visiblePlayers.filter((p) => (history ? picked.has(p.key) : !picked.has(p.key)));
+  if (searching && rows.length === 0) {
+    return '<div class="notice"><b>No matching available players.</b>Try another name, team, or position.</div>';
+  }
   if (history) rows = [...rows].sort((a, b) => picked.get(a.key)!.overall_pick - picked.get(b.key)!.overall_pick);
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
@@ -166,7 +178,7 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
       curTier = p.tier;
       html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
-    html += row(p, maxVorp, picked.get(p.key));
+    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey);
   }
   return html;
 }

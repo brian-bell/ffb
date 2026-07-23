@@ -129,19 +129,15 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   validated `manual_player` snapshot when a Yahoo pick is absent from the board,
   and resets by explicitly deleting picks, teams, then draft (never relying on
   FK cascade).
-- **Recommendation + availability:** `recommendation.ts` derives Brian-only,
-  explainable recommendations from the immutable board plus live D1 picks. It
-  fills dedicated starters before flex, considers tier survival and VORP cliffs,
-  delays K/DEF until forced, and shows no Brian-specific recommendation on an
-  opponent turn. `player-identity.ts` centralizes canonical/fallback/manual and
-  DEF/DST equivalence so suggestions, search, recommendations, and the write API
-  exclude the same drafted player representations.
+- **Availability + identity:** `player-identity.ts` centralizes
+  canonical/fallback/manual and DEF/DST equivalence so search, available rows,
+  and the write API exclude the same drafted player representations.
 - **Pure testable core:** `src/{auth,board,board-view,draft,player-identity,
-  recommendation,recommendation-view,suggestions,render,setup,state}.ts` are
-  pure/DOM-free and unit-tested; `types.ts` mirrors the `board.json` v1 contract;
-  `index.ts` is the Worker entry (auth-gate + KV board stream + fall through to
-  Static Assets), and `draft-api.ts` the API router. `public/app.ts` is thin DOM
-  wiring bundled to `public/app.js` (esbuild, gitignored).
+  suggestions,render,setup,state}.ts` are pure/DOM-free and unit-tested;
+  `types.ts` mirrors the `board.json` v1 contract; `index.ts` is the Worker entry
+  (auth-gate + KV board stream + fall through to Static Assets), and
+  `draft-api.ts` the API router. `public/app.ts` is thin DOM wiring bundled to
+  `public/app.js` (esbuild, gitignored).
 - CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
   of the Python `uv` job; a third `backend-e2e` job generates a real board with
   the Python CLI and drives it through the Worker with Miniflare. The provisioned

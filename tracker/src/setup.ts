@@ -57,11 +57,22 @@ export function nextSetupDialog(_open: boolean, event: SetupDialogEvent): boolea
 
 /** Translate the setup form's first-round order into the API's team payload. */
 export function teamsFromSetup(namesText: string, userTeamName: string): TeamInput[] {
+  return teamOptionsFromSetup(namesText, userTeamName)
+    .map(({ name, selected }) => ({ name, is_user: selected }));
+}
+
+export interface SetupTeamOption {
+  name: string;
+  selected: boolean;
+}
+
+/** Derive browser-agnostic user-team choices from the guided setup fields. */
+export function teamOptionsFromSetup(namesText: string, selectedName: string): SetupTeamOption[] {
   return namesText
     .split("\n")
     .map((name) => name.trim())
     .filter(Boolean)
-    .map((name) => ({ name, is_user: name === userTeamName }));
+    .map((name) => ({ name, selected: name === selectedName }));
 }
 
 /** Local feedback for the few setup errors we can explain before a network call. */
