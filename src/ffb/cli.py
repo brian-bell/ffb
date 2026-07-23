@@ -410,7 +410,7 @@ def _warn_source_states(status: dict, *, include_adp: bool) -> None:
             else:
                 console.print(
                     f"[yellow]Warning: {source['name']} has stale identity resolution; "
-                    "run `ffb season sync --rebuild`.[/yellow]"
+                    f"run `ffb season sync {status['season']} --rebuild`.[/yellow]"
                 )
         if source["state"] == "ready":
             continue

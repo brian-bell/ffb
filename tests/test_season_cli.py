@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
 from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.store import Store
 
 FIXTURES = Path(__file__).parent / "fixtures"
 runner = CliRunner()
@@ -312,6 +313,39 @@ def test_board_warns_when_ffc_adp_was_synced_for_a_different_league_size(tmp_pat
     assert board.exit_code == 0, board.output
     assert "ffc ADP was synced for a different league size" in board.output
     assert "ffb season sync 2024 --source ffc" in " ".join(board.output.split())
+
+
+def test_stale_resolution_warning_rebuilds_the_requested_season(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    with Store(Path(env["FFB_DB_PATH"])) as store:
+        current = crosswalk.parse_crosswalk(
+            json.loads((FIXTURES / "ff_playerids_sample.json").read_text())
+        )
+        store.replace_crosswalk([row for row in current if row["sleeper_id"] != "3198"])
+
+    rankings = runner.invoke(app, ["rankings", "2024", "--position", "RB"], env=env)
+
+    assert rankings.exit_code == 0, rankings.output
+    assert "sleeper has stale identity resolution" in rankings.output
+    assert "ffb season sync 2024 --rebuild" in " ".join(rankings.output.split())
+
+
+def test_stale_source_makes_season_status_incomplete(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    with Store(Path(env["FFB_DB_PATH"])) as store:
+        current = crosswalk.parse_crosswalk(
+            json.loads((FIXTURES / "ff_playerids_sample.json").read_text())
+        )
+        store.replace_crosswalk([row for row in current if row["sleeper_id"] != "3198"])
+
+    status = runner.invoke(app, ["season", "status", "2024", "--json"], env=env)
+
+    assert status.exit_code == 0, status.output
+    payload = json.loads(status.output)
+    assert any(source["stale"] for source in payload["sources"])
+    assert payload["complete"] is False
 
 
 def test_clean_break_rejects_removed_commands_and_options_and_defaults_to_2026(tmp_path):
