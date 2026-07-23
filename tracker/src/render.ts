@@ -78,6 +78,10 @@ function tierChip(p: Player): string {
   return `<span class="tier-chip">${esc(label)}</span>`;
 }
 
+function tierKey(tier: number | null): string {
+  return tier == null ? "adp" : String(tier);
+}
+
 function metaLine(p: Player): string {
   const team = p.team ?? "FA";
   const bye = p.bye == null ? "—" : String(p.bye);
@@ -107,7 +111,7 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
 
 function tierDivider(pos: string, tier: number | null, count: number): string {
   const label = tier == null ? "ADP only" : `Tier ${tier}`;
-  return `<div class="trule">${label} · ${esc(pos)} · ${count} left</div>`;
+  return `<div class="trule" data-tier-key="${tierKey(tier)}" data-tier-count="${count}">${label} · ${esc(pos)} · ${count} left</div>`;
 }
 
 function playerFromPick(players: readonly Player[], pick: DraftPickSnapshot): Player {

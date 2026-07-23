@@ -17,6 +17,7 @@ import {
 } from "../src/board-view";
 import { isAvailable, playersEquivalent } from "../src/player-identity";
 import { draftClockPresentation, draftPageTitle, nextPick } from "../src/draft";
+import { removeRecordedPlayerRows, setPlayerListBusy, syncSelectedPlayerRow } from "../src/selection";
 import type { DraftConfigInput, DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
 
@@ -250,7 +251,7 @@ function populateSetup(config: DraftConfigInput): void {
   setSetupError("");
 }
 
-function renderDraft(): void {
+function renderDraft(renderListContent = true): void {
   const configured = draft?.configured === true;
   document.title = draftPageTitle(draft?.draft?.name ?? null, Boolean(draft?.next));
   renderSettingsDraftAction();
@@ -263,7 +264,7 @@ function renderDraft(): void {
   pickPanelEl.hidden = !configured;
   renderPickTools();
   if (!configured) {
-    renderList();
+    if (renderListContent) renderList();
     if (showSetup && !setupPresented) setTimeout(() => draftNameEl.focus(), 0);
     setupPresented = showSetup;
     saveDraftEl.disabled = writing;
@@ -311,7 +312,7 @@ function renderDraft(): void {
   undoPickEl.dataset.tooltip = undoLabel;
   renderSelection();
   renderViewControls();
-  renderList();
+  if (renderListContent) renderList();
   if (focusPickTools) {
     focusPickTools = false;
     setTimeout(() => pickToolsToggleEl.focus(), 0);
@@ -394,7 +395,7 @@ async function loadBoard(key: string): Promise<LoadResult> {
   return "ok";
 }
 
-async function loadDraft(): Promise<LoadResult> {
+async function loadDraft(renderListContent = true): Promise<LoadResult> {
   let res: Response;
   try {
     res = await fetch("/api/draft", { headers: keyHeader() });
@@ -407,7 +408,7 @@ async function loadDraft(): Promise<LoadResult> {
     draft = (await res.json()) as DraftState;
     const currentSetup = setupFromDraftState(draft);
     if (currentSetup) setupStore.set(currentSetup);
-    renderDraft();
+    renderDraft(renderListContent);
     return "ok";
   } catch {
     return "network";
@@ -417,9 +418,15 @@ async function loadDraft(): Promise<LoadResult> {
 async function writeDraft(path: string, method: string, payload?: unknown): Promise<boolean> {
   if (writing) return false;
   const wasConfigured = draft?.configured === true;
+  const selectedKeyBeforeWrite = boardView.selectedKey;
+  const selectedPlayerBeforeWrite = playerByKey(selectedKeyBeforeWrite);
+  const searchingBeforeWrite = boardView.searchQuery.trim().length > 0;
+  let renderListOnSettle = false;
+  let recordedPlayer: Player | null = null;
   writing = true;
+  setPlayerListBusy(listEl, true);
   if (!draft?.configured) setSetupStatus("Saving draft setup…");
-  renderDraft();
+  renderDraft(false);
   try {
     const res = await fetch(path, {
       method,
@@ -436,7 +443,10 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       const message = response.message ?? response.error ?? "Could not update draft.";
       if (draft?.configured) setDraftError(message);
       else setSetupError(message);
-      if (res.status === 409) await loadDraft();
+      if (res.status === 409) {
+        await loadDraft(false);
+        renderListOnSettle = true;
+      }
       return false;
     }
     draft = response;
@@ -444,16 +454,24 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       const currentSetup = setupFromDraftState(draft);
       if (currentSetup) setupStore.set(currentSetup);
       setupOpen = nextSetupDialog(setupOpen, { type: "close" });
+      renderListOnSettle = true;
     } else if (path === "/api/draft" && method === "DELETE") {
       setupOpen = nextSetupDialog(setupOpen, { type: "draftReset" });
       boardView = initialBoardView;
+      renderListOnSettle = true;
     } else if (path === "/api/picks" && method === "POST") {
       boardView = nextBoardView(boardView, { type: "pickRecorded" });
+      if (selectedPlayerBeforeWrite && !searchingBeforeWrite && draft.next) {
+        recordedPlayer = selectedPlayerBeforeWrite;
+      } else {
+        renderListOnSettle = true;
+      }
+    } else {
+      renderListOnSettle = true;
     }
     if (!wasConfigured && draft.configured) focusPickTools = true;
     setDraftError("");
     setSetupError("");
-    renderDraft();
     return true;
   } catch {
     const message = "Network error — draft state was not changed here.";
@@ -462,8 +480,12 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
     return false;
   } finally {
     writing = false;
+    setPlayerListBusy(listEl, false);
     setSetupStatus("");
-    renderDraft();
+    renderDraft(renderListOnSettle);
+    if (recordedPlayer && board && !removeRecordedPlayerRows(listEl, board.players, recordedPlayer)) {
+      renderList();
+    }
   }
 }
 
@@ -619,8 +641,7 @@ listEl.addEventListener("click", (event) => {
   boardView = nextBoardView(boardView, { type: "playerSelected", key });
   renderPickTools();
   renderSelection();
-  renderList(false);
-  listEl.querySelector<HTMLButtonElement>(`button[data-player-key="${encodeURIComponent(key)}"]`)?.focus({ preventScroll: true });
+  syncSelectedPlayerRow(listEl, boardView.selectedKey);
 });
 
 playerSearchEl.addEventListener("input", () => {
@@ -642,7 +663,7 @@ clearPickEl.addEventListener("click", () => {
   if (boardView.selectedKey === null || writing) return;
   boardView = nextBoardView(boardView, { type: "selectionCleared" });
   renderSelection();
-  renderList(false);
+  syncSelectedPlayerRow(listEl, boardView.selectedKey);
 });
 
 undoPickEl.addEventListener("click", () => {
