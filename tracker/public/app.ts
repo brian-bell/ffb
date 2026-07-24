@@ -156,8 +156,36 @@ function renderList(resetScroll = true): void {
     selectable: Boolean(draft?.next) && !writing,
     selectedKey: boardView.selectedKey,
     searchResults,
+    window: { limit: boardView.visibleLimit },
   });
   if (resetScroll) listEl.scrollTop = 0;
+  observeLoadMore();
+}
+
+// Progressive loading: growing the list re-renders a larger prefix (the old
+// markup is a strict prefix of the new, so scrollTop survives), which keeps
+// the selection-sync and pick-surgery DOM paths working against one shape.
+function loadMoreRows(): void {
+  boardView = nextBoardView(boardView, { type: "loadMore" });
+  renderList(false);
+}
+
+const loadMoreObserver =
+  typeof IntersectionObserver === "undefined"
+    ? null
+    : new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) loadMoreRows();
+        },
+        { rootMargin: "600px" },
+      );
+
+/** Watch the current sentinel (if any) so scrolling near it grows the list. */
+function observeLoadMore(): void {
+  if (!loadMoreObserver) return;
+  loadMoreObserver.disconnect();
+  const sentinel = listEl.querySelector("[data-load-more]");
+  if (sentinel) loadMoreObserver.observe(sentinel);
 }
 
 function renderChrome(): void {
@@ -634,6 +662,11 @@ setupEl.addEventListener("keydown", (event) => {
 });
 
 listEl.addEventListener("click", (event) => {
+  // Keyboard/no-IntersectionObserver fallback for the load-more sentinel.
+  if ((event.target as HTMLElement).closest("[data-load-more]")) {
+    loadMoreRows();
+    return;
+  }
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-player-key]");
   if (!button || !draft?.next || writing) return;
   const key = decodeURIComponent(button.dataset.playerKey ?? "");
