@@ -28,7 +28,12 @@ DEFAULT_SEASON = 2026
 # arrives in slice 3.
 SLEEPER_COMPANY = "rotowire"
 
-SLEEPER_POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
+# Standard lineup positions. Projection parsers drop any row outside this set
+# at parse time. Future IDP opt-in = extend this set (ESPN_POSITION_MAP already
+# decodes DT/DE/LB/CB/S) and add IDP weights to LEAGUE_SCORING.
+FANTASY_POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
+
+SLEEPER_POSITIONS = FANTASY_POSITIONS  # fetch-side position[] filter
 
 # --- ESPN projections (spike-verified 2026-07-21) ---------------------------
 # The /players endpoint reports stats as {numeric statId: value}. This maps the
@@ -79,8 +84,24 @@ ESPN_STAT_MAP = {
     125: "pts_allow_35p",
 }
 
-# ESPN defaultPositionId -> our position label.
-ESPN_POSITION_MAP = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DEF"}
+# ESPN defaultPositionId -> our position label. IDP ids (9-13) are decoded for
+# diagnostics and a future IDP opt-in but excluded by FANTASY_POSITIONS today.
+# The labels are ESPN's own classification (cross-checked against the nflverse
+# crosswalk 2026-07-23: each id maps dominantly onto that position, with tails
+# like 10<->LB), not identity ground truth.
+ESPN_POSITION_MAP = {
+    1: "QB",
+    2: "RB",
+    3: "WR",
+    4: "TE",
+    5: "K",
+    9: "DT",
+    10: "DE",
+    11: "LB",
+    12: "CB",
+    13: "S",
+    16: "DEF",
+}
 
 # ESPN proTeamId -> the nflverse/MFL-style team codes used by canonical player
 # identity. ESPN's retired OAK label for id 13 is normalized to current LVR.

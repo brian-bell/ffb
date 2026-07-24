@@ -107,5 +107,33 @@
     "stats": [
       {"statSourceId": 1, "scoringPeriodId": 0}
     ]
+  },
+  {
+    "id": 3915189,
+    "fullName": "Roquan Smith",
+    "defaultPositionId": 11,
+    "proTeamId": 33,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {"95": 0.68362502, "96": 0.214852584, "99": 1.890186109, "107": 62.89907355}
+      }
+    ]
+  },
+  {
+    "id": 15928,
+    "fullName": "Sam Martin",
+    "defaultPositionId": 7,
+    "proTeamId": 29,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {"24": 4.0, "139": 3314.844951, "148": 12.0}
+      }
+    ]
   }
 ]

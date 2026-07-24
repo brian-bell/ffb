@@ -131,5 +131,32 @@
       "first_name": "Derrick", "last_name": "Henry",
       "position": "RB", "team": "BAL", "fantasy_positions": ["RB"]
     }
+  },
+  {
+    "player_id": "4960",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "idp_tkl": 140.0, "idp_sack": 2.5, "idp_int": 1.0, "pts_ppr": 118.5
+    },
+    "player": {
+      "first_name": "Roquan", "last_name": "Smith",
+      "position": "LB", "team": "BAL", "fantasy_positions": ["LB"]
+    }
+  },
+  {
+    "player_id": "1379",
+    "company": "rotowire",
+    "season": "2024",
+    "season_type": "regular",
+    "stats": {
+      "rec": 11.0, "rec_yd": 80.0, "rush_att": 3.0, "rush_yd": 9.0,
+      "pts_ppr": 19.9
+    },
+    "player": {
+      "first_name": "Kyle", "last_name": "Juszczyk",
+      "position": "FB", "team": "SF", "fantasy_positions": ["RB"]
+    }
   }
 ]
