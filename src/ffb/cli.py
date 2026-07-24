@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -117,6 +119,30 @@ def _service(store: Store) -> SeasonDataService:
     return SeasonDataService(store, SnapshotCache(paths.snapshot_dir()))
 
 
+@contextmanager
+def _verbose_sync_logging(enabled: bool) -> Iterator[None]:
+    """Temporarily show INFO progress from the ffb package for one sync."""
+    if not enabled:
+        yield
+        return
+
+    logger = logging.getLogger("ffb")
+    previous_level = logger.level
+    previous_propagate = logger.propagate
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
+
+
 @season_app.command("sync")
 def season_sync(  # noqa: B008
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
@@ -129,6 +155,9 @@ def season_sync(  # noqa: B008
     refresh: bool = typer.Option(False, "--refresh", help="Fetch every selected snapshot."),
     offline: bool = typer.Option(False, "--offline", help="Prohibit network access."),
     rebuild: bool = typer.Option(False, "--rebuild", help="Reprocess cached data."),
+    verbose: bool = typer.Option(
+        False, "-v", "--verbose", help="Log API calls and processing steps."
+    ),
 ) -> None:
     """Synchronize selected season datasets and record each outcome."""
     selected_policies = sum((missing_only, refresh, offline))
@@ -146,7 +175,8 @@ def season_sync(  # noqa: B008
     store = Store(paths.db_path())
     store.init_schema()
     try:
-        results = _service(store).sync(season, selectors=source, policy=policy, rebuild=rebuild)
+        with _verbose_sync_logging(verbose):
+            results = _service(store).sync(season, selectors=source, policy=policy, rebuild=rebuild)
     except ValueError as exc:
         store.close()
         raise typer.BadParameter(str(exc)) from exc

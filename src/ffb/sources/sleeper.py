@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -42,9 +43,19 @@ def fetch_projections(
     ]
     params += [("position[]", pos) for pos in positions]
     url = f"{BASE_URL}/{season}"
+    log.info(
+        "api request provider=sleeper method=GET url=%s params=%s",
+        url,
+        urlencode(params),
+    )
     resp = httpx.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=30.0)
+    if not resp.is_success:
+        log.info("api response provider=sleeper status=%s items=unavailable", resp.status_code)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    item_count = len(data) if isinstance(data, list) else "unknown"
+    log.info("api response provider=sleeper status=%s items=%s", resp.status_code, item_count)
+    return data
 
 
 def parse_projections(

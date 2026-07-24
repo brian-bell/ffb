@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -34,6 +35,33 @@ def _env(tmp_path):
     }
 
 
+def _verbose_http_refresh(tmp_path, monkeypatch, *, source, fixture):
+    from ffb.sources import crosswalk as crosswalk_source
+
+    payload = json.loads((FIXTURES / fixture).read_text())
+    monkeypatch.setattr(
+        crosswalk_source,
+        "fetch_playerids",
+        lambda: json.loads((FIXTURES / "ff_playerids_sample.json").read_text()),
+    )
+
+    def fake_get(url, *, params, headers, timeout):
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        return httpx.Response(200, json=payload, request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    env = {
+        "FFB_DB_PATH": str(tmp_path / "ffb.duckdb"),
+        "FFB_SNAPSHOT_DIR": str(tmp_path / "snapshots"),
+    }
+    result = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--refresh", "--source", source, "-v"],
+        env=env,
+    )
+    return result, payload
+
+
 def test_explicit_offline_sync_makes_full_season_ready_and_rankable(tmp_path):
     env = _env(tmp_path)
 
@@ -50,6 +78,106 @@ def test_explicit_offline_sync_makes_full_season_ready_and_rankable(tmp_path):
     assert rankings.exit_code == 0, rankings.output
     assert "Henry" in rankings.output
     assert "McCaffrey" not in rankings.output
+
+
+def test_verbose_offline_sync_reports_cache_replay_and_processing_steps(tmp_path):
+    env = _env(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--source", "sleeper", "--verbose"],
+        env=env,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "sync start season=2024" in result.output
+    assert "snapshot cache hit key=nflverse/ff_playerids" in result.output
+    assert "snapshot cache hit key=sleeper/projections_nfl_2024_regular" in result.output
+    assert "processing source=crosswalk step=parse usable_rows=6" in result.output
+    assert "processing source=crosswalk step=store action=replace rows=6" in result.output
+    assert "processing source=sleeper step=parse usable_rows=7" in result.output
+    assert "processing source=sleeper step=resolve rows=7 matched=3 unmatched=4" in result.output
+    assert "processing source=sleeper step=store action=replace rows=7" in result.output
+    assert "loaded 6 crosswalk rows" in result.output
+    assert "ingested 7 sleeper rows for 2024" in result.output
+    assert "api request" not in result.output
+
+
+def test_verbose_logging_does_not_leak_into_later_syncs(tmp_path):
+    env = _env(tmp_path)
+    verbose = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--source", "sleeper", "-v"],
+        env=env,
+    )
+    assert verbose.exit_code == 0, verbose.output
+    assert "INFO ffb." in verbose.output
+
+    quiet = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--source", "sleeper"],
+        env=env,
+    )
+
+    assert quiet.exit_code == 0, quiet.output
+    assert "INFO ffb." not in quiet.output
+    assert "ready sleeper" in quiet.output
+
+
+def test_verbose_refresh_logs_safe_http_request_and_response_summary(tmp_path, monkeypatch):
+    result, _ = _verbose_http_refresh(
+        tmp_path,
+        monkeypatch,
+        source="sleeper",
+        fixture="sleeper_projections_sample.json",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "api request provider=sleeper method=GET url=https://api.sleeper.com/projections/nfl/2024"
+    ) in result.output
+    assert "season_type=regular" in result.output
+    assert "api response provider=sleeper status=200 items=12" in result.output
+    assert "User-Agent" not in result.output
+    assert "Derrick Henry" not in result.output
+
+
+def test_verbose_refresh_logs_espn_http_summary_without_headers(tmp_path, monkeypatch):
+    result, payload = _verbose_http_refresh(
+        tmp_path,
+        monkeypatch,
+        source="espn",
+        fixture="espn_projections_sample.json",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "api request provider=espn method=GET "
+        "url=https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/"
+        "seasons/2024/players params=view=kona_player_info&scoringPeriodId=0"
+    ) in result.output
+    assert f"api response provider=espn status=200 items={len(payload)}" in result.output
+    assert "x-fantasy-filter" not in result.output
+    assert "Derrick Henry" not in result.output
+
+
+def test_verbose_refresh_logs_ffc_http_summary_with_league_size(tmp_path, monkeypatch):
+    result, _ = _verbose_http_refresh(
+        tmp_path,
+        monkeypatch,
+        source="ffc",
+        fixture="ffc_adp_sample.json",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "api request provider=ffc method=GET "
+        "url=https://fantasyfootballcalculator.com/api/v1/adp/ppr "
+        "params=teams=12&year=2024"
+    ) in result.output
+    assert "api response provider=ffc status=200 items=11" in result.output
+    assert "User-Agent" not in result.output
+    assert "adp_formatted" not in result.output
 
 
 def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, monkeypatch):
@@ -157,6 +285,36 @@ def test_failed_empty_refresh_retains_data_and_known_good_snapshot(tmp_path, mon
     rankings = runner.invoke(app, ["rankings", "2024", "--position", "RB"], env=env)
     assert rankings.exit_code == 0
     assert "Henry" in rankings.output
+
+
+def test_verbose_failed_refresh_reports_snapshot_preservation_and_source_failure(
+    tmp_path, monkeypatch
+):
+    from ffb.sources import crosswalk as crosswalk_source
+    from ffb.sources import espn as espn_source
+
+    env = _env(tmp_path)
+    first = runner.invoke(app, ["season", "sync", "2024", "--offline", "--source", "espn"], env=env)
+    assert first.exit_code == 0, first.output
+    monkeypatch.setattr(
+        crosswalk_source,
+        "fetch_playerids",
+        lambda: json.loads((FIXTURES / "ff_playerids_sample.json").read_text()),
+    )
+    monkeypatch.setattr(espn_source, "fetch_projections", lambda season: [])
+
+    result = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--refresh", "--source", "espn", "--verbose"],
+        env=env,
+    )
+
+    assert result.exit_code == 1
+    assert (
+        "snapshot rejected key=espn/projections_2024; preserving cached response" in result.output
+    )
+    assert "source failed source=espn" in result.output
+    assert "failed espn" in result.output
 
 
 def test_unmatched_reports_current_source_identity_details(tmp_path):

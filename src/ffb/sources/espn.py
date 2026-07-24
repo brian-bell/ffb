@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -51,14 +52,25 @@ def fetch_projections(season: int, limit: int = DEFAULT_LIMIT) -> list[dict[str,
         "Accept": "application/json",
     }
     url = f"{BASE_URL}/seasons/{season}/players"
+    params = {"view": "kona_player_info", "scoringPeriodId": 0}
+    log.info(
+        "api request provider=espn method=GET url=%s params=%s",
+        url,
+        urlencode(params),
+    )
     resp = httpx.get(
         url,
-        params={"view": "kona_player_info", "scoringPeriodId": 0},
+        params=params,
         headers=headers,
         timeout=60.0,
     )
+    if not resp.is_success:
+        log.info("api response provider=espn status=%s items=unavailable", resp.status_code)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    item_count = len(data) if isinstance(data, list) else "unknown"
+    log.info("api response provider=espn status=%s items=%s", resp.status_code, item_count)
+    return data
 
 
 def _season_projection(player: dict[str, Any]) -> dict[str, Any] | None:

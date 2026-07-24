@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -48,14 +49,26 @@ def fetch_adp(
 ) -> dict[str, Any]:
     """Fetch raw ADP for ``season`` from FFC. Hits the network."""
     url = f"{BASE_URL}/{fmt}"
+    params = {"teams": teams, "year": season}
+    log.info(
+        "api request provider=ffc method=GET url=%s params=%s",
+        url,
+        urlencode(params),
+    )
     resp = httpx.get(
         url,
-        params={"teams": teams, "year": season},
+        params=params,
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         timeout=30.0,
     )
+    if not resp.is_success:
+        log.info("api response provider=ffc status=%s items=unavailable", resp.status_code)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+    players = data.get("players") if isinstance(data, dict) else None
+    item_count = len(players) if isinstance(players, list) else "unknown"
+    log.info("api response provider=ffc status=%s items=%s", resp.status_code, item_count)
+    return data
 
 
 def _int_or_none(value: Any) -> int | None:

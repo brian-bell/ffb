@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,8 @@ from ffb.league_context import load_league_context
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 from ffb.store import Store
+
+log = logging.getLogger(__name__)
 
 DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule")
 ALL_SOURCES = ("crosswalk", *DEFAULT_SOURCES)
@@ -89,6 +92,13 @@ class SeasonDataService:
         rebuild: bool = False,
     ) -> list[SyncResult]:
         sources = ["crosswalk", *expand_sources(selectors)]
+        log.info(
+            "sync start season=%s sources=%s policy=%s rebuild=%s",
+            season,
+            ",".join(sources),
+            policy,
+            rebuild,
+        )
         return [
             self._sync_one(season, source, policy=policy, rebuild=rebuild) for source in sources
         ]
@@ -107,6 +117,13 @@ class SeasonDataService:
             "schedule": schedule.snapshot_key(season),
         }[source]
         force_rebuild = rebuild or not self.cache.has(snapshot_key)
+        log.info(
+            "source start source=%s snapshot=%s policy=%s rebuild=%s",
+            source,
+            snapshot_key,
+            policy,
+            force_rebuild,
+        )
         try:
             if source == "crosswalk":
                 ensure_crosswalk(
@@ -175,6 +192,7 @@ class SeasonDataService:
                     "latest_error": None,
                 }
             )
+            log.info("source ready source=%s rows=%s matched=%s", source, rows, matched)
             return SyncResult(source, "ready", rows, matched)
         except Exception as exc:  # noqa: BLE001 - aggregate every requested source
             previous = self._tracked(source, season)
@@ -206,6 +224,13 @@ class SeasonDataService:
                     else None,
                     "latest_error": str(exc),
                 }
+            )
+            log.info(
+                "source failed source=%s rows=%s matched=%s error=%s",
+                source,
+                rows,
+                matched,
+                exc,
             )
             return SyncResult(source, "failed", rows, matched, str(exc))
 

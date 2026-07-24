@@ -9,6 +9,7 @@ snapshotted so rebuilds don't re-hit the network.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,8 @@ from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class SnapshotPolicy(StrEnum):
@@ -75,14 +78,27 @@ class SnapshotCache:
         )
         path = self._path(key)
         if path.exists() and selected is not SnapshotPolicy.REFRESH:
+            log.info(
+                "snapshot cache hit key=%s policy=%s; replaying cached response",
+                key,
+                selected,
+            )
             return json.loads(path.read_text())
         if selected is SnapshotPolicy.OFFLINE:
+            log.info("snapshot unavailable key=%s policy=%s; network prohibited", key, selected)
             raise FileNotFoundError(
                 f"offline snapshot missing for {key!r}; run `ffb season sync` online first"
             )
 
+        reason = "refresh" if selected is SnapshotPolicy.REFRESH else "cache-miss"
+        log.info("snapshot fetch key=%s reason=%s", key, reason)
         data = fetch()
         if is_valid is None or is_valid(data):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data, indent=0, ensure_ascii=False))
+            log.info("snapshot saved key=%s path=%s", key, path)
+        elif path.exists():
+            log.info("snapshot rejected key=%s; preserving cached response", key)
+        else:
+            log.info("snapshot rejected key=%s; no snapshot written", key)
         return data
