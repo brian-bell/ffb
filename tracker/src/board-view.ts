@@ -53,7 +53,10 @@ export function nextBoardView(state: BoardViewState, event: BoardViewEvent): Boa
     case "selectionCleared":
       return { ...state, selectedKey: null };
     case "pickRecorded":
-      return { ...state, pickToolsExpanded: false, searchQuery: "", selectedKey: null, visibleLimit: LIST_CHUNK };
+      // visibleLimit survives a pick: the recorded-pick fast path removes the
+      // row from the grown DOM without re-rendering, so shrinking the limit
+      // here would collapse the list on the next loadMore.
+      return { ...state, pickToolsExpanded: false, searchQuery: "", selectedKey: null };
     case "loadMore":
       return { ...state, visibleLimit: state.visibleLimit + LIST_CHUNK };
   }

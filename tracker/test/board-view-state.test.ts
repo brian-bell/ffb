@@ -131,7 +131,6 @@ describe("board view state", () => {
       { type: "selectPosition", position: "RB" },
       { type: "selectMode", mode: "drafted" },
       { type: "searchChanged", query: "allen" },
-      { type: "pickRecorded" },
     ] as const;
 
     for (const event of resets) {
@@ -139,12 +138,16 @@ describe("board view state", () => {
     }
   });
 
-  it("keeps a grown list grown across selection and pick-tool events", () => {
+  it("keeps a grown list grown across selection, pick-tool, and pick events", () => {
+    // pickRecorded must preserve the limit: the recorded-pick fast path edits
+    // the grown DOM in place without a re-render, so resetting state here
+    // would collapse the list on the next loadMore.
     const grown = nextBoardView(initialBoardView, { type: "loadMore" });
     const preserves = [
       { type: "playerSelected", key: "k0" },
       { type: "selectionCleared" },
       { type: "togglePickTools" },
+      { type: "pickRecorded" },
     ] as const;
 
     for (const event of preserves) {

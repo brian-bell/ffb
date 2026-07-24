@@ -140,8 +140,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
 - **Progressive list loading:** `renderBoard` takes a `window: { limit }` and
   emits a `data-load-more` sentinel button when rows remain; `BoardViewState`
   tracks `visibleLimit` (grown by `loadMore` in `LIST_CHUNK` steps, reset by
-  position/mode/search/pick events); `app.ts` re-renders a *larger prefix* on
-  grow (never appends), so scroll position, selection sync, and pick-recording
+  position/mode/search events, preserved on picks so the recorded-pick DOM
+  fast path never leaves state behind the DOM); `app.ts` re-renders a *larger
+  prefix* on grow (never appends), so scroll position, selection sync, and pick-recording
   DOM surgery keep working against one list shape. Tier-divider counts always
   reflect the full remaining tier, not the rendered window.
 - **Pure testable core:** `src/{auth,board,board-view,draft,player-identity,
