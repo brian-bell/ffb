@@ -20,3 +20,11 @@ def test_def_and_dst_share_the_same_key():
 
 def test_unknown_team_cannot_claim_a_canonical_defense_key():
     assert canonical_defense_key("DEF", "FA") is None
+
+
+def test_canonical_team_maps_nflverse_schedule_codes():
+    # nflverse schedules label the Rams "LA" (spike-verified 2026-07-23); every
+    # other schedule code is already canonical or covered by an existing alias.
+    assert canonical_team("LA") == "LAR"
+    # Retired relocation codes still appear in stale crosswalk rows.
+    assert canonical_team("OAK") == "LVR"

@@ -21,7 +21,7 @@ from typing import Any
 
 from ffb import config, identity, names
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
@@ -335,3 +335,48 @@ def ensure_adp_ingested(
             ", ".join(recon.unmatched_names),
         )
     return recon
+
+
+def ensure_schedule_ingested(
+    store: Store,
+    cache: SnapshotCache,
+    season: int,
+    *,
+    refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    rebuild: bool = False,
+    fetch: Callable[[], list[dict[str, Any]]] | None = None,
+) -> Reconciliation:
+    """Ensure ``season`` team bye weeks are stored, derived from the schedule.
+
+    Like ADP, byes re-parse from the cached snapshot on **every** run
+    (delete-then-insert mirror): parsing ~272 games is trivially cheap, and a
+    ``TEAM_ALIASES`` tuning change then reaches the DB without ``--refresh``.
+    Network is only touched on ``refresh`` or the first pull. Every stored row
+    is canonical by construction (unknown/ambiguous teams are dropped at parse
+    time with a WARNING), so the Reconciliation is all-matched.
+    """
+    del rebuild  # re-parse happens every run; nothing extra to force
+    fetch_fn = fetch or (lambda: schedule.fetch_schedule(season))
+    # Gate the snapshot write on a COMPLETE pull — every canonical team derived
+    # a bye — so a transient bad/truncated refresh can't overwrite the
+    # known-good cache (stricter than the other sources' non-empty gates,
+    # because the schedule's full universe is known).
+    raw = cache.get_json(
+        schedule.snapshot_key(season),
+        fetch_fn,
+        refresh=refresh,
+        policy=policy,
+        is_valid=lambda data: not schedule.missing_teams(schedule.parse_byes(data, season)),
+    )
+    rows = schedule.parse_byes(raw, season)
+    missing = schedule.missing_teams(rows)
+    if missing:
+        # Surface an empty or partial pull as a failure rather than mirroring a
+        # subset (which would silently drop byes and still report ready) or
+        # silently serving previously persisted byes as current.
+        raise ValueError(f"schedule pull for {season} is missing byes for: {', '.join(missing)}")
+
+    store.replace_team_byes(rows, season)
+    log.info("ingested %d team bye rows for %s", len(rows), season)
+    return Reconciliation(source="schedule", n_rows=len(rows), matched=len(rows))

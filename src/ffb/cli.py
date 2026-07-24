@@ -310,11 +310,13 @@ def _load_board(season: int) -> tuple[list[dict], object, dict]:
         cfg=league.scoring,
     )
     adp = store.adp_rows(season)
+    byes = store.team_bye_rows(season)
     store.close()
     return (
         board_mod.board_rows(
             consensus,
             adp,
+            byes=byes,
             roster_slots=league.roster_slots,
             num_teams=league.num_teams,
         ),
@@ -397,7 +399,8 @@ def _export_board(
 def _warn_source_states(status: dict, *, include_adp: bool) -> None:
     wanted = {"crosswalk", "sleeper", "espn"}
     if include_adp:
-        wanted.add("ffc")
+        # The board consumes ADP and schedule byes; warn when either is off.
+        wanted.update(("ffc", "schedule"))
     for source in status["sources"]:
         if source["name"] not in wanted:
             continue

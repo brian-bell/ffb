@@ -18,7 +18,7 @@ import csv
 import io
 from typing import Any
 
-from ffb import config
+from ffb import config, identity
 from ffb.tiers import assign_tiers
 from ffb.vorp import attach_vorp
 
@@ -54,15 +54,23 @@ def board_rows(
     consensus: list[dict[str, Any]],
     adp: list[dict[str, Any]],
     *,
+    byes: list[dict[str, Any]] = (),
     roster_slots: dict[str, int],
     num_teams: int,
     tier_count: dict[str, int] = config.TIER_COUNT,
     pools: dict[str, int] = config.POSITION_POOL,
 ) -> list[dict[str, Any]]:
-    """Return board rows (§3g shape) sorted by VORP desc, fully ranked."""
+    """Return board rows (§3g shape) sorted by VORP desc, fully ranked.
+
+    ``byes`` are schedule-derived team bye rows joined by canonical team code,
+    independent of ADP (FFC is non-exhaustive, so a player it omits must not
+    lose their bye with their ADP). The schedule bye wins; a row's FFC ``bye``
+    is only a fallback when the schedule has no entry for that team.
+    """
     consensus = [row for row in consensus if row["matched"]]
     adp = [row for row in adp if row["matched"]]
     adp_by_key = {r["player_key"]: r for r in adp}
+    bye_by_team = {b["team"]: b["bye"] for b in byes}
 
     # Working rows carry vorp/tiers-friendly keys (player_key/position/points).
     working: list[dict[str, Any]] = []
@@ -73,6 +81,9 @@ def board_rows(
     for a in adp:
         if a["player_key"] not in seen:
             working.append(_working_from_adp(a))
+    for w in working:
+        schedule_bye = bye_by_team.get(identity.canonical_team(w["team"]))
+        w["bye"] = schedule_bye if schedule_bye is not None else w["bye"]
 
     # VORP over rows with points; ADP-only rows get vorp=None.
     scored = [w for w in working if w["points"] is not None]

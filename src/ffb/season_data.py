@@ -12,19 +12,21 @@ from ffb.ingest import (
     ensure_crosswalk,
     ensure_espn_ingested,
     ensure_ingested,
+    ensure_schedule_ingested,
 )
 from ffb.league_context import load_league_context
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 from ffb.store import Store
 
-DEFAULT_SOURCES = ("sleeper", "espn", "ffc")
+DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule")
 ALL_SOURCES = ("crosswalk", *DEFAULT_SOURCES)
 SOURCE_KIND = {
     "crosswalk": "identity",
     "sleeper": "projections",
     "espn": "projections",
     "ffc": "adp",
+    "schedule": "schedule",
 }
 
 
@@ -48,6 +50,7 @@ def expand_sources(selectors: list[str] | None) -> list[str]:
         "sleeper": ("sleeper",),
         "espn": ("espn",),
         "ffc": ("ffc",),
+        "schedule": ("schedule",),
     }
     output: list[str] = []
     for selector in selected:
@@ -101,6 +104,7 @@ class SeasonDataService:
             "sleeper": sleeper.snapshot_key(season),
             "espn": espn.snapshot_key(season),
             "ffc": ffc.snapshot_key(season, teams=league.num_teams),
+            "schedule": schedule.snapshot_key(season),
         }[source]
         force_rebuild = rebuild or not self.cache.has(snapshot_key)
         try:
@@ -125,6 +129,16 @@ class SeasonDataService:
                 )
             elif source == "espn":
                 ensure_espn_ingested(
+                    self.store,
+                    self.cache,
+                    season,
+                    refresh=refresh,
+                    policy=policy,
+                    rebuild=force_rebuild,
+                    fetch=self.fetchers.get(source),
+                )
+            elif source == "schedule":
+                ensure_schedule_ingested(
                     self.store,
                     self.cache,
                     season,
