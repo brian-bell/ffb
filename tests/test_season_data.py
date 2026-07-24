@@ -68,8 +68,8 @@ def test_expand_sources_includes_schedule():
 def test_sync_schedule_records_ready_state(tmp_path):
     store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
 
-    results = {r.source: r for r in service.sync(2026, selectors=["schedule"])}
-    status = service.status(2026)
+    results = {r.source: r for r in service.sync(2024, selectors=["schedule"])}
+    status = service.status(2024)
     store.close()
 
     assert results["schedule"].state == "ready"
@@ -79,7 +79,7 @@ def test_sync_schedule_records_ready_state(tmp_path):
     assert tracked["kind"] == "schedule"
     assert tracked["state"] == "ready"
     assert tracked["stale"] is False
-    assert tracked["snapshot"]["key"] == "nflverse/schedule_2026"
+    assert tracked["snapshot"]["key"] == "nflverse/schedule_2024"
 
 
 def test_sync_schedule_failure_aggregates_without_aborting(tmp_path):
@@ -90,7 +90,7 @@ def test_sync_schedule_failure_aggregates_without_aborting(tmp_path):
     fetchers["schedule"] = boom
     store, service = _fixture_service(tmp_path, fetchers=fetchers)
 
-    results = {r.source: r for r in service.sync(2026, selectors=["ffc", "schedule"])}
+    results = {r.source: r for r in service.sync(2024, selectors=["ffc", "schedule"])}
     store.close()
 
     assert results["ffc"].state == "ready"
@@ -103,8 +103,8 @@ def test_status_incomplete_while_schedule_missing(tmp_path):
     del fetchers["schedule"]
     store, service = _fixture_service(tmp_path, fetchers=fetchers)
 
-    service.sync(2026, selectors=["projections", "adp"])
-    status = service.status(2026)
+    service.sync(2024, selectors=["projections", "adp"])
+    status = service.status(2024)
     store.close()
 
     tracked = next(s for s in status["sources"] if s["name"] == "schedule")

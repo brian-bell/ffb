@@ -72,6 +72,8 @@ def parse_byes(raw: Any, season: int) -> list[dict[str, Any]]:
         if not isinstance(game, dict):
             log.warning("skip non-object schedule entry: %r", game)
             continue
+        if game.get("season") != season:
+            continue
         if game.get("game_type") != "REG":
             continue
         week = game.get("week")
