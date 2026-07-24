@@ -167,11 +167,16 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const history = !searching && options.mode === "drafted";
 
   if (history && options.draftPicks) {
-    return [...options.draftPicks]
+    const picks = [...options.draftPicks]
       .filter((pick) => filter === "ALL" || normalizedPosition(pick.player_pos) === filter)
-      .sort((a, b) => a.overall_pick - b.overall_pick)
+      .sort((a, b) => a.overall_pick - b.overall_pick);
+    const limit = options.window?.limit ?? picks.length;
+    let html = picks
+      .slice(0, limit)
       .map((pick) => row(playerFromPick(players, pick), maxVorp, pick))
       .join("");
+    if (picks.length > limit) html += loadMoreSentinel(picks.length - limit);
+    return html;
   }
 
   const all = filter === "ALL";

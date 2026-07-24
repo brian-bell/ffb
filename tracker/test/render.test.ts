@@ -259,6 +259,55 @@ describe("renderBoard — windowed rendering", () => {
     expect(sentinel).not.toContain("data-player-key");
     expect(sentinel).not.toContain("rowA");
   });
+
+  it("counts the whole remaining tier in dividers, not just the windowed rows", () => {
+    const html = renderBoard(board, "RB", { window: { limit: 1 } });
+
+    expect(html).toContain("Tier 1 · RB · 2 left");
+    expect(html.match(/class="rowA"/g)).toHaveLength(1);
+    expect(html).toContain('data-remaining="3"');
+  });
+
+  it("fills the window with available players only — picks don't consume slots", () => {
+    const picked = new Map([["k0", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }]]);
+    const html = renderBoard(board, "ALL", { picked, window: { limit: 2 } });
+
+    expect(html).not.toContain("Christian McCaffrey");
+    expect(html).toContain("Ja'Marr Chase");
+    expect(html).toContain("CeeDee Lamb");
+    expect(html).toContain('data-remaining="13"');
+  });
+
+  it("windows search results and keeps the empty-search notice sentinel-free", () => {
+    const results = board.players.slice(0, 3);
+    const html = renderBoard(board, "ALL", { searchResults: results, window: { limit: 2 } });
+
+    expect(html.match(/class="rowA"/g)).toHaveLength(2);
+    expect(html).toContain('data-remaining="1"');
+
+    const empty = renderBoard(board, "ALL", { searchResults: [], window: { limit: 2 } });
+    expect(empty).toContain("No matching available players.");
+    expect(empty).not.toContain("data-load-more");
+  });
+
+  it("windows the persisted drafted history, earliest picks first", () => {
+    const draftPicks = board.players.slice(0, 3).map((player, i) => ({
+      overall_pick: i + 1,
+      round: 1,
+      round_pick: i + 1,
+      team_name: "Brian",
+      player_key: player.key,
+      player_name: player.name,
+      player_pos: player.pos,
+      player_team: player.team,
+    }));
+    const html = renderBoard(board, "ALL", { mode: "drafted", draftPicks, window: { limit: 2 } });
+
+    expect(html).toContain("Christian McCaffrey");
+    expect(html).toContain("Ja'Marr Chase");
+    expect(html).not.toContain("CeeDee Lamb");
+    expect(html).toContain('data-remaining="1"');
+  });
 });
 
 describe("renderBoard — search replacement", () => {
