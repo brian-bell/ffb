@@ -1,0 +1,17 @@
+[
+  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "SF", "away_team": "KC"},
+  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "PHI", "away_team": "LA"},
+  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "MIA", "away_team": "DEN"},
+  {"season": 2026, "game_type": "REG", "week": 2, "home_team": "DEN", "away_team": "LA"},
+  {"season": 2026, "game_type": "REG", "week": 2, "home_team": "MIA", "away_team": "PHI"},
+  {"season": 2026, "game_type": "REG", "week": 3, "home_team": "DEN", "away_team": "KC"},
+  {"season": 2026, "game_type": "REG", "week": 3, "home_team": "MIA", "away_team": "SF"},
+  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "LA", "away_team": "KC"},
+  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "PHI", "away_team": "SF"},
+  {"season": 2026, "game_type": "POST", "week": 2, "home_team": "SF", "away_team": "KC"},
+  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "KC", "away_team": "XYZ"},
+  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "CHI", "away_team": "BUF"},
+  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "CHI", "away_team": "BUF"},
+  {"season": 2026, "game_type": "REG", "home_team": "DAL", "away_team": "NYG"},
+  "junk-entry"
+]
