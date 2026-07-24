@@ -9,7 +9,11 @@ export interface BoardViewState {
   pickToolsExpanded: boolean;
   searchQuery: string;
   selectedKey: string | null;
+  visibleLimit: number;
 }
+
+/** Rows rendered per progressive-loading step; the list starts at one chunk. */
+export const LIST_CHUNK = 50;
 
 export const initialBoardView: BoardViewState = {
   position: "ALL",
@@ -17,6 +21,7 @@ export const initialBoardView: BoardViewState = {
   pickToolsExpanded: false,
   searchQuery: "",
   selectedKey: null,
+  visibleLimit: LIST_CHUNK,
 };
 
 export type BoardViewEvent =
@@ -26,18 +31,19 @@ export type BoardViewEvent =
   | { type: "searchChanged"; query: string }
   | { type: "playerSelected"; key: string }
   | { type: "selectionCleared" }
-  | { type: "pickRecorded" };
+  | { type: "pickRecorded" }
+  | { type: "loadMore" };
 
 export function nextBoardView(state: BoardViewState, event: BoardViewEvent): BoardViewState {
   switch (event.type) {
     case "selectPosition":
-      return { ...state, position: event.position };
+      return { ...state, position: event.position, visibleLimit: LIST_CHUNK };
     case "selectMode":
-      return { ...state, mode: event.mode };
+      return { ...state, mode: event.mode, visibleLimit: LIST_CHUNK };
     case "togglePickTools":
       return { ...state, pickToolsExpanded: !state.pickToolsExpanded };
     case "searchChanged":
-      return { ...state, searchQuery: event.query };
+      return { ...state, searchQuery: event.query, visibleLimit: LIST_CHUNK };
     case "playerSelected":
       return {
         ...state,
@@ -47,7 +53,9 @@ export function nextBoardView(state: BoardViewState, event: BoardViewEvent): Boa
     case "selectionCleared":
       return { ...state, selectedKey: null };
     case "pickRecorded":
-      return { ...state, pickToolsExpanded: false, searchQuery: "", selectedKey: null };
+      return { ...state, pickToolsExpanded: false, searchQuery: "", selectedKey: null, visibleLimit: LIST_CHUNK };
+    case "loadMore":
+      return { ...state, visibleLimit: state.visibleLimit + LIST_CHUNK };
   }
 }
 
