@@ -208,3 +208,93 @@ def test_to_csv_escapes_control_prefixed_formula():
         )
     )
     assert "'\t=HYPERLINK" in csv_text
+
+
+def _bye(team, bye):
+    return {"season": 2024, "source": "schedule", "team": team, "bye": bye}
+
+
+def _board_with_byes(consensus, adp, byes):
+    return board_rows(
+        consensus,
+        adp,
+        byes=byes,
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+
+def test_bye_joined_from_schedule_without_adp():
+    # The whole point of the schedule source: a player FFC omits keeps a bye.
+    rows = {
+        r["key"]: r
+        for r in _board_with_byes(
+            [_consensus("r2", "Small Back", "RB", "NYJ", 60.0)], [], [_bye("NYJ", 12)]
+        )
+    }
+    assert rows["r2"]["bye"] == 12
+    assert rows["r2"]["adp"] is None  # ADP stays independently absent
+
+
+def test_dst_and_kicker_get_schedule_bye():
+    consensus = [
+        _consensus("def:PHI", "Philadelphia Defense", "DEF", "PHI", 80.0),
+        _consensus("k1", "Reliable Kicker", "K", "PHI", 70.0),
+    ]
+    rows = {r["key"]: r for r in _board_with_byes(consensus, [], [_bye("PHI", 5)])}
+    assert rows["def:PHI"]["bye"] == 5
+    assert rows["k1"]["bye"] == 5
+
+
+def test_schedule_bye_overrides_ffc_bye():
+    rows = {
+        r["key"]: r
+        for r in _board_with_byes(
+            [_consensus("r1", "Big Back", "RB", "SFO", 100.0)],
+            [_adp("r1", "Big Back", "RB", "SFO", 1.5)],  # carries bye=9
+            [_bye("SFO", 10)],
+        )
+    }
+    assert rows["r1"]["bye"] == 10
+
+
+def test_ffc_bye_fallback_when_schedule_missing_team():
+    rows = {
+        r["key"]: r
+        for r in _board_with_byes(
+            [_consensus("r1", "Big Back", "RB", "SFO", 100.0)],
+            [_adp("r1", "Big Back", "RB", "SFO", 1.5)],  # carries bye=9
+            [_bye("NYJ", 12)],  # no SFO row
+        )
+    }
+    assert rows["r1"]["bye"] == 9
+
+
+def test_bye_none_when_both_sources_missing():
+    consensus = [
+        _consensus("r2", "Small Back", "RB", "NYJ", 60.0),
+        _consensus("fa1", "Free Agent", "WR", None, 50.0),
+    ]
+    rows = {r["key"]: r for r in _board_with_byes(consensus, [], [])}
+    assert rows["r2"]["bye"] is None
+    assert rows["fa1"]["bye"] is None  # team=None must not crash the join
+
+
+def test_adp_only_rows_get_schedule_bye():
+    adp = [_adp("k9", "Deep Kicker", "K", "DEN", 160.0)]
+    adp[0]["bye"] = None  # FFC sometimes omits bye; schedule still covers it
+    rows = {r["key"]: r for r in _board_with_byes([], adp, [_bye("DEN", 7)])}
+    assert rows["k9"]["bye"] == 7
+
+
+def test_bye_join_normalizes_team_aliases():
+    # A stray source-style code (KC vs canonical KCC) still joins.
+    rows = {
+        r["key"]: r
+        for r in _board_with_byes(
+            [_consensus("q1", "Star Quarterback", "QB", "KC", 300.0)], [], [_bye("KCC", 10)]
+        )
+    }
+    assert rows["q1"]["bye"] == 10
