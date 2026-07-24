@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 from ffb.store import Store
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,6 +23,7 @@ def _env(tmp_path):
         sleeper.snapshot_key(2024): "sleeper_projections_sample.json",
         espn.snapshot_key(2024): "espn_projections_sample.json",
         ffc.snapshot_key(2024): "ffc_adp_sample.json",
+        schedule.snapshot_key(2024): "schedule_sample.json",
     }
     for key, filename in fixtures.items():
         payload = json.loads((FIXTURES / filename).read_text())
@@ -55,6 +56,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     from ffb.sources import crosswalk as crosswalk_source
     from ffb.sources import espn as espn_source
     from ffb.sources import ffc as ffc_source
+    from ffb.sources import schedule as schedule_source
     from ffb.sources import sleeper as sleeper_source
 
     def no_network(*args, **kwargs):
@@ -64,6 +66,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     monkeypatch.setattr(sleeper_source, "fetch_projections", no_network)
     monkeypatch.setattr(espn_source, "fetch_projections", no_network)
     monkeypatch.setattr(ffc_source, "fetch_adp", no_network)
+    monkeypatch.setattr(schedule_source, "fetch_schedule", no_network)
     env = {
         "FFB_DB_PATH": str(tmp_path / "ffb.duckdb"),
         "FFB_SNAPSHOT_DIR": str(tmp_path / "empty-snapshots"),
@@ -72,7 +75,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     result = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
 
     assert result.exit_code == 1
-    assert result.output.lower().count("failed") == 4
+    assert result.output.lower().count("failed") == 5
     assert "offline snapshot missing" in result.output
 
 
@@ -175,6 +178,7 @@ def test_rankings_is_read_only_and_leaves_sync_status_unchanged(tmp_path, monkey
     from ffb.sources import crosswalk as crosswalk_source
     from ffb.sources import espn as espn_source
     from ffb.sources import ffc as ffc_source
+    from ffb.sources import schedule as schedule_source
     from ffb.sources import sleeper as sleeper_source
 
     env = _env(tmp_path)
