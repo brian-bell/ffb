@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ffb import config
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 
 
 def test_primer_populates_every_production_snapshot_key(tmp_path: Path) -> None:
@@ -25,5 +25,6 @@ def test_primer_populates_every_production_snapshot_key(tmp_path: Path) -> None:
         espn.snapshot_key(2024),
         ffc.snapshot_key(2024, teams=1, fmt=config.FFC_FORMAT),
         crosswalk.snapshot_key(),
+        schedule.snapshot_key(2024),
     )
     assert all(cache.has(key) for key in expected_keys)
