@@ -228,6 +228,39 @@ describe("renderBoard — draft availability", () => {
   });
 });
 
+describe("renderBoard — windowed rendering", () => {
+  it("renders only the top-ranked rows when a window limit is given", () => {
+    const html = renderBoard(board, "ALL", { window: { limit: 2 } });
+
+    expect(html.match(/class="rowA"/g)).toHaveLength(2);
+    expect(html).toContain("Christian McCaffrey");
+    expect(html).toContain("Ja'Marr Chase");
+    expect(html).not.toContain("CeeDee Lamb");
+  });
+
+  it("appends a load-more sentinel counting the rows beyond the window", () => {
+    const html = renderBoard(board, "ALL", { window: { limit: 2 } });
+
+    expect(html).toContain('<button type="button" class="load-more" data-load-more data-remaining="14">Show 14 more players</button>');
+    expect(html.endsWith("</button>")).toBe(true);
+  });
+
+  it("renders the full list with no sentinel when the window covers every row", () => {
+    const windowed = renderBoard(board, "ALL", { window: { limit: board.players.length } });
+
+    expect(windowed).toBe(renderBoard(board, "ALL"));
+    expect(windowed).not.toContain("data-load-more");
+  });
+
+  it("keeps the sentinel distinct from selectable player rows", () => {
+    const html = renderBoard(board, "ALL", { selectable: true, window: { limit: 2 } });
+    const sentinel = html.slice(html.indexOf('class="load-more"'));
+
+    expect(sentinel).not.toContain("data-player-key");
+    expect(sentinel).not.toContain("rowA");
+  });
+});
+
 describe("renderBoard — search replacement", () => {
   it("renders supplied results in relevance order without position filtering or tier grouping", () => {
     const results = [board.players.find((player) => player.key === "k2")!, board.players.find((player) => player.key === "k0")!];
