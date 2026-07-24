@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ffb.config import LEAGUE_SCORING
+from ffb.config import FANTASY_POSITIONS, LEAGUE_SCORING
 from ffb.scoring import ppr_points
 from ffb.sources.espn import parse_projections
 
@@ -110,6 +110,34 @@ def test_src_pts_is_none(raw):
     # ESPN's appliedTotal is 0 in this view; we compute points ourselves.
     henry = next(r for r in parse_projections(raw, season=2024) if r["native_id"] == "3043078")
     assert henry["src_pts_ppr"] is None
+
+
+def test_excludes_scorable_idp_rows(raw):
+    # Roquan Smith (LB) carries decodable stats (ints, sacks), but IDP positions
+    # are outside the standard lineup; scorability alone must not keep a row.
+    rows = parse_projections(raw, season=2024)
+    assert all(r["native_id"] != "3915189" for r in rows)
+    # No position=None row survives either — the old "Unknown section" leak.
+    assert all(r["position"] in FANTASY_POSITIONS for r in rows)
+
+
+def test_punter_and_unmapped_positions_excluded(raw):
+    # Punters (defaultPositionId 7) have no map entry -> position None -> dropped
+    # even when the row carries a decodable stat.
+    rows = parse_projections(raw, season=2024)
+    assert all(r["native_id"] != "15928" for r in rows)
+
+
+def test_idp_opt_in_retains_row(raw):
+    # The escape hatch for a future IDP league: widening the allowlist with a
+    # superset keeps the IDP row, decoded with a real position label.
+    rows = parse_projections(raw, season=2024, allowed_positions=set(FANTASY_POSITIONS) | {"LB"})
+    roquan = next(r for r in rows if r["native_id"] == "3915189")
+    assert roquan["position"] == "LB"
+    assert roquan["stats"]["int"] == 0.68362502
+    assert roquan["stats"]["sack"] == 1.890186109
+    # The punter's position is still unmapped -> still excluded under the opt-in.
+    assert all(r["native_id"] != "15928" for r in rows)
 
 
 def test_skips_rows_with_no_scorable_stats():

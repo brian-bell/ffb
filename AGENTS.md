@@ -209,6 +209,15 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   stored, so a scoring or roster-shape change re-derives the whole board with no
   re-ingest. **ADP is a *source* value, so it *is* stored** (the `adp` table);
   storing it doesn't violate this rule.
+- **Projection parsers enforce the standard position allowlist.** Both
+  `parse_projections` drop any row whose position is outside
+  `config.FANTASY_POSITIONS` (QB/RB/WR/TE/K/DEF; unmapped/`None` positions drop
+  too — ESPN's raw universe is ~60% IDP), and `resolve_rows` refuses to let a
+  crosswalk match reintroduce a non-standard position (e.g. nflverse `XX`/`PN`)
+  onto an allowlisted source row. A future IDP league opts in by widening
+  `config.FANTASY_POSITIONS` (per-position supersets via the parsers'
+  `allowed_positions` parameter; `ESPN_POSITION_MAP` already decodes
+  DT/DE/LB/CB/S) and adding IDP weights to `LEAGUE_SCORING`.
 - **ADP resolves by name, and self-heals every run.** FFC's `player_id` has no
   column in `ff_playerids`, so `ensure_adp_ingested` resolves each row by
   `(normalized name, position)` with a team tiebreak (`names.py`); ambiguity →
@@ -296,8 +305,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   codes remain source fallbacks rather than risking a wrong merge. The remaining
   unmatched ADP tail is typically nickname/ambiguous misses like "Hollywood
   Brown" or two "Mike Williams"; extending `normalize_name`/`TEAM_ALIASES` is the
-  tuning loop. A matched player whose position doesn't map (`None`) is still
-  boarded under an "Unknown" section.
+  tuning loop. Rows whose position doesn't map (`None`) never reach the board —
+  the projection parsers drop them at parse time via the position allowlist.
 - **Schema or parse-logic changes need a fresh DB.** The store uses `CREATE TABLE
   IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
   present, so neither a column change nor a parse/normalization change that alters

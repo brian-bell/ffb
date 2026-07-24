@@ -53,5 +53,27 @@
     "position": "TE",
     "team": "FA",
     "age": 27.0
+  },
+  {
+    "mfl_id": 13696,
+    "sleeper_id": 4960,
+    "espn_id": 3915189,
+    "yahoo_id": "30978",
+    "gsis_id": "00-0034874",
+    "name": "Roquan Smith",
+    "position": "LB",
+    "team": "BAL",
+    "age": null
+  },
+  {
+    "mfl_id": 11383,
+    "sleeper_id": 1516,
+    "espn_id": 15928,
+    "yahoo_id": "26788",
+    "gsis_id": "00-0030092",
+    "name": "Sam Martin",
+    "position": "PN",
+    "team": "CAR",
+    "age": null
   }
 ]

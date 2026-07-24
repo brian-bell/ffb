@@ -244,6 +244,66 @@ def test_ensure_espn_ingested_resolves_and_coexists_with_sleeper(store, tmp_path
     assert store.has_season(2024, source="espn")
 
 
+def test_espn_idp_row_excluded_even_when_crosswalk_matches(store, tmp_path, crosswalk_rows):
+    # Roquan Smith (espn 3915189) is scorable and crosswalk-matched (LB), but IDP
+    # positions are outside the standard lineup allowlist. Resolution must not
+    # "restore" the position and smuggle the row past the parse-time filter.
+    store.upsert_crosswalk(crosswalk_rows)
+    cache = _prime_snapshot(tmp_path / "snap")
+    cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))
+
+    ensure_espn_ingested(store, cache, season=2024, fetch=_no_network)
+
+    espn_rows = store.projection_rows(2024, source="espn")
+    assert all(r["native_id"] != "3915189" for r in espn_rows)
+    assert all(r["player_key"] != "13696" for r in espn_rows)
+
+
+def test_crosswalk_position_outside_allowlist_keeps_source_position(store, tmp_path):
+    # Rondale Moore is WR at Sleeper (passes the parse allowlist) but XX in the
+    # nflverse crosswalk. The matched-row position override must not launder a
+    # non-standard code back in — keep the allowlisted source position.
+    store.upsert_crosswalk(
+        [
+            {
+                "player_key": "15283",
+                "full_name": "Rondale Moore",
+                "position": "XX",
+                "team": "MIN",
+                "sleeper_id": "7601",
+                "espn_id": "4372485",
+                "yahoo_id": None,
+                "gsis_id": None,
+            }
+        ]
+    )
+    moore_raw = [
+        {
+            "player_id": "7601",
+            "company": "rotowire",
+            "season": "2024",
+            "season_type": "regular",
+            "stats": {"gp": 18.0},
+            "player": {
+                "first_name": "Rondale",
+                "last_name": "Moore",
+                "position": "WR",
+                "team": None,
+                "fantasy_positions": ["WR"],
+            },
+        }
+    ]
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(snapshot_key(2024), lambda: moore_raw)
+
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+
+    moore = next(r for r in store.projection_rows(2024, source="sleeper"))
+    assert moore["player_key"] == "15283"
+    assert moore["matched"] is True
+    assert moore["position"] == "WR"  # source position kept, XX rejected
+
+
 def test_team_defenses_share_canonical_key_across_projection_sources(store, tmp_path):
     cache = _prime_snapshot(tmp_path / "snap")
     cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))

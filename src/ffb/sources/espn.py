@@ -19,6 +19,7 @@ leave ``src_pts_ppr`` unset.
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from typing import Any
 
 import httpx
@@ -78,19 +79,36 @@ def _translate_stats(espn_stats: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, Any]]:
+def parse_projections(
+    raw: list[dict[str, Any]],
+    season: int,
+    allowed_positions: Collection[str] | None = None,
+) -> list[dict[str, Any]]:
     """Normalize raw ESPN player rows into records ready for ingest.
 
-    Keeps only players with a season projection carrying stats. Never raises on
-    a malformed row — it logs and skips.
+    Keeps only players with a season projection carrying stats, whose position
+    is in the standard lineup allowlist (``None`` -> ``config.FANTASY_POSITIONS``,
+    resolved at call time); an unmapped ``defaultPositionId`` (``position=None``)
+    is dropped too. An IDP league opts in by passing a superset (e.g.
+    ``set(config.FANTASY_POSITIONS) | {"LB"}``) — there is deliberately no
+    "disable filtering" sentinel.
     """
+    if allowed_positions is None:
+        allowed_positions = config.FANTASY_POSITIONS
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
+    skipped_positions = 0
     for player in raw:
         try:
             native_id = player.get("id")
             proj = _season_projection(player)
             if native_id is None or proj is None:
+                continue
+            # Position gate first: it excludes ~60% of the raw universe (IDP),
+            # so skipping before stat translation avoids wasted decode work.
+            position = config.ESPN_POSITION_MAP.get(player.get("defaultPositionId"))
+            if position not in allowed_positions:
+                skipped_positions += 1
                 continue
             espn_stats = proj.get("stats")
             if not espn_stats:
@@ -111,7 +129,7 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
                 {
                     "native_id": native_id,
                     "full_name": player.get("fullName"),
-                    "position": config.ESPN_POSITION_MAP.get(player.get("defaultPositionId")),
+                    "position": position,
                     "team": config.ESPN_PRO_TEAM_MAP.get(player.get("proTeamId")),
                     "season": season,
                     "source": "espn",
@@ -122,4 +140,6 @@ def parse_projections(raw: list[dict[str, Any]], season: int) -> list[dict[str, 
             )
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("skip malformed ESPN row %s: %s", player.get("id"), exc)
+    if skipped_positions:
+        log.debug("skipped %d ESPN rows outside position allowlist", skipped_positions)
     return rows

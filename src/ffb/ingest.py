@@ -105,14 +105,18 @@ def resolve_rows(
         if hit is not None:
             recon.matched += 1
             # Matched players take canonical crosswalk identity (consistent
-            # across sources), so ESPN can't clobber Sleeper's team, etc.
+            # across sources), so ESPN can't clobber Sleeper's team, etc. But a
+            # non-standard crosswalk position (PN/XX/FB) must not launder past
+            # the parse-time allowlist — the source position already passed it,
+            # so fall back to that.
+            xw_pos = hit["position"] if hit["position"] in config.FANTASY_POSITIONS else None
             resolved.append(
                 {
                     **row,
                     "player_key": hit["player_key"],
                     "matched": True,
                     "full_name": hit["full_name"] or row["full_name"],
-                    "position": hit["position"] or row["position"],
+                    "position": xw_pos or row["position"],
                     "team": hit["team"] or row["team"],
                 }
             )
