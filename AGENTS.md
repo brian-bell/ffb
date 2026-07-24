@@ -92,6 +92,7 @@ src/ffb/
     sleeper.py      # Sleeper season projections: fetch + parse
     espn.py         # ESPN season projections: fetch + parse (numeric stat-id decode)
     ffc.py          # Fantasy Football Calculator ADP: fetch + parse (PK->K, team alias)
+    schedule.py     # nflverse season schedule: fetch + pure team bye-week derivation
     crosswalk.py    # nflverse ff_playerids via nflreadpy -> identity spine
 tests/              # pytest; fixtures/ are trimmed real API responses
   e2e/              # snapshot primer + isolated CLI-to-Worker orchestration
@@ -161,12 +162,14 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   `resolve_batch`), and reads (`projection_rows`, `has_season`, `has_crosswalk`,
   `has_stale_resolution`). Plus the `adp` table (keyed by `(player_key, season,
   source)`, carrying FFC's own name/pos/team + ADP fields) with
-  `upsert_adp`/`delete_adp`/`adp_rows`, and `crosswalk_rows` (a spine read the
+  `upsert_adp`/`delete_adp`/`adp_rows`, the `team_byes` table (keyed by
+  `(season, source, team)`, canonical team codes, schedule-derived bye weeks) with
+  `replace_team_byes`/`team_bye_rows`, and `crosswalk_rows` (a spine read the
   name matcher consumes, keeping `duckdb` confined here). `season_source_state`
   tracks the latest attempt, last success, row/match counts, snapshot provenance,
-  and error for crosswalk/Sleeper/ESPN/FFC. `league_settings`, `league_teams`,
+  and error for crosswalk/Sleeper/ESPN/FFC/schedule. `league_settings`, `league_teams`,
   and `league_rosters` hold validated provider-neutral league state. Projection,
-  ADP, crosswalk, and league-state replacement paths are atomic.
+  ADP, team-bye, crosswalk, and league-state replacement paths are atomic.
 - **season_data.py** — the application service between Typer and ingestion.
   Expands source selectors, applies explicit snapshot policies, attempts every
   requested source, persists source state, and exposes status/unmatched reads.
@@ -178,6 +181,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   sample names). Idempotent and offline via the snapshot cache. `ensure_adp_ingested`
   is the FFC entry point: it name-resolves (no id column) and re-parses/re-resolves
   from the cached snapshot on **every** run (§ ADP self-heal below).
+  `ensure_schedule_ingested` mirrors team byes the same way (re-parse every run;
+  parsing ~272 games is trivial and `TEAM_ALIASES` tuning lands without `--refresh`).
 - **league.py / league_context.py** — `FixtureLeagueSource` validates the closed
   provider-neutral `LeagueBundle` v1 before any write; `load_league_context`
   independently substitutes complete mock scoring/roster settings, while always
@@ -193,10 +198,11 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   `vorp` derives per-position replacement baselines by greedily filling every
   league starting slot (flex-aware) and subtracts them; `tiers` splits each
   position at its largest point drops; `board` left-joins ADP onto consensus,
-  appends matched ADP-only rows, computes VORP + tiers, ranks, and serializes to
-  the `board.json` contract / md / csv.
+  appends matched ADP-only rows, joins schedule byes by canonical team
+  (independent of ADP; the FFC `bye` is only a fallback), computes VORP + tiers,
+  ranks, and serializes to the `board.json` contract / md / csv.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
-  `snapshot_key`. No plugin abstraction yet; three projection/ADP sources.
+  `snapshot_key`. No plugin abstraction yet; projection, ADP, and schedule sources.
 
 ## Conventions & invariants
 
@@ -208,7 +214,11 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   **VORP and tiers are computed too** — derived in `board.py` at read time, never
   stored, so a scoring or roster-shape change re-derives the whole board with no
   re-ingest. **ADP is a *source* value, so it *is* stored** (the `adp` table);
-  storing it doesn't violate this rule.
+  storing it doesn't violate this rule. **Team byes are a source value too**
+  (the `team_byes` table, derived from the nflverse schedule): the board joins
+  them by canonical team code independent of ADP — FFC is non-exhaustive, so a
+  player it omits keeps their bye. The schedule bye wins; FFC's `bye` field is
+  only a fallback when the schedule lacks the team.
 - **Projection parsers enforce the standard position allowlist.** Both
   `parse_projections` drop any row whose position is outside
   `config.FANTASY_POSITIONS` (QB/RB/WR/TE/K/DEF; unmapped/`None` positions drop
@@ -299,6 +309,12 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   (falling back to `LEAGUE_NUM_TEAMS`). A league-size change makes existing FFC
   state stale until `ffb season sync SEASON --source ffc` loads the matching
   snapshot; scoring format remains the configured `ppr`.
+- **nflverse schedule team codes differ from MFL-style codes.** Schedules label
+  teams `KC`/`SF`/`LA` etc.; `parse_byes` routes every code through
+  `identity.canonical_team` (`TEAM_ALIASES` carries `LA -> LAR` for this source).
+  An unknown code, or a team missing anything other than exactly one regular-
+  season week, is logged and skipped — never guessed — so an incomplete schedule
+  yields fewer byes, not wrong ones (the board then falls back to FFC's `bye`).
 - **Team defenses share synthetic canonical identity.** DEF isn't in
   `ff_playerids`, so valid team-defense rows bypass player-name resolution and
   use `def:<canonical MFL team code>` across Sleeper, ESPN, and FFC. Unknown team
