@@ -272,8 +272,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   responses. Keep tests behavior-level (public interfaces), not implementation.
 - **Layering:** `cli → season_data → ingest → store`; read commands use
   `cli → {consensus, board} → {store, scoring}`;
-  `board → {vorp, tiers}`; `sources → snapshot`; `identity` and `names` are pure,
-  imported by ingest only. `consensus`/`rankings`/`vorp`/`tiers`/`board`/
+  `board → {vorp, tiers, identity}`; `sources → snapshot`; `identity` and `names`
+  are pure (`identity` is imported by ingest, the schedule source, and the
+  board's bye join; `names` by ingest only). `consensus`/`rankings`/`vorp`/`tiers`/`board`/
   `identity`/`names` are pure (data in, data out) — `test_layering` guards them
   against I/O imports.
 - **Git:** never commit to `main`; branch per slice (e.g.
