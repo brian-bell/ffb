@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ffb import config
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 
 SEASON = 2024
 
@@ -22,6 +22,7 @@ def prime_snapshots(snapshot_dir: Path) -> None:
         ffc.snapshot_key(SEASON, teams=1, fmt=config.FFC_FORMAT): fixture_dir
         / "ffc_adp_sample.json",
         crosswalk.snapshot_key(): fixture_dir / "ff_playerids_sample.json",
+        schedule.snapshot_key(SEASON): fixture_dir / "schedule_sample.json",
     }
 
     for key, fixture_path in fixtures.items():

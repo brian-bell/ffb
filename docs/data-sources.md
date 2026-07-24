@@ -7,8 +7,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 ## Principles that apply to every source
 
 - **Public / free / read-only.** No paid feeds; no writes back to any service.
-- **Explicit synchronization.** `ffb season sync` is the only projection/ADP
-  ingest path. Every raw pull is snapshotted to `snapshots/<key>.json`.
+- **Explicit synchronization.** `ffb season sync` is the only
+  projection/ADP/schedule ingest path. Every raw pull is snapshotted to `snapshots/<key>.json`.
   Missing-only fetches absent snapshots, refresh fetches all selected datasets,
   and offline prohibits network access. Every source validates parsed payloads
   so an empty/bad response cannot replace its last known-good cache. Tests and CI read committed
@@ -36,6 +36,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense + K/DEF stat lines) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
+| **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → one bye week per team | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | Live league scoring, roster slots, teams, rosters | Planned (Task 2b) |
 | nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
@@ -217,6 +218,49 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
     loads the corresponding snapshot. The format is still the configured `ppr`;
     half-PPR would require a configuration change.
 
+### 5. nflverse schedules — team bye weeks
+
+`src/ffb/sources/schedule.py`. Not a projection source — the **complete season
+schedule**, from which one bye week per team is derived so the board never
+depends on FFC's non-exhaustive ADP list for byes.
+
+- **Access** — `nflreadpy.load_schedules(seasons=[season])` returns a wide polars
+  DataFrame (272 regular-season games). Like the crosswalk, the frame never
+  leaves the module: `select(_FETCH_COLS).to_dicts()` hands back plain
+  `list[dict]`. Columns kept: `season`, `game_type`, `week`, `home_team`,
+  `away_team`. **No auth.**
+- **What we extract** (`parse_byes`, pure): only `game_type == "REG"` games
+  count. Each team's bye is the **single missing week** in `1..max_week` across
+  its games. A team missing zero or multiple weeks (incomplete schedule) is
+  logged and skipped — **never guessed** — as is any unknown team code. Returns
+  `[]` for an empty/wrong-shaped payload. `missing_teams(rows)` reports which
+  canonical teams lack a bye; the ingest gates below require it to be empty.
+- **Identity — canonical team codes.** Schedule codes are nflverse style
+  (`KC`/`SF`/`LA`); every code routes through `identity.canonical_team`
+  (`config.TEAM_ALIASES` carries `LA → LAR` for this source, plus retired
+  `OAK → LVR` for stale crosswalk teams on the join side).
+- **Storage** — the `team_byes` table, keyed `(season, source, team)`. Byes are
+  a **source value, so they are stored** (like ADP, unlike computed points).
+- **Ingest** (`ensure_schedule_ingested`) — re-parses + re-resolves from the
+  cached snapshot on **every** run (atomic delete-then-insert mirror): parsing
+  ~272 games is trivial, and a `TEAM_ALIASES` tuning change reaches the DB
+  without `--refresh`. Validity requires the **complete canonical team set**,
+  not just a non-empty parse: an empty or partial pull fails the snapshot
+  `is_valid` gate and the sync while retaining known-good byes, so a truncated
+  response can never replace a full mirror with a subset.
+- **How it's used** — `board.py` joins byes onto every row by canonical team
+  (players, kickers, and `def:<team>` D/ST alike), independent of ADP. The
+  schedule bye wins; FFC's per-player `bye` field is only a fallback when the
+  schedule lacks the team.
+- **Snapshot key** — `nflverse/schedule_{season}`.
+- **Gotchas**
+  - The schedule for an upcoming season is published in May; syncing before
+    that surfaces a failed `schedule` source and the board falls back to FFC
+    byes.
+  - Cancelled/relocated games that leave a team with an ambiguous week set drop
+    that team's bye at parse time; the completeness gate then rejects the whole
+    pull, keeping the last complete mirror in place.
+
 ---
 
 ## The access layer: snapshot cache
@@ -263,10 +307,12 @@ the current roster week. `league_context.py` selects complete fixture scoring an
 roster components independently, falling back to placeholders safely.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
-name (`names.py`) into the `adp` table. `ffb board show/export` then left-joins that ADP
-onto the consensus in `board.py`, adds VORP (`vorp.py`) and positional tiers
-(`tiers.py`), and renders the board / `board.json` — all computed at read time, so
-a scoring or roster-shape change re-derives everything with no re-ingest.
+name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors
+schedule-derived team byes into `team_byes` the same way. `ffb board show/export`
+then left-joins that ADP onto the consensus in `board.py`, joins byes by
+canonical team, adds VORP (`vorp.py`) and positional tiers (`tiers.py`), and
+renders the board / `board.json` — all computed at read time, so a scoring or
+roster-shape change re-derives everything with no re-ingest.
 
 ---
 

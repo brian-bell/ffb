@@ -152,6 +152,8 @@ TEAM_ALIASES = {
     "TB": "TBB",
     "LV": "LVR",
     "JAX": "JAC",
+    "LA": "LAR",  # nflverse schedules label the Rams "LA"
+    "OAK": "LVR",  # retired relocation code, still seen in stale crosswalk rows
 }
 
 

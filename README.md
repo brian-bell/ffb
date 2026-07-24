@@ -91,6 +91,12 @@ FFC has no id in the crosswalk, so ADP resolves by **normalized name + position*
 defenses use a source-independent `def:<canonical-team>` identity, so Sleeper
 and ESPN projections join FFC ADP without relying on `ff_playerids`.
 
+**Bye weeks come from the nflverse season schedule**, not from ADP: the
+`schedule` source derives one bye per team from the published regular-season
+schedule, and the board joins byes by canonical team code for players, kickers,
+and D/ST alike. FFC's own `bye` field is only a fallback, so a player missing
+from FFC's (non-exhaustive) list keeps their bye even without an ADP.
+
 ## How it fits together
 
 | Module | Role |
@@ -98,6 +104,7 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 | `sources/sleeper.py` | fetch + parse Sleeper projections |
 | `sources/espn.py` | fetch + parse ESPN projections (numeric stat-id decode) |
 | `sources/ffc.py` | fetch + parse Fantasy Football Calculator ADP |
+| `sources/schedule.py` | fetch + parse nflverse schedule → team bye weeks |
 | `sources/crosswalk.py` | nflverse `ff_playerids` → canonical identity spine |
 | `snapshot.py` | on-disk raw-response cache (offline replay) |
 | `store.py` | **the only** module that touches DuckDB |
@@ -108,7 +115,7 @@ and ESPN projections join FFC ADP without relying on `ff_playerids`.
 | `rankings.py` | single-source ranked list |
 | `consensus.py` | per-source points pivoted + averaged per player |
 | `vorp.py` / `tiers.py` | replacement baselines + largest-gap tiers (pure) |
-| `board.py` | consensus ⋈ ADP + VORP + tiers → board rows + serializers (pure) |
+| `board.py` | consensus ⋈ ADP ⋈ byes + VORP + tiers → board rows + serializers (pure) |
 | `ingest.py` | snapshot → parse → **resolve to player_key** → store |
 | `cli.py` | thin `season`, `rankings`, `board`, and `league` command rendering |
 
@@ -211,7 +218,7 @@ make deploy-all      # deploy the app, then export/publish the persisted board
 
 `deploy-board` never fetches source data; it exports the current DuckDB state,
 checks that `exports/board.json` is nonempty, and publishes that file. Run the
-explicit `season sync` first for projection or ADP updates. Use `deploy-app` for
+explicit `season sync` first for projection, ADP, or schedule updates. Use `deploy-app` for
 Worker or browser-app changes; it applies committed D1 migrations before
 deploying code that needs them.
 
