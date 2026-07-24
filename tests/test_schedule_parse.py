@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
+import nflreadpy
 import pytest
 
 from ffb import config
@@ -98,3 +100,25 @@ def test_parse_empty_or_wrong_shape_returns_empty():
 
 def test_snapshot_key():
     assert schedule.snapshot_key(2026) == "nflverse/schedule_2026"
+
+
+def test_fetch_logs_nflreadpy_operation_season_and_returned_row_count(raw, monkeypatch, caplog):
+    class FakeFrame:
+        columns = list(raw[0])
+
+        def select(self, columns):
+            return self
+
+        def to_dicts(self):
+            return raw
+
+    monkeypatch.setattr(nflreadpy, "load_schedules", lambda *, seasons: FakeFrame())
+
+    with caplog.at_level(logging.INFO, logger="ffb.sources.schedule"):
+        rows = schedule.fetch_schedule(2024)
+
+    assert rows == raw
+    assert "api request provider=nflverse operation=load_schedules seasons=2024" in caplog.text
+    assert (
+        f"api response provider=nflverse operation=load_schedules items={len(raw)}" in caplog.text
+    )

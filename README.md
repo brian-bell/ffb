@@ -46,6 +46,7 @@ uv run ffb season sync                          # sync 2026, all datasets
 uv run ffb season sync 2024 --offline           # replay cached 2024 snapshots
 uv run ffb season sync 2026 --source projections
 uv run ffb season sync 2026 --refresh           # strict live refresh
+uv run ffb season sync 2026 --refresh --verbose # trace API + processing steps
 uv run ffb season status 2026 --json
 uv run ffb season unmatched 2026 --source ffc
 
@@ -59,6 +60,9 @@ Synchronization is explicit. `season sync` defaults to missing-only behavior:
 it replays existing snapshots and fetches only absent datasets. `--refresh`
 fetches every selected source, `--offline` prohibits network access, and
 `--rebuild` forces cached data through parsing and atomic DB replacement.
+`-v`/`--verbose` writes cache decisions, safe API request summaries, and
+parse/resolve/store progress to stderr; headers and response bodies are never
+logged. A cache-hit message means that source did not make a network call.
 Validation prevents an empty or invalid refresh from replacing the last
 known-good snapshot or persisted slice. `rankings`, `board show`, and `board
 export` never fetch or ingest; they use persisted sources and warn when data is

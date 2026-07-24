@@ -1,8 +1,12 @@
 """Crosswalk parse: nflverse ff_playerids records -> normalized spine rows."""
 
 import json
+import logging
 from pathlib import Path
 
+import nflreadpy
+
+from ffb.sources import crosswalk
 from ffb.sources.crosswalk import parse_crosswalk
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
@@ -56,3 +60,28 @@ def test_extra_columns_are_dropped():
         "yahoo_id",
         "gsis_id",
     }
+
+
+def test_fetch_logs_nflreadpy_operation_and_returned_row_count(monkeypatch, caplog):
+    raw = json.loads(FIXTURE.read_text())
+
+    class FakeFrame:
+        columns = list(raw[0])
+
+        def select(self, columns):
+            return self
+
+        def to_dicts(self):
+            return raw
+
+    monkeypatch.setattr(nflreadpy, "load_ff_playerids", lambda: FakeFrame())
+
+    with caplog.at_level(logging.INFO, logger="ffb.sources.crosswalk"):
+        rows = crosswalk.fetch_playerids()
+
+    assert rows == raw
+    assert "api request provider=nflverse operation=load_ff_playerids" in caplog.text
+    assert (
+        f"api response provider=nflverse operation=load_ff_playerids items={len(raw)}"
+        in caplog.text
+    )

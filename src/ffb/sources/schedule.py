@@ -50,9 +50,12 @@ def fetch_schedule(season: int) -> list[dict[str, Any]]:
     """
     import nflreadpy as nfl
 
+    log.info("api request provider=nflverse operation=load_schedules seasons=%s", season)
     df = nfl.load_schedules(seasons=[season])
     cols = [c for c in _FETCH_COLS if c in df.columns]
-    return df.select(cols).to_dicts()
+    rows = df.select(cols).to_dicts()
+    log.info("api response provider=nflverse operation=load_schedules items=%s", len(rows))
+    return rows
 
 
 def parse_byes(raw: Any, season: int) -> list[dict[str, Any]]:

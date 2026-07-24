@@ -47,9 +47,12 @@ def fetch_playerids() -> list[dict[str, Any]]:
     """
     import nflreadpy as nfl
 
+    log.info("api request provider=nflverse operation=load_ff_playerids")
     df = nfl.load_ff_playerids()
     cols = [c for c in _FETCH_COLS if c in df.columns]
-    return df.select(cols).to_dicts()
+    rows = df.select(cols).to_dicts()
+    log.info("api response provider=nflverse operation=load_ff_playerids items=%s", len(rows))
+    return rows
 
 
 def _id_str(value: Any) -> str | None:

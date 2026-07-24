@@ -50,7 +50,7 @@ def ensure_crosswalk(
     """Ensure the crosswalk spine is loaded. Returns rows ingested (0 if already
     present and not refreshing)."""
     if store.has_crosswalk() and not refresh and not rebuild:
-        log.debug("crosswalk already loaded; skipping")
+        log.info("processing source=crosswalk step=skip reason=already-loaded")
         return 0
 
     fetch_fn = fetch or crosswalk.fetch_playerids
@@ -67,10 +67,12 @@ def ensure_crosswalk(
     rows = crosswalk.parse_crosswalk(raw)
     if not rows:
         raise ValueError("crosswalk pull returned no usable rows")
+    log.info("processing source=crosswalk step=parse usable_rows=%s", len(rows))
     # Mirror the source (replace, don't union) so a refresh drops mappings that
     # disappeared or were reassigned upstream, rather than leaving stale rows
     # that resolve() could still match.
     store.replace_crosswalk(rows)
+    log.info("processing source=crosswalk step=store action=replace rows=%s", len(rows))
     log.info("loaded %d crosswalk rows", len(rows))
     return len(rows)
 
@@ -137,9 +139,21 @@ def resolve_rows(
 def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str) -> Reconciliation:
     """Resolve parsed rows, replace the source's slice, and report the outcome."""
     resolved, recon = resolve_rows(store, rows, source)
+    log.info(
+        "processing source=%s step=resolve rows=%s matched=%s unmatched=%s",
+        source,
+        recon.n_rows,
+        recon.matched,
+        recon.unmatched,
+    )
     # Mirror the source: drop the existing slice so a refresh can't leave behind
     # players no longer in the fresh snapshot.
     store.replace_projections(resolved, season, source)
+    log.info(
+        "processing source=%s step=store action=replace rows=%s",
+        source,
+        len(resolved),
+    )
     log.info(
         "ingested %d %s rows for %s (%d matched, %d unmatched)",
         recon.n_rows,
@@ -191,7 +205,10 @@ def ensure_ingested(
     :class:`Reconciliation` (all-zero when skipped).
     """
     if _can_skip(store, season, "sleeper", refresh) and not rebuild:
-        log.debug("sleeper season %s already ingested; skipping", season)
+        log.info(
+            "processing source=sleeper step=skip reason=already-ingested season=%s",
+            season,
+        )
         return Reconciliation(source="sleeper")
 
     fetch_fn = fetch or (lambda: sleeper.fetch_projections(season))
@@ -205,6 +222,7 @@ def ensure_ingested(
     rows = sleeper.parse_projections(raw)
     if not rows:
         raise ValueError(f"Sleeper projections for {season} returned no usable rows")
+    log.info("processing source=sleeper step=parse usable_rows=%s", len(rows))
     return _finalize(store, rows, season, "sleeper")
 
 
@@ -223,7 +241,10 @@ def ensure_espn_ingested(
     Same idempotency + late-crosswalk self-healing as :func:`ensure_ingested`.
     """
     if _can_skip(store, season, "espn", refresh) and not rebuild:
-        log.debug("espn season %s already ingested; skipping", season)
+        log.info(
+            "processing source=espn step=skip reason=already-ingested season=%s",
+            season,
+        )
         return Reconciliation(source="espn")
 
     fetch_fn = fetch or (lambda: espn.fetch_projections(season))
@@ -237,6 +258,7 @@ def ensure_espn_ingested(
     rows = espn.parse_projections(raw, season)
     if not rows:
         raise ValueError(f"ESPN projections for {season} returned no usable rows")
+    log.info("processing source=espn step=parse usable_rows=%s", len(rows))
     return _finalize(store, rows, season, "espn")
 
 
@@ -319,8 +341,16 @@ def ensure_adp_ingested(
         # re-resolves from it.
         raise ValueError(f"FFC ADP pull for {season} returned no usable rows")
 
+    log.info("processing source=ffc step=parse usable_rows=%s", len(rows))
     resolved, recon = resolve_adp_rows(store, rows)
+    log.info(
+        "processing source=ffc step=resolve rows=%s matched=%s unmatched=%s",
+        recon.n_rows,
+        recon.matched,
+        recon.unmatched,
+    )
     store.replace_adp(resolved, season)
+    log.info("processing source=ffc step=store action=replace rows=%s", len(resolved))
     log.info(
         "ingested %d FFC ADP rows for %s (%d matched, %d unmatched)",
         recon.n_rows,
@@ -377,6 +407,8 @@ def ensure_schedule_ingested(
         # silently serving previously persisted byes as current.
         raise ValueError(f"schedule pull for {season} is missing byes for: {', '.join(missing)}")
 
+    log.info("processing source=schedule step=derive usable_rows=%s", len(rows))
     store.replace_team_byes(rows, season)
+    log.info("processing source=schedule step=store action=replace rows=%s", len(rows))
     log.info("ingested %d team bye rows for %s", len(rows), season)
     return Reconciliation(source="schedule", n_rows=len(rows), matched=len(rows))
