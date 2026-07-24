@@ -16,11 +16,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ffb import identity
+from ffb import config, identity
 
 log = logging.getLogger(__name__)
 
 SOURCE = "schedule"
+
+
+def missing_teams(rows: list[dict[str, Any]]) -> list[str]:
+    """Canonical teams absent from parsed bye rows (empty when complete).
+
+    The full NFL team set is known, so a schedule pull is valid only when every
+    team derived a bye. A partial-but-parseable pull (truncated response, an
+    unresolved code) must not pass the snapshot gate or replace a complete
+    mirror with a subset.
+    """
+    return sorted(config.NFL_TEAM_CODES - {row["team"] for row in rows})
 
 
 def snapshot_key(season: int) -> str:

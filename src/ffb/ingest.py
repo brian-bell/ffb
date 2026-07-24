@@ -358,20 +358,24 @@ def ensure_schedule_ingested(
     """
     del rebuild  # re-parse happens every run; nothing extra to force
     fetch_fn = fetch or (lambda: schedule.fetch_schedule(season))
-    # Gate the snapshot write on a parseable pull so a transient bad refresh
-    # can't overwrite the known-good cache (mirrors ensure_crosswalk).
+    # Gate the snapshot write on a COMPLETE pull — every canonical team derived
+    # a bye — so a transient bad/truncated refresh can't overwrite the
+    # known-good cache (stricter than the other sources' non-empty gates,
+    # because the schedule's full universe is known).
     raw = cache.get_json(
         schedule.snapshot_key(season),
         fetch_fn,
         refresh=refresh,
         policy=policy,
-        is_valid=lambda data: bool(schedule.parse_byes(data, season)),
+        is_valid=lambda data: not schedule.missing_teams(schedule.parse_byes(data, season)),
     )
     rows = schedule.parse_byes(raw, season)
-    if not rows:
-        # Surface an invalid/empty pull as a failure rather than silently
-        # serving previously persisted byes as current (mirrors ADP).
-        raise ValueError(f"schedule pull for {season} returned no usable bye rows")
+    missing = schedule.missing_teams(rows)
+    if missing:
+        # Surface an empty or partial pull as a failure rather than mirroring a
+        # subset (which would silently drop byes and still report ready) or
+        # silently serving previously persisted byes as current.
+        raise ValueError(f"schedule pull for {season} is missing byes for: {', '.join(missing)}")
 
     store.replace_team_byes(rows, season)
     log.info("ingested %d team bye rows for %s", len(rows), season)

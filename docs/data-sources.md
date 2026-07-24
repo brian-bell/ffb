@@ -232,9 +232,9 @@ depends on FFC's non-exhaustive ADP list for byes.
 - **What we extract** (`parse_byes`, pure): only `game_type == "REG"` games
   count. Each team's bye is the **single missing week** in `1..max_week` across
   its games. A team missing zero or multiple weeks (incomplete schedule) is
-  logged and skipped — **never guessed** — as is any unknown team code, so an
-  incomplete pull yields fewer byes, not wrong ones. Returns `[]` for an
-  empty/wrong-shaped payload (the snapshot `is_valid` gate).
+  logged and skipped — **never guessed** — as is any unknown team code. Returns
+  `[]` for an empty/wrong-shaped payload. `missing_teams(rows)` reports which
+  canonical teams lack a bye; the ingest gates below require it to be empty.
 - **Identity — canonical team codes.** Schedule codes are nflverse style
   (`KC`/`SF`/`LA`); every code routes through `identity.canonical_team`
   (`config.TEAM_ALIASES` carries `LA → LAR` for this source, plus retired
@@ -244,8 +244,10 @@ depends on FFC's non-exhaustive ADP list for byes.
 - **Ingest** (`ensure_schedule_ingested`) — re-parses + re-resolves from the
   cached snapshot on **every** run (atomic delete-then-insert mirror): parsing
   ~272 games is trivial, and a `TEAM_ALIASES` tuning change reaches the DB
-  without `--refresh`. An empty parse is surfaced as a failure while retaining
-  known-good byes.
+  without `--refresh`. Validity requires the **complete canonical team set**,
+  not just a non-empty parse: an empty or partial pull fails the snapshot
+  `is_valid` gate and the sync while retaining known-good byes, so a truncated
+  response can never replace a full mirror with a subset.
 - **How it's used** — `board.py` joins byes onto every row by canonical team
   (players, kickers, and `def:<team>` D/ST alike), independent of ADP. The
   schedule bye wins; FFC's per-player `bye` field is only a fallback when the
@@ -256,7 +258,8 @@ depends on FFC's non-exhaustive ADP list for byes.
     that surfaces a failed `schedule` source and the board falls back to FFC
     byes.
   - Cancelled/relocated games that leave a team with an ambiguous week set drop
-    that team's bye rather than guessing.
+    that team's bye at parse time; the completeness gate then rejects the whole
+    pull, keeping the last complete mirror in place.
 
 ---
 

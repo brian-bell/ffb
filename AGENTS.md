@@ -314,8 +314,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   teams `KC`/`SF`/`LA` etc.; `parse_byes` routes every code through
   `identity.canonical_team` (`TEAM_ALIASES` carries `LA -> LAR` for this source).
   An unknown code, or a team missing anything other than exactly one regular-
-  season week, is logged and skipped — never guessed — so an incomplete schedule
-  yields fewer byes, not wrong ones (the board then falls back to FFC's `bye`).
+  season week, is logged and skipped — never guessed. Ingest then requires the
+  **full canonical team set**: a partial-but-parseable pull fails the snapshot
+  gate and the sync (retaining the previous complete mirror) rather than
+  replacing 32 byes with a subset while `season status` still reports ready.
 - **Team defenses share synthetic canonical identity.** DEF isn't in
   `ff_playerids`, so valid team-defense rows bypass player-name resolution and
   use `def:<canonical MFL team code>` across Sleeper, ESPN, and FFC. Unknown team

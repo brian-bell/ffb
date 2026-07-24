@@ -1,20 +1,359 @@
 [
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "SF", "away_team": "KC"},
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "PHI", "away_team": "LA"},
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "MIA", "away_team": "DEN"},
-  {"season": 2026, "game_type": "REG", "week": 2, "home_team": "DEN", "away_team": "LA"},
-  {"season": 2026, "game_type": "REG", "week": 2, "home_team": "MIA", "away_team": "PHI"},
-  {"season": 2026, "game_type": "REG", "week": 3, "home_team": "DEN", "away_team": "KC"},
-  {"season": 2026, "game_type": "REG", "week": 3, "home_team": "MIA", "away_team": "SF"},
-  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "LA", "away_team": "KC"},
-  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "PHI", "away_team": "SF"},
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "BAL", "away_team": "CIN"},
-  {"season": 2026, "game_type": "REG", "week": 2, "home_team": "CIN", "away_team": "BAL"},
-  {"season": 2026, "game_type": "REG", "week": 3, "home_team": "BAL", "away_team": "CIN"},
-  {"season": 2026, "game_type": "POST", "week": 2, "home_team": "SF", "away_team": "KC"},
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "KC", "away_team": "XYZ"},
-  {"season": 2026, "game_type": "REG", "week": 1, "home_team": "CHI", "away_team": "BUF"},
-  {"season": 2026, "game_type": "REG", "week": 4, "home_team": "CHI", "away_team": "BUF"},
-  {"season": 2026, "game_type": "REG", "home_team": "DAL", "away_team": "NYG"},
-  "junk-entry"
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "ARI",
+  "away_team": "ATL"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "BAL",
+  "away_team": "BUF"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "CAR",
+  "away_team": "CHI"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "CIN",
+  "away_team": "CLE"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "DAL",
+  "away_team": "DEN"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "DET",
+  "away_team": "GB"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "HOU",
+  "away_team": "IND"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "JAX",
+  "away_team": "KC"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "LA",
+  "away_team": "LAC"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "LV",
+  "away_team": "MIA"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "MIN",
+  "away_team": "NE"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "NO",
+  "away_team": "NYG"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "NYJ",
+  "away_team": "PHI"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "PIT",
+  "away_team": "SEA"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "SF",
+  "away_team": "TB"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "TEN",
+  "away_team": "WAS"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "BAL",
+  "away_team": "BUF"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "CHI",
+  "away_team": "CIN"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "DEN",
+  "away_team": "IND"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "JAX",
+  "away_team": "LA"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "LAC",
+  "away_team": "LV"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "MIA",
+  "away_team": "MIN"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "NE",
+  "away_team": "NO"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "NYG",
+  "away_team": "NYJ"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "PHI",
+  "away_team": "PIT"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "SEA",
+  "away_team": "TB"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 2,
+  "home_team": "TEN",
+  "away_team": "WAS"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "ARI",
+  "away_team": "ATL"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "BAL",
+  "away_team": "BUF"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "CAR",
+  "away_team": "CHI"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "CIN",
+  "away_team": "CLE"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "DAL",
+  "away_team": "DEN"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "DET",
+  "away_team": "GB"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "HOU",
+  "away_team": "KC"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "MIA",
+  "away_team": "NYJ"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "PIT",
+  "away_team": "SEA"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "SF",
+  "away_team": "TB"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 3,
+  "home_team": "TEN",
+  "away_team": "WAS"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "ARI",
+  "away_team": "ATL"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "CAR",
+  "away_team": "CLE"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "DAL",
+  "away_team": "DET"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "GB",
+  "away_team": "HOU"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "IND",
+  "away_team": "JAX"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "KC",
+  "away_team": "LA"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "LAC",
+  "away_team": "LV"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "MIN",
+  "away_team": "NE"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "NO",
+  "away_team": "NYG"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 4,
+  "home_team": "PHI",
+  "away_team": "SF"
+ },
+ {
+  "season": 2026,
+  "game_type": "POST",
+  "week": 2,
+  "home_team": "SF",
+  "away_team": "KC"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "week": 1,
+  "home_team": "KC",
+  "away_team": "XYZ"
+ },
+ {
+  "season": 2026,
+  "game_type": "REG",
+  "home_team": "DAL",
+  "away_team": "NYG"
+ },
+ "junk-entry"
 ]
