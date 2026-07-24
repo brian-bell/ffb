@@ -73,8 +73,8 @@ def test_sync_schedule_records_ready_state(tmp_path):
     store.close()
 
     assert results["schedule"].state == "ready"
-    assert results["schedule"].rows == 6
-    assert results["schedule"].matched == 6
+    assert results["schedule"].rows == 8
+    assert results["schedule"].matched == 8
     tracked = next(s for s in status["sources"] if s["name"] == "schedule")
     assert tracked["kind"] == "schedule"
     assert tracked["state"] == "ready"

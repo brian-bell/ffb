@@ -396,3 +396,53 @@ def test_missing_only_refetches_a_deleted_snapshot_even_when_rows_exist(tmp_path
     assert result.exit_code == 0, result.output
     assert calls == 1
     assert snapshot.exists()
+
+
+def test_board_export_keeps_bye_for_player_missing_from_ffc(tmp_path):
+    env = _env(tmp_path)
+    # Drop Ja'Marr Chase from the FFC snapshot: his bye must now come from the
+    # schedule source instead of disappearing along with his ADP.
+    ffc_path = Path(env["FFB_SNAPSHOT_DIR"]) / f"{ffc.snapshot_key(2024)}.json"
+    payload = json.loads(ffc_path.read_text())
+    payload["players"] = [p for p in payload["players"] if p["name"] != "Ja'Marr Chase"]
+    ffc_path.write_text(json.dumps(payload))
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    output_dir = tmp_path / "exports"
+    exported = runner.invoke(
+        app, ["board", "export", "2024", "--format", "json", "--output-dir", str(output_dir)],
+        env=env,
+    )
+
+    assert exported.exit_code == 0, exported.output
+    players = {p["key"]: p for p in json.loads((output_dir / "board.json").read_text())["players"]}
+    chase = players["13971"]
+    assert chase["adp"] is None  # not in FFC
+    assert chase["bye"] == 4  # schedule fixture: CIN bye week 4
+    henry = players["12626"]
+    assert henry["adp"] is not None
+    assert henry["bye"] == 4  # schedule wins over FFC's stored bye
+
+
+def test_board_warns_when_schedule_is_missing(tmp_path):
+    env = _env(tmp_path)
+    sync = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--source", "projections", "--source", "adp"],
+        env=env,
+    )
+    assert sync.exit_code == 0, sync.output
+
+    board = runner.invoke(app, ["board", "show", "2024", "--limit", "1"], env=env)
+
+    assert board.exit_code == 0, board.output
+    assert "schedule is missing" in board.output
+
+
+def test_season_sync_reports_schedule_source(tmp_path):
+    env = _env(tmp_path)
+
+    result = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "schedule" in result.output

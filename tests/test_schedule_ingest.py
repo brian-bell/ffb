@@ -28,10 +28,19 @@ def test_schedule_ingest_offline_from_snapshot(store, tmp_path):
     recon = ensure_schedule_ingested(store, cache, season=2026, fetch=_no_network)
 
     byes = {r["team"]: r["bye"] for r in store.team_bye_rows(2026)}
-    assert byes == {"KCC": 2, "SFO": 2, "LAR": 3, "PHI": 3, "DEN": 4, "MIA": 4}
+    assert byes == {
+        "KCC": 2,
+        "SFO": 2,
+        "LAR": 3,
+        "PHI": 3,
+        "DEN": 4,
+        "MIA": 4,
+        "BAL": 4,
+        "CIN": 4,
+    }
     assert recon.source == "schedule"
-    assert recon.n_rows == 6
-    assert recon.matched == 6
+    assert recon.n_rows == 8
+    assert recon.matched == 8
     assert recon.unmatched == 0
 
 

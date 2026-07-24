@@ -30,6 +30,8 @@ def test_parse_derives_one_bye_per_team(raw):
         "PHI": 3,
         "DEN": 4,
         "MIA": 4,
+        "BAL": 4,
+        "CIN": 4,
     }
     for row in rows:
         assert row["season"] == 2026
@@ -53,13 +55,13 @@ def test_parse_skips_ambiguous_teams(raw):
 
 def test_parse_skips_unknown_team_codes(raw):
     byes = _byes(schedule.parse_byes(raw, 2026))
-    assert not any(team not in {"KCC", "SFO", "LAR", "PHI", "DEN", "MIA"} for team in byes)
+    assert not any(team not in {"KCC", "SFO", "LAR", "PHI", "DEN", "MIA", "BAL", "CIN"} for team in byes)
 
 
 def test_parse_never_raises_on_malformed_rows(raw):
     # Fixture carries a game without a week and a non-dict entry; both are
     # skipped without affecting the derived byes.
-    assert len(schedule.parse_byes(raw, 2026)) == 6
+    assert len(schedule.parse_byes(raw, 2026)) == 8
 
 
 def test_parse_empty_or_wrong_shape_returns_empty():
