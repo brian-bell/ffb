@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialBoardView, nextBoardView } from "../src/board-view";
+import { initialBoardView, LIST_CHUNK, nextBoardView } from "../src/board-view";
 
 describe("board view state", () => {
   it("starts with every available player and collapsed pick tools", () => {
@@ -9,6 +9,7 @@ describe("board view state", () => {
       pickToolsExpanded: false,
       searchQuery: "",
       selectedKey: null,
+      visibleLimit: LIST_CHUNK,
     });
   });
 
@@ -19,6 +20,7 @@ describe("board view state", () => {
       pickToolsExpanded: false,
       searchQuery: "",
       selectedKey: null,
+      visibleLimit: LIST_CHUNK,
     });
   });
 
@@ -31,6 +33,7 @@ describe("board view state", () => {
       pickToolsExpanded: false,
       searchQuery: "",
       selectedKey: null,
+      visibleLimit: LIST_CHUNK,
     });
   });
 
@@ -46,6 +49,7 @@ describe("board view state", () => {
       pickToolsExpanded: false,
       searchQuery: "",
       selectedKey: null,
+      visibleLimit: LIST_CHUNK,
     });
   });
 
@@ -109,6 +113,46 @@ describe("board view state", () => {
     );
 
     expect(nextBoardView(searching, { type: "pickRecorded" })).toEqual(rbHistory);
+  });
+
+  it("starts the list at one chunk and grows it a chunk per loadMore", () => {
+    expect(Number.isInteger(LIST_CHUNK)).toBe(true);
+    expect(LIST_CHUNK).toBeGreaterThan(0);
+    expect(initialBoardView.visibleLimit).toBe(LIST_CHUNK);
+
+    const grown = nextBoardView(initialBoardView, { type: "loadMore" });
+    expect(grown.visibleLimit).toBe(LIST_CHUNK * 2);
+    expect(nextBoardView(grown, { type: "loadMore" }).visibleLimit).toBe(LIST_CHUNK * 3);
+  });
+
+  it("resets a grown list whenever the visible list changes meaning", () => {
+    const grown = nextBoardView(initialBoardView, { type: "loadMore" });
+    const resets = [
+      { type: "selectPosition", position: "RB" },
+      { type: "selectMode", mode: "drafted" },
+      { type: "searchChanged", query: "allen" },
+    ] as const;
+
+    for (const event of resets) {
+      expect(nextBoardView(grown, event).visibleLimit).toBe(LIST_CHUNK);
+    }
+  });
+
+  it("keeps a grown list grown across selection, pick-tool, and pick events", () => {
+    // pickRecorded must preserve the limit: the recorded-pick fast path edits
+    // the grown DOM in place without a re-render, so resetting state here
+    // would collapse the list on the next loadMore.
+    const grown = nextBoardView(initialBoardView, { type: "loadMore" });
+    const preserves = [
+      { type: "playerSelected", key: "k0" },
+      { type: "selectionCleared" },
+      { type: "togglePickTools" },
+      { type: "pickRecorded" },
+    ] as const;
+
+    for (const event of preserves) {
+      expect(nextBoardView(grown, event).visibleLimit).toBe(LIST_CHUNK * 2);
+    }
   });
 
   it("preserves expanded pick tools when position or mode changes", () => {

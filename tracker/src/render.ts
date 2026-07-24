@@ -27,6 +27,8 @@ export interface RenderOptions {
   selectable?: boolean;
   selectedKey?: string | null;
   searchResults?: readonly Player[];
+  /** Progressive loading: render only the first `limit` rows. */
+  window?: { limit: number };
 }
 
 // Positions that don't carry a meaningful positional rank suffix in the meta line.
@@ -109,6 +111,14 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
   );
 }
 
+/** "Show more" sentinel for progressive loading — the client observes/clicks it. */
+function loadMoreSentinel(remaining: number): string {
+  return (
+    `<button type="button" class="load-more" data-load-more data-remaining="${remaining}">` +
+    `Show ${remaining} more players</button>`
+  );
+}
+
 function tierDivider(pos: string, tier: number | null, count: number): string {
   const label = tier == null ? "ADP only" : `Tier ${tier}`;
   return `<div class="trule" data-tier-key="${tierKey(tier)}" data-tier-count="${count}">${label} · ${esc(pos)} · ${count} left</div>`;
@@ -157,11 +167,16 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const history = !searching && options.mode === "drafted";
 
   if (history && options.draftPicks) {
-    return [...options.draftPicks]
+    const picks = [...options.draftPicks]
       .filter((pick) => filter === "ALL" || normalizedPosition(pick.player_pos) === filter)
-      .sort((a, b) => a.overall_pick - b.overall_pick)
+      .sort((a, b) => a.overall_pick - b.overall_pick);
+    const limit = options.window?.limit ?? picks.length;
+    let html = picks
+      .slice(0, limit)
       .map((pick) => row(playerFromPick(players, pick), maxVorp, pick))
       .join("");
+    if (picks.length > limit) html += loadMoreSentinel(picks.length - limit);
+    return html;
   }
 
   const all = filter === "ALL";
@@ -175,14 +190,16 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
 
+  const limit = options.window?.limit ?? rows.length;
   let html = "";
   let curTier: number | null | undefined = undefined;
-  for (const p of rows) {
+  for (const p of rows.slice(0, limit)) {
     if (grouped && p.tier !== curTier) {
       curTier = p.tier;
       html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
     html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey);
   }
+  if (rows.length > limit) html += loadMoreSentinel(rows.length - limit);
   return html;
 }
