@@ -79,9 +79,7 @@ def parse_byes(raw: Any, season: int) -> list[dict[str, Any]]:
     for team in sorted(weeks_by_team):
         missing = set(range(1, max_week + 1)) - weeks_by_team[team]
         if len(missing) != 1:
-            log.warning(
-                "skip team %s with ambiguous bye (missing weeks %s)", team, sorted(missing)
-            )
+            log.warning("skip team %s with ambiguous bye (missing weeks %s)", team, sorted(missing))
             continue
         rows.append({"season": season, "source": SOURCE, "team": team, "bye": missing.pop()})
     return rows

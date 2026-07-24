@@ -16,7 +16,7 @@ def test_replace_team_byes_mirrors_slice(store):
 
 def test_replace_team_byes_is_atomic(store):
     store.replace_team_byes([_bye_row("KCC", 10)], 2026)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="(?i)constraint|null"):
         store.replace_team_byes([_bye_row("SFO", 9), {"season": 2026}], 2026)
     rows = store.team_bye_rows(2026)
     assert {(r["team"], r["bye"]) for r in rows} == {("KCC", 10)}

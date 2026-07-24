@@ -55,7 +55,8 @@ def test_parse_skips_ambiguous_teams(raw):
 
 def test_parse_skips_unknown_team_codes(raw):
     byes = _byes(schedule.parse_byes(raw, 2026))
-    assert not any(team not in {"KCC", "SFO", "LAR", "PHI", "DEN", "MIA", "BAL", "CIN"} for team in byes)
+    known = {"KCC", "SFO", "LAR", "PHI", "DEN", "MIA", "BAL", "CIN"}
+    assert all(team in known for team in byes)
 
 
 def test_parse_never_raises_on_malformed_rows(raw):

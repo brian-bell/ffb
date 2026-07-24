@@ -192,6 +192,7 @@ def test_rankings_is_read_only_and_leaves_sync_status_unchanged(tmp_path, monkey
     monkeypatch.setattr(sleeper_source, "fetch_projections", fail)
     monkeypatch.setattr(espn_source, "fetch_projections", fail)
     monkeypatch.setattr(ffc_source, "fetch_adp", fail)
+    monkeypatch.setattr(schedule_source, "fetch_schedule", fail)
 
     result = runner.invoke(app, ["rankings", "2024", "--position", "RB", "--show-sources"], env=env)
     board = runner.invoke(app, ["board", "show", "2024", "--limit", "1"], env=env)
@@ -410,7 +411,8 @@ def test_board_export_keeps_bye_for_player_missing_from_ffc(tmp_path):
 
     output_dir = tmp_path / "exports"
     exported = runner.invoke(
-        app, ["board", "export", "2024", "--format", "json", "--output-dir", str(output_dir)],
+        app,
+        ["board", "export", "2024", "--format", "json", "--output-dir", str(output_dir)],
         env=env,
     )
 
