@@ -152,6 +152,7 @@ TEAM_ALIASES = {
     "TB": "TBB",
     "LV": "LVR",
     "JAX": "JAC",
+    "LA": "LAR",  # nflverse schedules label the Rams "LA"
 }
 
 
