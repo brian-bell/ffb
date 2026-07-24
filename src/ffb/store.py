@@ -73,6 +73,14 @@ CREATE TABLE IF NOT EXISTS adp (
     PRIMARY KEY (player_key, season, source)
 );
 
+CREATE TABLE IF NOT EXISTS team_byes (
+    season INTEGER,
+    source VARCHAR,                    -- 'schedule'
+    team   VARCHAR,                    -- canonical MFL-style team code
+    bye    INTEGER,
+    PRIMARY KEY (season, source, team)
+);
+
 CREATE TABLE IF NOT EXISTS season_source_state (
     season INTEGER,
     source VARCHAR,
@@ -361,6 +369,54 @@ class Store:
             raise
         self.conn.execute("COMMIT")
 
+    # --- team byes (schedule-derived source values, not computed) ----------
+    def upsert_team_byes(self, rows: list[dict[str, Any]]) -> None:
+        """Insert-or-replace team bye rows, keyed by ``(season, source, team)``.
+
+        Byes are a *source* value (stored), like ADP — a fact about the NFL
+        schedule, not something scoring re-derives.
+        """
+        for row in rows:
+            self.conn.execute(
+                """
+                INSERT INTO team_byes (season, source, team, bye)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (season, source, team) DO UPDATE SET bye = excluded.bye
+                """,
+                [row.get("season"), row.get("source"), row.get("team"), row.get("bye")],
+            )
+
+    def delete_team_byes(self, season: int, source: str = "schedule") -> None:
+        """Remove a ``(season, source)`` bye slice so a re-ingest mirrors the
+        source rather than unioning with stale rows."""
+        self.conn.execute(
+            "DELETE FROM team_byes WHERE season = ? AND source = ?",
+            [season, source],
+        )
+
+    def replace_team_byes(
+        self, rows: list[dict[str, Any]], season: int, source: str = "schedule"
+    ) -> None:
+        """Atomically mirror one team-bye slice."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.delete_team_byes(season, source)
+            self.upsert_team_byes(rows)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
+    def team_bye_rows(self, season: int, source: str = "schedule") -> list[dict[str, Any]]:
+        """Return stored team bye rows for a season/source as plain dicts."""
+        cursor = self.conn.execute(
+            "SELECT season, source, team, bye FROM team_byes "
+            "WHERE season = ? AND source = ? ORDER BY team",
+            [season, source],
+        )
+        cols = [c[0] for c in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
     def season_source_state(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
         query = "SELECT * FROM season_source_state WHERE season = ?"
         params: list[Any] = [season]
@@ -403,6 +459,15 @@ class Store:
     def source_counts(self, season: int, source: str) -> tuple[int, int]:
         if source == "crosswalk":
             result = self.conn.execute("SELECT COUNT(*) FROM crosswalk").fetchone()
+            count = int(result[0]) if result else 0
+            return count, count
+        if source == "schedule":
+            # Bye rows are canonical by construction (unknown/ambiguous teams
+            # are dropped at parse time), so every stored row counts as matched.
+            result = self.conn.execute(
+                "SELECT COUNT(*) FROM team_byes WHERE season = ? AND source = ?",
+                [season, source],
+            ).fetchone()
             count = int(result[0]) if result else 0
             return count, count
         if source == "ffc":
