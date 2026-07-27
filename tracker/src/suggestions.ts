@@ -1,4 +1,4 @@
-import { isAvailable, type PlayerIdentity } from "./player-identity";
+import { indexPlayerIdentities, type PlayerIdentity } from "./player-identity";
 import type { Player } from "./types";
 
 function marketOrder(a: Player, b: Player): number {
@@ -21,7 +21,8 @@ function snapshots(picked: Picked): readonly PlayerIdentity[] {
 }
 
 export function availablePlayers(players: Player[], picked: Picked): Player[] {
-  return players.filter((player) => isAvailable(player, snapshots(picked)));
+  const pickedIndex = indexPlayerIdentities(snapshots(picked));
+  return players.filter((player) => pickedIndex.match(player) === undefined);
 }
 
 /** Three available players most likely to be selected next by market ADP. */
@@ -37,18 +38,42 @@ function tokens(value: string): string[] {
   return value.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
 }
 
+export interface PlayerSearch {
+  search(query: string): Player[];
+}
+
+/** Cache immutable player-name normalization and market order for repeated queries. */
+export function buildPlayerSearch(players: readonly Player[]): PlayerSearch {
+  const entries = players
+    .map((player) => ({
+      player,
+      name: normalized(player.name),
+      words: tokens(player.name).map(normalized),
+    }))
+    .sort((a, b) => marketOrder(a.player, b.player));
+
+  return {
+    search(query) {
+      const needle = normalized(query.trim());
+      if (!needle) return [];
+      const matches: [Player[], Player[], Player[]] = [[], [], []];
+      for (const entry of entries) {
+        const match = entry.name.startsWith(needle)
+          ? 0
+          : entry.words.some((word) => word.startsWith(needle))
+            ? 1
+            : entry.name.includes(needle)
+              ? 2
+              : 3;
+        const bucket = match === 0 ? matches[0] : match === 1 ? matches[1] : match === 2 ? matches[2] : null;
+        if (bucket && bucket.length < 8) bucket.push(entry.player);
+      }
+      return matches.flat().slice(0, 8);
+    },
+  };
+}
+
 /** Search exact board rows only; callers must submit the selected row's key. */
 export function searchPlayers(players: Player[], picked: Picked, query: string): Player[] {
-  const needle = normalized(query.trim());
-  if (!needle) return [];
-  return availablePlayers(players, picked)
-    .map((player) => {
-      const name = normalized(player.name);
-      const match = name.startsWith(needle) ? 0 : tokens(player.name).some((word) => word.startsWith(needle)) ? 1 : name.includes(needle) ? 2 : 3;
-      return { player, match };
-    })
-    .filter(({ match }) => match < 3)
-    .sort((a, b) => a.match - b.match || marketOrder(a.player, b.player))
-    .slice(0, 8)
-    .map(({ player }) => player);
+  return buildPlayerSearch(availablePlayers(players, picked)).search(query);
 }

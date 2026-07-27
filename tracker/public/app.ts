@@ -6,7 +6,6 @@
 import { renderBoard } from "../src/render";
 import { isValidBoard, validateVersion } from "../src/board";
 import { makeStore, nextState, resetsKeyInput, initialState, type UiState, type UiEvent } from "../src/state";
-import { searchPlayers } from "../src/suggestions";
 import { makeSetupStore, nextSetupDialog, setupValidation, teamOptionsFromSetup, teamsFromSetup } from "../src/setup";
 import {
   boardNoticeHtml,
@@ -15,7 +14,7 @@ import {
   type BoardPosition,
   type BoardViewState,
 } from "../src/board-view";
-import { isAvailable, playersEquivalent } from "../src/player-identity";
+import { buildPlayerPool, type PlayerPool, type PlayerPoolPick } from "../src/player-pool";
 import { draftClockPresentation, draftPageTitle, nextPick } from "../src/draft";
 import { removeRecordedPlayerRows, setPlayerListBusy, syncSelectedPlayerRow } from "../src/selection";
 import type { DraftConfigInput, DraftState } from "../src/draft-store";
@@ -91,6 +90,10 @@ let writing = false;
 let setupPresented = false;
 let setupOpen = false;
 let focusPickTools = false;
+let playerPool: PlayerPool | null = null;
+let pooledPlayers: Board["players"] | null = null;
+let pooledPicks: readonly PlayerPoolPick[] | null = null;
+const NO_PICKS: readonly PlayerPoolPick[] = [];
 
 function dispatch(event: UiEvent): void {
   ui = nextState(ui, event);
@@ -124,13 +127,15 @@ function applyUi(): void {
 }
 
 // ---- board rendering ----
-function pickedIdentities(): Array<{ key: string; name: string; pos: string | null; team: string | null }> {
-  return draft?.picks.map((pick) => ({
-    key: pick.player_key,
-    name: pick.player_name,
-    pos: pick.player_pos,
-    team: pick.player_team,
-  })) ?? [];
+function currentPlayerPool(): PlayerPool {
+  if (!board) throw new Error("cannot build a player pool without a board");
+  const picks = draft?.picks ?? NO_PICKS;
+  if (playerPool === null || pooledPlayers !== board.players || pooledPicks !== picks) {
+    playerPool = buildPlayerPool(board.players, picks);
+    pooledPlayers = board.players;
+    pooledPicks = picks;
+  }
+  return playerPool;
 }
 
 function renderList(resetScroll = true): void {
@@ -138,19 +143,13 @@ function renderList(resetScroll = true): void {
     listEl.innerHTML = boardNoticeHtml(boardDriftVersion, boardMalformed);
     return;
   }
-  const picked = new Map<string, { overall_pick: number; round: number; round_pick: number; team_name: string }>();
-  for (const pick of draft?.picks ?? []) {
-    const annotation = { overall_pick: pick.overall_pick, round: pick.round, round_pick: pick.round_pick, team_name: pick.team_name };
-    for (const player of board.players) {
-      if (playersEquivalent(player, { key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team })) picked.set(player.key, annotation);
-    }
-  }
+  const pool = currentPlayerPool();
   const searching = boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
   const searchResults = searching
-    ? searchPlayers(board.players, pickedIdentities(), boardView.searchQuery)
+    ? pool.search(boardView.searchQuery)
     : undefined;
   listEl.innerHTML = renderBoard(board, boardView.position, {
-    picked,
+    picked: pool.picked,
     mode: boardView.mode,
     draftPicks: draft?.picks,
     selectable: Boolean(draft?.next) && !writing,
@@ -324,11 +323,11 @@ function renderDraft(renderListContent = true): void {
     clockEl.removeAttribute("aria-label");
     onClockEl.textContent = `Round ${next.round} of ${draft!.draft!.rounds} · Pick ${next.overall_pick} of ${draft!.draft!.team_count * draft!.draft!.rounds} · ${next.team_name} is on the clock`;
   }
-  const picked = pickedIdentities();
+  const pool = board ? currentPlayerPool() : null;
   const canPick = Boolean(next && board);
   playerSearchEl.disabled = !canPick || writing;
   const selectedPlayer = playerByKey(boardView.selectedKey);
-  if (selectedPlayer && !isAvailable(selectedPlayer, picked)) {
+  if (selectedPlayer && pool?.picked.has(selectedPlayer.key)) {
     boardView = nextBoardView(boardView, { type: "selectionCleared" });
   }
   undoPickEl.disabled = writing || draft!.picks.length === 0;
