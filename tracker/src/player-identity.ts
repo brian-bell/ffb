@@ -43,6 +43,84 @@ function isManual(key: string): boolean {
   return key.startsWith("manual:");
 }
 
+export interface PlayerIdentityIndex<T extends PlayerIdentity> {
+  match(player: PlayerIdentity): T | undefined;
+}
+
+function signature(...parts: Array<string | null>): string {
+  return parts.map((part) => part ?? "").join("\u0000");
+}
+
+/**
+ * Index persisted identities once so board availability does not need to scan
+ * every pick for every player. The signatures mirror playersEquivalent:
+ * canonical keys stay exact, defenses bridge by team, and only fallback/manual
+ * identities may bridge by normalized snapshots.
+ */
+export function indexPlayerIdentities<T extends PlayerIdentity>(
+  identities: readonly T[],
+): PlayerIdentityIndex<T> {
+  const exact = new Map<string, T>();
+  const defenses = new Map<string, T>();
+  const bridgeFromFallback = new Map<string, T>();
+  const bridgeToFallback = new Map<string, T>();
+  const manualWithoutTeam = new Map<string, T>();
+  const manualWithoutPosition = new Map<string, T>();
+
+  for (const identity of identities) {
+    exact.set(identity.key, identity);
+    const pos = normalizedPosition(identity.pos);
+    const team = normalizedTeam(identity.team);
+    if (pos === "DEF" && team !== null) defenses.set(team, identity);
+
+    const name = normalizedName(identity.name);
+    if (pos === null) {
+      if (isManual(identity.key)) {
+        manualWithoutPosition.set(signature(name, team), identity);
+      }
+      continue;
+    }
+    if (team === null) {
+      if (isManual(identity.key)) {
+        manualWithoutTeam.set(signature(pos, name), identity);
+      }
+      continue;
+    }
+    const bridge = signature(pos, name, team);
+    if (isFallback(identity.key)) bridgeFromFallback.set(bridge, identity);
+    else bridgeToFallback.set(bridge, identity);
+  }
+
+  return {
+    match(player) {
+      const exactMatch = exact.get(player.key);
+      if (exactMatch) return exactMatch;
+
+      const pos = normalizedPosition(player.pos);
+      const team = normalizedTeam(player.team);
+      if (pos === "DEF" && team !== null) {
+        const defenseMatch = defenses.get(team);
+        if (defenseMatch) return defenseMatch;
+      }
+
+      const name = normalizedName(player.name);
+      if (pos === null) {
+        return isManual(player.key)
+          ? manualWithoutPosition.get(signature(name, team))
+          : undefined;
+      }
+      if (team === null) {
+        return isManual(player.key)
+          ? manualWithoutTeam.get(signature(pos, name))
+          : undefined;
+      }
+      const bridge = signature(pos, name, team);
+      return bridgeFromFallback.get(bridge)
+        ?? (isFallback(player.key) ? bridgeToFallback.get(bridge) : undefined);
+    },
+  };
+}
+
 /**
  * Availability identity is deliberately narrower than a name match.  Canonical
  * rows retain key identity; only fallback/manual rows are allowed to bridge to

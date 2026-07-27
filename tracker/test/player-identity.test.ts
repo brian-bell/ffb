@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { playersEquivalent } from "../src/player-identity";
+import { indexPlayerIdentities, playersEquivalent, type PlayerIdentity } from "../src/player-identity";
 
 describe("player identity", () => {
   it("keeps distinct canonical players separate but collapses equivalent defense and fallback snapshots", () => {
@@ -37,5 +37,32 @@ describe("player identity", () => {
       { key: "def:SFO", name: "Same Name", pos: "WR", team: "SFO" },
       { key: "canonical-other", name: "Same Name", pos: "WR", team: "SFO" },
     )).toBe(false);
+  });
+
+  it("indexes every persisted equivalence rule without changing its matches", () => {
+    const picked: PlayerIdentity[] = [
+      { key: "canonical-one", name: "Same Name", pos: "WR", team: "BUF" },
+      { key: "manual:unknown", name: "Mystery Player", pos: null, team: "SF" },
+      { key: "manual:no-team", name: "Free Agent", pos: "RB", team: null },
+      { key: "sleeper:fallback", name: "A. Brown", pos: "WR", team: "PHI" },
+      { key: "sleeper:def", name: "San Francisco 49ers", pos: "DST", team: "SF" },
+    ];
+    const candidates: PlayerIdentity[] = [
+      picked[0],
+      { key: "canonical-two", name: "Same Name", pos: "WR", team: "BUF" },
+      { key: "manual:canonical-bridge", name: "Same Name", pos: "WR", team: "BUF" },
+      { key: "manual:unknown-copy", name: "Mystery Player", pos: "Unknown", team: "SFO" },
+      { key: "manual:unknown-other-team", name: "Mystery Player", pos: null, team: "BUF" },
+      { key: "manual:no-team-copy", name: "Free Agent", pos: "RB", team: null },
+      { key: "sleeper:no-team-copy", name: "Free Agent", pos: "RB", team: null },
+      { key: "canonical:a-brown", name: "A Brown", pos: "WR", team: "PHI" },
+      { key: "def:SFO", name: "49ers D/ST", pos: "DEF", team: "SFO" },
+      { key: "def:BUF", name: "Bills D/ST", pos: "DEF", team: "BUF" },
+    ];
+    const index = indexPlayerIdentities(picked);
+
+    expect(candidates.map((candidate) => index.match(candidate) !== undefined)).toEqual(
+      candidates.map((candidate) => picked.some((snapshot) => playersEquivalent(candidate, snapshot))),
+    );
   });
 });
