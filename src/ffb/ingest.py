@@ -184,6 +184,7 @@ def _can_skip(store: Store, season: int, source: str, refresh: bool) -> bool:
         store.has_season(season, source=source, scope="season")
         and not refresh
         and not store.has_stale_resolution(season, source)
+        and not store.has_legacy_defense_return_td_stats(season, source)
     )
 
 

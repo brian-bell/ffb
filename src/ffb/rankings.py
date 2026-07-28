@@ -31,7 +31,7 @@ def ranked(
             "full_name": r["full_name"],
             "position": r["position"],
             "team": r["team"],
-            "points": round(ppr_points(r["stats"], cfg), 2),
+            "points": round(ppr_points(r["stats"], cfg, position=r["position"]), 2),
         }
         for r in rows
         if r["matched"]

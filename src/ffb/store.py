@@ -733,6 +733,18 @@ class Store:
                 return True
         return False
 
+    def has_legacy_defense_return_td_stats(self, season: int, source: str) -> bool:
+        """True when a stored D/ST row predates return-TD normalization.
+
+        ``def_kr_td`` and ``pr_td`` were renamed to ``def_ret_td`` for D/ST
+        projections. Replaying the cached snapshot keeps individual returners
+        unscored while repairing databases written with the former stat names.
+        """
+        return any(
+            row["position"] == "DEF" and {"def_kr_td", "pr_td"}.intersection(row["stats"])
+            for row in self.projection_rows(season, source=source)
+        )
+
     def projection_rows(
         self,
         season: int,

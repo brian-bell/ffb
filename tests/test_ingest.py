@@ -335,6 +335,51 @@ def test_canonical_defenses_do_not_force_reingest_on_every_run(store, tmp_path):
     assert ensure_espn_ingested(store, cache, season=2024, fetch=_no_network).n_rows == 0
 
 
+def test_legacy_defense_return_td_stats_trigger_offline_reingest(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    raw = [
+        {
+            "player_id": "BUF",
+            "company": "rotowire",
+            "season": "2024",
+            "stats": {"def_kr_td": 1.0, "pr_td": 2.0},
+            "player": {
+                "first_name": "Buffalo",
+                "last_name": "Bills",
+                "position": "DEF",
+                "team": "BUF",
+            },
+        }
+    ]
+    cache.get_json(snapshot_key(2024), lambda: raw)
+    ensure_ingested(store, cache, season=2024, fetch=_no_network)
+
+    # Emulate a database written before D/ST return touchdowns were normalized.
+    store.upsert_projections(
+        [
+            {
+                "player_key": "def:BUF",
+                "native_id": "BUF",
+                "full_name": "Buffalo Bills",
+                "position": "DEF",
+                "team": "BUF",
+                "matched": True,
+                "season": 2024,
+                "source": "sleeper",
+                "scope": "season",
+                "stats": {"def_kr_td": 1.0, "pr_td": 2.0},
+                "src_pts_ppr": None,
+            }
+        ]
+    )
+
+    recon = ensure_ingested(store, cache, season=2024, fetch=_no_network)
+
+    assert recon.n_rows == 1
+    defense = store.projection_rows(2024, source="sleeper")[0]
+    assert defense["stats"] == {"def_ret_td": 3.0}
+
+
 def test_legacy_defense_fallback_self_heals_to_canonical_key(store, tmp_path):
     store.upsert_projections(
         [

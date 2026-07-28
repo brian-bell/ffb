@@ -49,6 +49,9 @@ def test_defense_line_hand_computed_under_league_scoring():
 def test_return_touchdowns_score_only_on_the_defense_row():
     assert ppr_points({"def_ret_td": 1}, config.LEAGUE_SCORING) == 6.0
     assert ppr_points({"pr_td": 1, "def_kr_td": 1}, config.LEAGUE_SCORING) == 0.0
+    # Pre-normalization D/ST rows remain compatible at read time, while an
+    # offensive returner carrying those source fields remains unscored.
+    assert ppr_points({"pr_td": 1, "def_kr_td": 1}, config.LEAGUE_SCORING, position="DEF") == 12.0
 
 
 def test_uncommon_visible_touchdown_return_rules_score():

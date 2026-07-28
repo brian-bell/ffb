@@ -58,7 +58,9 @@ def consensus_rows(
                 "source_points": {},
             },
         )
-        entry["source_points"][r["source"]] = round(ppr_points(r["stats"], cfg), 2)
+        entry["source_points"][r["source"]] = round(
+            ppr_points(r["stats"], cfg, position=r["position"]), 2
+        )
 
     out: list[dict[str, Any]] = []
     for entry in grouped.values():
