@@ -172,8 +172,8 @@ def test_verbose_refresh_logs_ffc_http_summary_with_league_size(tmp_path, monkey
     assert result.exit_code == 0, result.output
     assert (
         "api request provider=ffc method=GET "
-        "url=https://fantasyfootballcalculator.com/api/v1/adp/ppr "
-        "params=teams=12&year=2024"
+        "url=https://fantasyfootballcalculator.com/api/v1/adp/half-ppr "
+        "params=teams=10&year=2024"
     ) in result.output
     assert "api response provider=ffc status=200 items=11" in result.output
     assert "User-Agent" not in result.output

@@ -8,7 +8,7 @@ from typing import Any
 
 from ffb import config
 
-_SUPPORTED_STARTERS = {"QB", "RB", "WR", "TE", "W/R/T", "K", "DEF"}
+_SUPPORTED_STARTERS = {"QB", "RB", "WR", "TE", "W/T", "W/R/T", "K", "DEF"}
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ def load_league_context(store: Any, season: int) -> LeagueContext:
             config.LEAGUE_SCORING,
             config.LEAGUE_ROSTER_SLOTS,
             config.LEAGUE_NUM_TEAMS,
-            "placeholder",
+            "configured-yahoo",
             False,
             False,
         )
@@ -59,7 +59,7 @@ def load_league_context(store: Any, season: int) -> LeagueContext:
         else config.LEAGUE_SCORING,
         roster if roster_complete else config.LEAGUE_ROSTER_SLOTS,
         state["num_teams"] if state["num_teams"] > 0 else config.LEAGUE_NUM_TEAMS,
-        f"yahoo-{state['source']}" if scoring_complete else "placeholder",
+        f"yahoo-{state['source']}" if scoring_complete else "configured-yahoo",
         scoring_complete,
         roster_complete,
     )

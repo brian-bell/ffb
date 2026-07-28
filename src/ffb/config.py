@@ -73,8 +73,8 @@ ESPN_STAT_MAP = {
     97: "blk_kick",
     98: "safe",
     99: "sack",
-    101: "def_kr_td",
-    102: "pr_td",
+    101: "def_ret_td",
+    102: "def_ret_td",
     103: "def_fum_td",
     104: "pass_int_td",
     121: "pts_allow_14_20",  # ESPN 18-21; chosen approximation for Yahoo 14-20
@@ -193,94 +193,74 @@ DEFAULT_PPR = ScoringConfig(
 
 
 # --- League scoring (slice 4) -----------------------------------------------
-# The league's ACTUAL scoring, applied to consensus projections so rankings
-# reflect THIS league, not generic PPR. These are typical Yahoo full-PPR
-# defaults, hand-entered as a PLACEHOLDER until slice 2 pulls the real settings
-# from the Yahoo league into the store. Swapping them re-scores everything with
-# no re-ingest (points are computed at read time — see AGENTS.md). Known
-# assumptions to confirm against the real league: full PPR (1.0), 4-pt passing
-# TDs, -1 interceptions. Kicking and D/ST categories are included, with Sleeper
-# and ESPN both normalized onto these keys. Stat keys don't collide across
-# positions, so one flat map scores every position.
+# The league's confirmed Yahoo scoring, applied to consensus projections so
+# rankings reflect THIS league, not generic PPR. Hand-entered from the league
+# settings on 2026-07-27: half-PPR, 1 point per 20 passing yards, no turnover
+# penalties, and no kicking rules. Swapping weights re-scores everything with no
+# re-ingest (points are computed at read time — see AGENTS.md). Sleeper and ESPN
+# are normalized onto these keys; one flat map is safe because offensive and
+# defensive interception keys are distinct.
 LEAGUE_SCORING = ScoringConfig(
     weights={
         # Offense
-        "pass_yd": 0.04,  # 1 pt / 25 yd
+        "pass_yd": 0.05,  # 1 pt / 20 yd
         "pass_td": 4.0,
-        "pass_int": -1.0,  # Yahoo default (generic DEFAULT_PPR uses -2)
         "pass_2pt": 2.0,
         "rush_yd": 0.1,
         "rush_td": 6.0,
         "rush_2pt": 2.0,
-        "rec": 1.0,  # full PPR
+        "rec": 0.5,  # half PPR
         "rec_yd": 0.1,
         "rec_td": 6.0,
         "rec_2pt": 2.0,
-        "fum_lost": -2.0,
-        # Kicking — FG by distance + extra points. Sleeper's rotowire projection
-        # only bands 40-49 and 50+; shorter bands are listed for portability and
-        # are harmless no-ops when a source omits them.
-        "fgm_0_19": 3.0,
-        "fgm_20_29": 3.0,
-        "fgm_30_39": 3.0,
-        "fgm_40_49": 4.0,
-        "fgm_50p": 5.0,
-        "xpm": 1.0,
+        "fum_rec_td": 6.0,
         # Team defense / special teams.
         "sack": 1.0,
         "int": 2.0,  # defensive interception (distinct from a QB's pass_int)
         "fum_rec": 2.0,
         "safe": 2.0,
         "blk_kick": 2.0,
-        # Defensive + return TDs, all 6 pts. Keys verified against Sleeper: team
-        # defensive returns sit on the D/ST row (def_fum_td, pass_int_td); kick and
-        # punt returns sit on the returner's own offensive row (def_kr_td, pr_td).
+        # Defensive + return TDs, all 6 pts. Kick and punt returns are normalized
+        # to def_ret_td only on D/ST rows so individual returners do not score.
         "def_fum_td": 6.0,
         "pass_int_td": 6.0,
-        "def_kr_td": 6.0,
-        "pr_td": 6.0,
-        # Points-allowed ladder. Only pts_allow_0 shows in the current Sleeper
-        # projection; the rest are standard Yahoo bands, scored if a source emits
-        # them (harmless no-ops otherwise), same as the short-FG bands above.
+        "def_ret_td": 6.0,
+        "def_2pt": 2.0,
+        # The league's configured points-allowed ladder ends at 21–27 (zero).
+        # Higher bands are unconfigured and therefore score zero by omission.
         "pts_allow_0": 10.0,
         "pts_allow_1_6": 7.0,
         "pts_allow_7_13": 4.0,
         "pts_allow_14_20": 1.0,
         "pts_allow_21_27": 0.0,
-        "pts_allow_28_34": -1.0,
-        "pts_allow_35p": -4.0,
     }
     # Sleeper also emits non-standard categories we deliberately don't score
     # (IDP tackles, first downs, per-distance reception bands, PPR bonuses); they
     # aren't in this standard-ish league and are why src_pts_ppr can diverge.
 )
 
-# Typical 12-team starting lineup + bench, using Yahoo's position abbreviations
-# ("W/R/T" flex, "DEF" defense) so slice 2's store-loaded slots drop in without
-# renaming. Feeds VORP replacement baselines and the lineup optimizer (slices 5,
-# 9). Placeholder until the real roster settings arrive.
+# Confirmed Yahoo lineup, using the API-style slash labels for the W-T and W-R-T
+# flexes shown in the UI. Eight starters plus eight bench slots feed VORP
+# replacement baselines and the lineup optimizer.
 LEAGUE_ROSTER_SLOTS = {
     "QB": 1,
-    "RB": 2,
-    "WR": 2,
+    "WR": 1,
+    "RB": 1,
     "TE": 1,
-    "W/R/T": 1,
-    "K": 1,
+    "W/T": 1,
+    "W/R/T": 2,
     "DEF": 1,
-    "BN": 6,
+    "BN": 8,
 }
 
-# Number of teams in the league. Feeds VORP replacement baselines (§3e: slots to
-# fill = teams × starting slots) and the FFC ADP pull (one format/teams combo per
-# season). Placeholder until slice 2 loads the real Yahoo league; a 10-team or
-# half-PPR league shifts both the baselines and the FFC params, but both are
-# config reads, so the swap is one edit.
-LEAGUE_NUM_TEAMS = 12
+# Confirmed number of teams. Feeds VORP replacement baselines (§3e: slots to
+# fill = teams × starting slots) and the FFC ADP pull.
+LEAGUE_NUM_TEAMS = 10
 
 # --- FFC ADP source (slice 5, spike-verified 2026-07-21) --------------------
-# Fantasy Football Calculator's free ADP API. We pull one format/teams combo
-# matching the league. `PK` is FFC's kicker label (we normalize to `K`).
-FFC_FORMAT = "ppr"
+# Fantasy Football Calculator's free ADP API. Pull the confirmed 10-team,
+# half-PPR format. `PK` is FFC's kicker label (we normalize to `K`).
+FFC_FORMAT = "half-ppr"
 FFC_POSITION_MAP = {"PK": "K", "DEF": "DEF"}
 
 # --- Cheat sheet: VORP + tiers (slice 5) ------------------------------------

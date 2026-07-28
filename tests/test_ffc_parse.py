@@ -20,6 +20,10 @@ def test_snapshot_key_encodes_format_teams_season():
     assert snapshot_key(2024, teams=12, fmt="ppr") == "ffc/adp_ppr_12_2024"
 
 
+def test_default_snapshot_key_matches_league_format_and_size():
+    assert snapshot_key(2026) == "ffc/adp_half-ppr_10_2026"
+
+
 def test_parse_returns_a_row_per_player():
     rows = parse_adp(_raw(), 2024)
     assert len(rows) == 11

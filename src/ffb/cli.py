@@ -533,7 +533,7 @@ def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) ->
         table.add_column("Consensus", justify="right", style="green")
         table.add_column("n", justify="right", style="dim")
     else:
-        table.add_column("Proj (PPR)", justify="right", style="green")
+        table.add_column("Proj (League)", justify="right", style="green")
 
     for row in rows:
         cells = [str(row["rank"]), row["full_name"], row["position"], row["team"] or "—"]
@@ -550,17 +550,9 @@ def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) ->
 
 
 def _report_scoring_provenance(league: object) -> None:
-    """Note that points come from placeholder league settings, not real Yahoo ones.
-
-    Scoring is applied silently, so without this a run looks league-accurate when
-    it is only typical full-PPR defaults. Slice 2 makes this conditional (shown
-    only when falling back to the placeholder); today it always applies.
-    """
-    if league.scoring_provenance == "placeholder":
-        console.print(
-            "[dim]Scored with placeholder league settings (typical full-PPR); "
-            "sync a fixture for exact mock scoring.[/dim]"
-        )
+    """Report whether scoring came from configured or synchronized Yahoo rules."""
+    if league.scoring_provenance == "configured-yahoo":
+        console.print("[dim]Scored with configured Yahoo league settings.[/dim]")
     else:
         console.print("[yellow]Scored with mock fixture league settings.[/yellow]")
 

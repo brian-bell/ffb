@@ -1,6 +1,6 @@
 """VORP — value over replacement, pure compute (no I/O).
 
-Replacement level must respect the flex slot, so a fixed "RB24 is replacement"
+Replacement level must respect each flex slot, so a fixed "RB24 is replacement"
 rule won't do. Instead we simulate filling every starting slot in the league
 from the consensus pool (§3e): each player, in points order, takes an open
 dedicated slot for their position, else an open compatible flex slot, else is
@@ -14,10 +14,26 @@ from __future__ import annotations
 
 from typing import Any
 
-# The flex slot label and the positions it accepts.
-FLEX_SLOT = "W/R/T"
-FLEX_POSITIONS = frozenset({"RB", "WR", "TE"})
+# Yahoo flex slot labels and the positions each accepts. Restrictive slots are
+# claimed before broader ones so a WR does not consume a slot that an RB needs.
+FLEX_SLOTS = {
+    "W/T": frozenset({"WR", "TE"}),
+    "W/R/T": frozenset({"RB", "WR", "TE"}),
+}
 BENCH_SLOT = "BN"
+
+
+def eligible_positions(roster_slots: dict[str, int]) -> frozenset[str]:
+    """Return player positions accepted by at least one active starter slot."""
+    positions = {
+        slot
+        for slot, count in roster_slots.items()
+        if count > 0 and slot != BENCH_SLOT and slot not in FLEX_SLOTS
+    }
+    for slot, accepted in FLEX_SLOTS.items():
+        if roster_slots.get(slot, 0) > 0:
+            positions.update(accepted)
+    return frozenset(positions)
 
 
 def replacement_levels(
@@ -33,9 +49,12 @@ def replacement_levels(
     dedicated = {
         pos: num_teams * count
         for pos, count in roster_slots.items()
-        if pos not in (BENCH_SLOT, FLEX_SLOT)
+        if pos != BENCH_SLOT and pos not in FLEX_SLOTS
     }
-    flex_open = num_teams * roster_slots.get(FLEX_SLOT, 0)
+    flex_open = {
+        slot: num_teams * roster_slots.get(slot, 0)
+        for slot in sorted(FLEX_SLOTS, key=lambda value: (len(FLEX_SLOTS[value]), value))
+    }
 
     pool = sorted(rows, key=lambda r: (-r["points"], r["player_key"]))
     replacement: dict[str, float] = {}
@@ -43,8 +62,11 @@ def replacement_levels(
         pos = r["position"]
         if dedicated.get(pos, 0) > 0:
             dedicated[pos] -= 1
-        elif pos in FLEX_POSITIONS and flex_open > 0:
-            flex_open -= 1
+        elif slot := next(
+            (slot for slot, count in flex_open.items() if count > 0 and pos in FLEX_SLOTS[slot]),
+            None,
+        ):
+            flex_open[slot] -= 1
         elif pos not in replacement:
             # First unassigned player at this position = best remaining = baseline.
             replacement[pos] = r["points"]

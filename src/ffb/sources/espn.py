@@ -81,12 +81,12 @@ def _season_projection(player: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _translate_stats(espn_stats: dict[str, Any]) -> dict[str, float]:
+def _translate_stats(espn_stats: dict[str, Any], position: str) -> dict[str, float]:
     """Map ESPN numeric stat ids to our stat keys; drop unmapped ids."""
     out: dict[str, float] = {}
     for raw_id, value in espn_stats.items():
         key = config.ESPN_STAT_MAP.get(int(raw_id))
-        if key is not None and value is not None:
+        if key is not None and value is not None and (key != "def_ret_td" or position == "DEF"):
             out[key] = out.get(key, 0.0) + float(value)
     return out
 
@@ -127,7 +127,7 @@ def parse_projections(
                 log.debug("skip ESPN row with no projection stats: %s", native_id)
                 continue
             native_id = str(native_id)
-            stats = _translate_stats(espn_stats)
+            stats = _translate_stats(espn_stats, position)
             if not stats:
                 # Nothing scorable decoded. Skip rather than emit a 0-point row,
                 # which would incorrectly dilute a cross-source consensus.

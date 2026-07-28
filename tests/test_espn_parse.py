@@ -59,7 +59,7 @@ def test_decodes_real_kicker_projection(raw):
         round(sum(value for key, value in tucker["stats"].items() if key.startswith("fgm_"))) == 29
     )
     assert round(tucker["stats"]["xpm"]) == 43
-    assert ppr_points(tucker["stats"], LEAGUE_SCORING) > 0
+    assert ppr_points(tucker["stats"], LEAGUE_SCORING) == 0.0
 
 
 def test_decodes_and_normalizes_real_team_defense_projection(raw):
@@ -82,12 +82,31 @@ def test_decodes_and_normalizes_real_team_defense_projection(raw):
             "blk_kick": 1.717854627,
             "safe": 0.214530562,
             "sack": 42.86403207,
-            "def_kr_td": 0.380187564,
-            "pr_td": 0.171,
+            "def_ret_td": 0.551187564,
             "pass_int_td": 0.562739773,
         }
     )
     assert ppr_points(defense["stats"], LEAGUE_SCORING) > 0
+
+
+def test_does_not_assign_team_return_touchdowns_to_offensive_players():
+    raw = [
+        {
+            "id": 1,
+            "fullName": "Kick Returner",
+            "defaultPositionId": 3,
+            "proTeamId": 2,
+            "stats": [
+                {
+                    "statSourceId": 1,
+                    "scoringPeriodId": 0,
+                    "stats": {"101": 1.0, "102": 2.0},
+                }
+            ],
+        }
+    ]
+
+    assert parse_projections(raw, season=2026) == []
 
 
 def test_ignores_actuals_keeps_projection(raw):

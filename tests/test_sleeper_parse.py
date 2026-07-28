@@ -29,6 +29,40 @@ def test_parses_valid_rows(raw):
     assert henry["stats"]["rush_yd"] == 1575.0
 
 
+def test_normalizes_return_touchdowns_only_for_team_defense():
+    raw = [
+        {
+            "player_id": "DEF",
+            "company": "rotowire",
+            "season": "2026",
+            "stats": {"def_kr_td": 1.0, "pr_td": 2.0},
+            "player": {
+                "first_name": "Team",
+                "last_name": "Defense",
+                "position": "DEF",
+                "team": "BUF",
+            },
+        },
+        {
+            "player_id": "WR",
+            "company": "rotowire",
+            "season": "2026",
+            "stats": {"def_kr_td": 1.0, "pr_td": 2.0},
+            "player": {
+                "first_name": "Kick",
+                "last_name": "Returner",
+                "position": "WR",
+                "team": "BUF",
+            },
+        },
+    ]
+
+    rows = {row["native_id"]: row for row in parse_projections(raw)}
+
+    assert rows["DEF"]["stats"] == {"def_ret_td": 3.0}
+    assert rows["WR"]["stats"] == {"def_kr_td": 1.0, "pr_td": 2.0}
+
+
 def test_skips_null_player_rows(raw):
     rows = parse_projections(raw)
     assert all(r["native_id"] != "9999" for r in rows)

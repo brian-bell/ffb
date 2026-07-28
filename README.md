@@ -113,7 +113,7 @@ from FFC's (non-exhaustive) list keeps their bye even without an ADP.
 | `snapshot.py` | on-disk raw-response cache (offline replay) |
 | `store.py` | **the only** module that touches DuckDB |
 | `season_data.py` | explicit sync/status/unmatched application service |
-| `scoring.py` / `config.py` | pure PPR scoring (computed, never stored) |
+| `scoring.py` / `config.py` | pure league scoring (computed, never stored) |
 | `identity.py` | canonical NFL team and DEF/DST identities (pure) |
 | `names.py` | name normalization + `(name, pos)` crosswalk match (pure) |
 | `rankings.py` | single-source ranked list |
