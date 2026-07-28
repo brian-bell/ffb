@@ -48,3 +48,19 @@ def test_attach_vorp_values_including_negative_below_baseline():
     assert rows["r5"]["vorp"] == -10.0  # below the baseline -> negative
     assert rows["w1"]["vorp"] == 30.0  # 95 - 65
     assert rows["q1"]["vorp"] == 50.0  # exhausted position -> baseline 0
+
+
+def test_restrictive_wr_te_flex_is_filled_before_broader_flex():
+    roster = {"W/T": 1, "W/R/T": 1}
+    pool = [
+        _p("w1", "WR", 100.0),
+        _p("r1", "RB", 90.0),
+        _p("t1", "TE", 80.0),
+        _p("w2", "WR", 70.0),
+        _p("r2", "RB", 60.0),
+        _p("t2", "TE", 50.0),
+    ]
+
+    repl = replacement_levels(pool, roster, num_teams=1)
+
+    assert repl == {"TE": 80.0, "WR": 70.0, "RB": 60.0}

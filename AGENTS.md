@@ -77,7 +77,7 @@ src/ffb/
   snapshot.py       # explicit missing-only/refresh/offline cache + SHA/time metadata
   season_data.py    # sync/status/unmatched application service
   store.py          # THE ONLY module that imports duckdb
-  scoring.py        # pure PPR scoring (no I/O)
+  scoring.py        # pure configurable league scoring (no I/O)
   identity.py       # canonical NFL team + DEF/DST identity helpers (pure)
   names.py          # normalize_name + (name, pos) crosswalk match, team tiebreak (pure)
   rankings.py       # single-source ranked list (pure compute over store)
@@ -193,8 +193,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   parsing ~272 games is trivial and `TEAM_ALIASES` tuning lands without `--refresh`).
 - **league.py / league_context.py** — `FixtureLeagueSource` validates the closed
   provider-neutral `LeagueBundle` v1 before any write; `load_league_context`
-  independently substitutes complete mock scoring/roster settings, while always
-  using a valid stored team count. Live Yahoo/YFPY remains Task 2b.
+  independently substitutes complete synchronized scoring/roster settings,
+  falling back to the hand-confirmed 10-team Yahoo scoring and roster config.
+  Live Yahoo/YFPY remains Task 2b.
 - **consensus.py** — groups the requested sources by `player_key`, scores each
   source's stat line, and averages the points; carries `n` (source count). The
   `sources` argument restricts which sources contribute, so output depends on the
@@ -208,7 +209,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   position at its largest point drops; `board` left-joins ADP onto consensus,
   appends matched ADP-only rows, joins schedule byes by canonical team
   (independent of ADP; the FFC `bye` is only a fallback), computes VORP + tiers,
-  ranks, and serializes to the `board.json` contract / md / csv.
+  excludes standard positions with no eligible league roster slot, ranks, and
+  serializes to the `board.json` contract / md / csv.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
   `snapshot_key`. No plugin abstraction yet; projection, ADP, and schedule sources.
 
@@ -315,9 +317,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   normalizes `PK→K` + aliases team codes (`SF→SFO`, via `config.TEAM_ALIASES`)
   so the name matcher's team tiebreak compares like with like. We pull one
   format/teams combo: `config.FFC_FORMAT` plus the stored league team count
-  (falling back to `LEAGUE_NUM_TEAMS`). A league-size change makes existing FFC
-  state stale until `ffb season sync SEASON --source ffc` loads the matching
-  snapshot; scoring format remains the configured `ppr`.
+  (falling back to `LEAGUE_NUM_TEAMS`). A league-size or FFC-format change makes
+  existing FFC state stale until `ffb season sync SEASON --source ffc` loads the
+  matching snapshot; the confirmed fallback format is `half-ppr`.
 - **nflverse schedule team codes differ from MFL-style codes.** Schedules label
   teams `KC`/`SF`/`LA` etc.; `parse_byes` routes every code through
   `identity.canonical_team` (`TEAM_ALIASES` carries `LA -> LAR` for this source).

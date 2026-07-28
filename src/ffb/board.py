@@ -6,10 +6,10 @@ contained ``board.json`` contract (§3g) plus markdown/CSV renderings.
 
 ``board_rows`` left-joins ADP onto consensus by ``player_key`` (a projection
 with no ADP keeps ``adp=None``), appends ADP-only rows that have no consensus
-counterpart (rankable by ADP with ``points=None``), excludes unmatched rows,
-computes VORP over the rows that have points, tiers per position, sorts by VORP
-desc (ADP-only rows sink to the bottom by ADP), and stamps
-``rank``/``pos_rank``/``adp_rank``.
+counterpart (rankable by ADP with ``points=None``), excludes unmatched rows and
+standard positions the league cannot roster, computes VORP over the rows that
+have points, tiers per position, sorts by VORP desc (ADP-only rows sink to the
+bottom by ADP), and stamps ``rank``/``pos_rank``/``adp_rank``.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 
 from ffb import config, identity
 from ffb.tiers import assign_tiers
-from ffb.vorp import attach_vorp
+from ffb.vorp import attach_vorp, eligible_positions
 
 BOARD_VERSION = 1
 
@@ -67,8 +67,19 @@ def board_rows(
     lose their bye with their ADP). The schedule bye wins; a row's FFC ``bye``
     is only a fallback when the schedule has no entry for that team.
     """
-    consensus = [row for row in consensus if row["matched"]]
-    adp = [row for row in adp if row["matched"]]
+    roster_positions = eligible_positions(roster_slots)
+    consensus = [
+        row
+        for row in consensus
+        if row["matched"]
+        and (row["position"] not in config.FANTASY_POSITIONS or row["position"] in roster_positions)
+    ]
+    adp = [
+        row
+        for row in adp
+        if row["matched"]
+        and (row["position"] not in config.FANTASY_POSITIONS or row["position"] in roster_positions)
+    ]
     adp_by_key = {r["player_key"]: r for r in adp}
     bye_by_team = {b["team"]: b["bye"] for b in byes}
 

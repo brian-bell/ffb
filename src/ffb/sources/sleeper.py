@@ -28,6 +28,16 @@ BASE_URL = "https://api.sleeper.com/projections/nfl"
 USER_AGENT = "ffb/0.1 (personal use)"
 
 
+def _normalize_stats(raw_stats: dict[str, Any], position: str) -> dict[str, Any]:
+    stats = dict(raw_stats)
+    if position != "DEF":
+        return stats
+    return_td = sum(float(stats.pop(key, 0.0) or 0.0) for key in ("def_kr_td", "pr_td"))
+    if return_td:
+        stats["def_ret_td"] = stats.get("def_ret_td", 0.0) + return_td
+    return stats
+
+
 def snapshot_key(season: int) -> str:
     return f"sleeper/projections_nfl_{season}_regular"
 
@@ -102,7 +112,7 @@ def parse_projections(
                 continue
             seen.add(player_id)
 
-            stats = item.get("stats") or {}
+            stats = _normalize_stats(item.get("stats") or {}, position)
             full_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
             rows.append(
                 {

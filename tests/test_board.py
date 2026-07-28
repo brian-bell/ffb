@@ -4,7 +4,7 @@ import json
 
 from ffb.board import board_rows, to_board_json, to_csv, to_markdown
 
-ROSTER = {"RB": 1, "WR": 1, "BN": 1}
+ROSTER = {"QB": 1, "RB": 1, "WR": 1, "K": 1, "DEF": 1, "BN": 1}
 NUM_TEAMS = 1
 TIER_COUNT = {"RB": 2, "WR": 2, "DEF": 1}
 POOLS = {"RB": 10, "WR": 10, "DEF": 10}
@@ -72,6 +72,24 @@ def test_board_joins_adp_and_leaves_missing_adp_null():
 def test_board_excludes_unmatched_adp_only_rows():
     rows = {r["key"]: r for r in _board()}
     assert "ffc:def" not in rows
+
+
+def test_board_excludes_positions_with_no_eligible_roster_slot():
+    consensus = [
+        _consensus("r1", "Big Back", "RB", "SFO", 100.0),
+        _consensus("k1", "Unused Kicker", "K", "SFO", 90.0),
+    ]
+
+    board = board_rows(
+        consensus,
+        [],
+        roster_slots={"RB": 1, "BN": 1},
+        num_teams=1,
+        tier_count={"RB": 1, "K": 1},
+        pools={"RB": 10, "K": 10},
+    )
+
+    assert [row["key"] for row in board] == ["r1"]
 
 
 def test_board_sorted_by_vorp_desc_after_excluding_unmatched():
