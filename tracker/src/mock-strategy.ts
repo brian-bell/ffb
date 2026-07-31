@@ -155,5 +155,5 @@ export function strategyForVersion(version: string): OpponentStrategy | null {
 }
 
 export function isVariancePreset(value: unknown): value is VariancePreset {
-  return typeof value === "string" && value in PRESETS;
+  return typeof value === "string" && Object.hasOwn(PRESETS, value);
 }

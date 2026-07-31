@@ -323,6 +323,20 @@ describe("Worker mock draft state", () => {
     });
   });
 
+  it.each(["constructor", "toString", "__proto__"])(
+    "rejects inherited property name %s as a variance preset",
+    async (variancePreset) => {
+      const invalid = await SELF.fetch("https://x/api/mocks", {
+        method: "POST",
+        headers: { ...bearer(KEY), "content-type": "application/json" },
+        body: JSON.stringify({ user_slot: 4, seed: 8042, variance_preset: variancePreset }),
+      });
+
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ error: "invalid_mock" });
+    },
+  );
+
   it("continues an active seeded-market-v0 mock through the version registry", async () => {
     const created = await SELF.fetch("https://x/api/mocks", {
       method: "POST",
