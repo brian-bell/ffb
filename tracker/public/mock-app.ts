@@ -216,12 +216,12 @@ function applyMockState(value: MockState): void {
   }
 }
 
-async function load(): Promise<void> {
+async function load(): Promise<boolean> {
   const current = await api<MockState>("/api/mocks/current");
   if (current.response?.status === 401) {
     keyStore.del();
     setLocked(true, "Invalid API key. Check it and try again.");
-    return;
+    return false;
   }
   if (
     current.response?.ok
@@ -230,26 +230,45 @@ async function load(): Promise<void> {
     && isValidBoard(current.value.board)
   ) {
     applyMockState(current.value);
+    startButton.disabled = false;
     setLocked(false);
     renderState();
-    return;
+    return true;
   }
+  if (!current.response?.ok || !current.value) mock = null;
   const boardResult = await api<unknown>("/api/board");
   if (boardResult.response?.status === 401) {
     keyStore.del();
     setLocked(true, "Invalid API key. Check it and try again.");
-    return;
+    return false;
   }
   if (!boardResult.response?.ok || !isValidBoard(boardResult.value)) {
+    if (current.response?.ok && current.value) {
+      applyMockState(current.value);
+    }
+    if (board && mock?.configured !== true) {
+      renderState();
+      setupError.textContent = "Board unavailable. Publish a supported board and try again.";
+    }
+    startButton.disabled = true;
     setLocked(false);
     list.innerHTML =
       '<div class="notice"><b>Board unavailable.</b>Publish a supported board before starting a mock.</div>';
-    return;
+    return false;
   }
+  const reconciled = current.response?.ok === true && current.value !== null;
+  setupError.textContent = reconciled
+    ? ""
+    : errorMessage(
+      current.value,
+      current.transportError ?? "Unable to reconcile the current mock. Reload and try again.",
+    );
   setupBoard(boardResult.value);
-  mock = current.response?.ok ? current.value : null;
+  if (reconciled) mock = current.value;
+  startButton.disabled = !reconciled;
   setLocked(false);
   renderState();
+  return reconciled;
 }
 
 unlockForm.addEventListener("submit", async (event) => {
@@ -265,6 +284,7 @@ unlockForm.addEventListener("submit", async (event) => {
 
 startForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (writing) return;
   writing = true;
   startButton.disabled = true;
   setupError.textContent = "";
@@ -350,8 +370,8 @@ discard.addEventListener("click", async () => {
     method: "DELETE",
     body: JSON.stringify({ mock_id: mock.mock.id }),
   });
-  writing = false;
   if (!result.response?.ok || !result.value) {
+    writing = false;
     draftError.textContent = errorMessage(
       result.value,
       result.transportError ?? "The mock was not changed.",
@@ -364,7 +384,16 @@ discard.addEventListener("click", async () => {
   selectedKey = null;
   mockView = initialMockView;
   seedInput.value = String(generatedSeed());
-  renderState();
+  if (result.value.configured) {
+    writing = false;
+    renderState();
+  } else {
+    startButton.disabled = true;
+    renderState();
+    await load();
+    writing = false;
+    renderState();
+  }
 });
 
 if (keyStore.get()) {
