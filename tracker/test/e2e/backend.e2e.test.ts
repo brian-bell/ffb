@@ -204,4 +204,55 @@ describe("generated backend contract", () => {
       next: { overall_pick: 1 },
     });
   });
+
+  it("drives an isolated mock across round 1 without changing live state", async () => {
+    const board = (await api.getBoard()).json;
+    expect(board?.num_teams).toBe(2);
+    expect(board?.players.length).toBeGreaterThanOrEqual(4);
+    if (!board) throw new Error("generated board did not decode");
+
+    await api.configureDraft({
+      name: "Live E2E",
+      rounds: 2,
+      teams: [
+        { name: "Brian", is_user: true },
+        { name: "Other", is_user: false },
+      ],
+    });
+    expect((await api.recordBoardPlayer(board.players[0]!.key, 1)).status).toBe(201);
+    const liveBefore = await api.getDraft();
+
+    const created = await api.createMock(1, 8042);
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({
+      revision: 0,
+      picks: [],
+      next: { overall_pick: 1, team_name: "Brian", is_user: true },
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+
+    const advanced = await api.recordMockPlayer(board.players[0]!.key, 0);
+    expect(advanced.status).toBe(201);
+    expect(advanced.json).toMatchObject({
+      revision: 3,
+      picks: [
+        { overall_pick: 1, round: 1, round_pick: 1, source: "user" },
+        { overall_pick: 2, round: 1, round_pick: 2, source: "simulated" },
+        { overall_pick: 3, round: 2, round_pick: 1, source: "simulated" },
+      ],
+      next: {
+        overall_pick: 4,
+        round: 2,
+        round_pick: 2,
+        team_name: "Brian",
+        is_user: true,
+      },
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+
+    const discarded = await api.discardMock();
+    expect(discarded.status).toBe(200);
+    expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+  });
 });

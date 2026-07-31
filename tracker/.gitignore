@@ -1,8 +1,10 @@
 node_modules/
 .wrangler/
 dist/
-# Built client bundle (generated from public/app.ts by `npm run build:client`).
+# Built client bundles (generated from public/*.ts by `npm run build:client`).
 public/app.js
 public/app.js.map
+public/mock-app.js
+public/mock-app.js.map
 # Local wrangler secrets / vars, if ever used.
 .dev.vars

@@ -2,9 +2,26 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { BOARD_KEY } from "../src/board";
 import fixtureJson from "./fixtures/board.json";
+import type { Board } from "../src/types";
 
 const KEY = "test-secret-key"; // matches vitest.config.ts miniflare binding
 const fixtureText = JSON.stringify(fixtureJson);
+const mockFixture = {
+  ...fixtureJson,
+  players: [
+    ...fixtureJson.players,
+    ...Array.from({ length: 8 }, (_, index) => ({
+      ...fixtureJson.players[0],
+      key: `mock-extra-${index}`,
+      name: `Mock Extra ${index}`,
+      rank: fixtureJson.players.length + index + 1,
+      pos_rank: index + 10,
+      adp: 140 + index,
+      adp_rank: fixtureJson.players.length + index + 1,
+    })),
+  ],
+} as Board;
+const mockFixtureText = JSON.stringify(mockFixture);
 
 function bearer(key: string): HeadersInit {
   return { Authorization: `Bearer ${key}` };
@@ -194,6 +211,337 @@ describe("Worker draft state", () => {
   });
 });
 
+describe("Worker mock draft state", () => {
+  beforeEach(async () => {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM mock_picks"),
+      env.DB.prepare("DELETE FROM mock_teams"),
+      env.DB.prepare("DELETE FROM mock_drafts"),
+      env.DB.prepare("DELETE FROM mock_boards"),
+      env.DB.prepare("DELETE FROM picks WHERE draft_id = 1"),
+      env.DB.prepare("DELETE FROM teams WHERE draft_id = 1"),
+      env.DB.prepare("DELETE FROM drafts WHERE id = 1"),
+    ]);
+    await env.BOARD.put(BOARD_KEY, mockFixtureText);
+  });
+
+  it("requires auth and creates a seeded mock from the published league shape", async () => {
+    expect(
+      (await SELF.fetch("https://x/api/mocks/current")).status,
+    ).toBe(401);
+
+    const absent = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(absent.status).toBe(200);
+    expect(await absent.json()).toEqual({
+      configured: false,
+      picks: [],
+      revision: 0,
+    });
+
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      configured: true,
+      mock: {
+        seed: 8042,
+        strategy_version: "seeded-market-v0",
+        user_slot: 4,
+        team_count: 12,
+        rounds: 15,
+      },
+      picks: [
+        { overall_pick: 1, draft_slot: 0, source: "simulated" },
+        { overall_pick: 2, draft_slot: 1, source: "simulated" },
+        { overall_pick: 3, draft_slot: 2, source: "simulated" },
+      ],
+      next: {
+        overall_pick: 4,
+        round: 1,
+        round_pick: 4,
+        team_name: "Brian",
+        is_user: true,
+      },
+      revision: 3,
+    });
+  });
+
+  it("atomically records Brian's pick plus CPU turns and rejects a stale replay", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    const initial = (await created.json()) as {
+      picks: Array<{ player_key: string }>;
+      revision: number;
+    };
+    const pickedKeys = new Set(initial.picks.map((pick) => pick.player_key));
+    const selected = mockFixture.players.find((player) => !pickedKeys.has(player.key))!;
+
+    const advanced = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: selected.key,
+        expected_revision: initial.revision,
+      }),
+    });
+    expect(advanced.status).toBe(201);
+    const advancedState = (await advanced.json()) as {
+      revision: number;
+      appended_picks: Array<Record<string, unknown>>;
+      next: Record<string, unknown>;
+    };
+    expect(advancedState).toMatchObject({
+      revision: 20,
+      next: {
+        overall_pick: 21,
+        round: 2,
+        round_pick: 9,
+        team_name: "Brian",
+        is_user: true,
+      },
+    });
+    expect(advancedState.appended_picks).toHaveLength(17);
+    expect(advancedState.appended_picks[0]).toMatchObject({
+      overall_pick: 4,
+      draft_slot: 3,
+      player_key: selected.key,
+      source: "user",
+    });
+    expect(advancedState.appended_picks.at(-1)).toMatchObject({
+      overall_pick: 20,
+      source: "simulated",
+    });
+
+    const stale = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: mockFixture.players.at(-1)!.key,
+        expected_revision: initial.revision,
+      }),
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ error: "stale_mock" });
+  });
+
+  it("preserves the exact live draft response through create, advance, and discard", async () => {
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Live League",
+        rounds: 2,
+        teams: [
+          { name: "Brian", is_user: true },
+          { name: "Other", is_user: false },
+        ],
+      }),
+    });
+    await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: mockFixture.players[0]!.key,
+        expected_overall_pick: 1,
+      }),
+    });
+    const liveBefore = await (
+      await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+    ).text();
+
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 8042 }),
+    });
+    expect(created.status).toBe(201);
+    expect(
+      await (
+        await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+      ).text(),
+    ).toBe(liveBefore);
+
+    const createdState = (await created.json()) as {
+      revision: number;
+      picks: Array<{ player_key: string }>;
+    };
+    const mockPicked = new Set(createdState.picks.map((pick) => pick.player_key));
+    const selected = mockFixture.players.find(
+      (player) => !mockPicked.has(player.key),
+    )!;
+    const advanced = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: selected.key,
+        expected_revision: createdState.revision,
+      }),
+    });
+    expect(advanced.status).toBe(201);
+    expect(
+      await (
+        await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+      ).text(),
+    ).toBe(liveBefore);
+
+    const discarded = await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: bearer(KEY),
+    });
+    expect(discarded.status).toBe(200);
+    expect(await discarded.json()).toEqual({
+      configured: false,
+      picks: [],
+      revision: 0,
+    });
+    expect(
+      await (
+        await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+      ).text(),
+    ).toBe(liveBefore);
+  });
+
+  it("returns stable player errors and replays the same CPU sequence after discard", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    const initial = (await created.json()) as {
+      picks: Array<{ player_key: string }>;
+      revision: number;
+    };
+    const initialKeys = initial.picks.map((pick) => pick.player_key);
+
+    const conflict = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ error: "mock_active" });
+
+    const unavailable = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: initialKeys[0],
+        expected_revision: initial.revision,
+      }),
+    });
+    expect(unavailable.status).toBe(409);
+    expect(await unavailable.json()).toMatchObject({
+      error: "player_unavailable",
+    });
+
+    const unknown = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: "not-on-snapshot",
+        expected_revision: initial.revision,
+      }),
+    });
+    expect(unknown.status).toBe(422);
+    expect(await unknown.json()).toMatchObject({ error: "unknown_player" });
+
+    await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: bearer(KEY),
+    });
+    const replay = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    const replayState = (await replay.json()) as {
+      picks: Array<{ player_key: string }>;
+    };
+    expect(replayState.picks.map((pick) => pick.player_key)).toEqual(initialKeys);
+  });
+
+  it("accepts exactly one concurrent transition for a displayed mock revision", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    const initial = (await created.json()) as {
+      picks: Array<{ player_key: string }>;
+      revision: number;
+    };
+    const picked = new Set(initial.picks.map((pick) => pick.player_key));
+    const candidates = mockFixture.players
+      .filter((player) => !picked.has(player.key))
+      .slice(0, 2);
+
+    const responses = await Promise.all(
+      candidates.map((player) =>
+        SELF.fetch("https://x/api/mocks/current/picks", {
+          method: "POST",
+          headers: { ...bearer(KEY), "content-type": "application/json" },
+          body: JSON.stringify({
+            player_key: player.key,
+            expected_revision: initial.revision,
+          }),
+        }),
+      ),
+    );
+
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      201,
+      409,
+    ]);
+    const current = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(await current.json()).toMatchObject({
+      revision: 20,
+      next: { overall_pick: 21, team_name: "Brian" },
+    });
+  });
+
+  it("continues from the immutable board snapshot after a board republish", async () => {
+    const original = mockFixture.players[0]!;
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 8042 }),
+    });
+    expect(created.status).toBe(201);
+    const republished = structuredClone(mockFixture);
+    republished.players[0]!.name = `${original.name} republished`;
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(republished));
+
+    const advanced = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        player_key: original.key,
+        expected_revision: 0,
+      }),
+    });
+    expect(advanced.status).toBe(201);
+    const advancedState = (await advanced.json()) as {
+      picks: Array<Record<string, unknown>>;
+    };
+    expect(advancedState.picks[0]).toMatchObject({
+      overall_pick: 1,
+      player_key: original.key,
+      player_name: original.name,
+      source: "user",
+    });
+  });
+});
+
 describe("Worker static shell", () => {
   it("serves the HTML shell publicly at /", async () => {
     const res = await SELF.fetch("https://x/");
@@ -206,5 +554,20 @@ describe("Worker static shell", () => {
   it("404s an unknown /api path", async () => {
     const res = await SELF.fetch("https://x/api/nope", { headers: bearer(KEY) });
     expect(res.status).toBe(404);
+  });
+
+  it("serves the distinct mock shell publicly and never falls through for its API", async () => {
+    const shell = await SELF.fetch("https://x/mock");
+    expect(shell.status).toBe(200);
+    const body = await shell.text();
+    expect(body).toContain("DRAFTMOCK");
+    expect(body).toContain("ISOLATED MODE");
+    expect(body).toContain("Mock picks only");
+
+    const api = await SELF.fetch("https://x/api/mocks/not-a-route", {
+      headers: bearer(KEY),
+    });
+    expect(api.status).toBe(404);
+    expect(api.headers.get("content-type")).toContain("application/json");
   });
 });

@@ -23,7 +23,7 @@ def test_primer_populates_every_production_snapshot_key(tmp_path: Path) -> None:
     expected_keys = (
         sleeper.snapshot_key(2024),
         espn.snapshot_key(2024),
-        ffc.snapshot_key(2024, teams=1, fmt=config.FFC_FORMAT),
+        ffc.snapshot_key(2024, teams=2, fmt=config.FFC_FORMAT),
         crosswalk.snapshot_key(),
         schedule.snapshot_key(2024),
     )

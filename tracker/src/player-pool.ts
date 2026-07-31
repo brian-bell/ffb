@@ -16,6 +16,7 @@ export interface PlayerPoolPick {
 
 export interface PlayerPool {
   readonly picked: ReadonlyMap<string, PickAnnotation>;
+  readonly available: readonly Player[];
   search(query: string): Player[];
 }
 
@@ -46,6 +47,7 @@ export function buildPlayerPool(players: Player[], picks: readonly PlayerPoolPic
   const playerSearch = buildPlayerSearch(available);
   return {
     picked,
+    available,
     search: (query) => playerSearch.search(query),
   };
 }

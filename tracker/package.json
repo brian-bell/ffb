@@ -5,7 +5,7 @@
   "description": "Draft-tracker web app (Cloudflare Worker) consuming ffb board.json v1",
   "type": "module",
   "scripts": {
-    "build:client": "esbuild public/app.ts --bundle --format=iife --target=es2022 --outfile=public/app.js",
+    "build:client": "esbuild public/app.ts public/mock-app.ts --bundle --format=iife --target=es2022 --outdir=public --entry-names=[name]",
     "bench:search": "vitest bench --config vitest.bench.config.ts player-pool --run",
     "dev": "npm run build:client && wrangler dev",
     "deploy": "npm run build:client && wrangler deploy",
