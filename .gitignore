@@ -18,3 +18,4 @@ docs/plans/
 # Cheat-sheet exports (board.json + md/csv), rebuilt by `ffb cheatsheet --export`
 /exports/
 
+.lavish/
