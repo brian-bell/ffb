@@ -63,6 +63,12 @@ const yahooBoard = {
   })),
 } as Board;
 
+const yahooSimulationBatches = (["calm", "realistic", "wild"] as const).flatMap(
+  (preset) => [0, 10, 20, 30].map(
+    (seedStart) => [preset, seedStart, seedStart + 10] as const,
+  ),
+);
+
 function completeYahooMock(preset: VariancePreset, seed: number, userSlot: number): MockAggregate {
   let aggregate = startMock(
     yahooBoard,
@@ -293,11 +299,11 @@ describe("mock draft", () => {
     expect(aggregate.rng_state).toBe(1);
   });
 
-  it.each(["calm", "realistic", "wild"] as const)(
-    "completes 40 legal %s Yahoo-shaped drafts and exactly replays seed zero",
-    (preset) => {
+  it.each(yahooSimulationBatches)(
+    "completes 10 legal %s Yahoo-shaped drafts for seeds %i-%i",
+    (preset, seedStart, seedEnd) => {
       let representative: string[] | null = null;
-      for (let seed = 0; seed < 40; seed += 1) {
+      for (let seed = seedStart; seed < seedEnd; seed += 1) {
         const userSlot = [1, 5, 10][seed % 3]!;
         const completed = completeYahooMock(preset, seed, userSlot);
         expect(completed.picks).toHaveLength(160);
@@ -318,8 +324,10 @@ describe("mock draft", () => {
         }
         if (seed === 0) representative = completed.picks.map((pick) => pick.player_key);
       }
-      expect(completeYahooMock(preset, 0, 1).picks.map((pick) => pick.player_key))
-        .toEqual(representative);
+      if (seedStart === 0) {
+        expect(completeYahooMock(preset, 0, 1).picks.map((pick) => pick.player_key))
+          .toEqual(representative);
+      }
     },
     120_000,
   );
