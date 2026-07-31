@@ -293,8 +293,18 @@ export async function discardCurrentMock(
     .first<{ id: string }>();
   if (current?.id !== mockId) return "stale_mock";
   const results = await db.batch([
-    db.prepare("DELETE FROM mock_picks WHERE mock_id = ?").bind(mockId),
-    db.prepare("DELETE FROM mock_teams WHERE mock_id = ?").bind(mockId),
+    db.prepare(
+      `DELETE FROM mock_picks
+        WHERE mock_id = ?
+           OR mock_id IN (SELECT id FROM mock_drafts WHERE status = 'complete')`,
+    ).bind(mockId),
+    db.prepare(
+      `DELETE FROM mock_teams
+        WHERE mock_id = ?
+           OR mock_id IN (SELECT id FROM mock_drafts WHERE status = 'complete')`,
+    ).bind(mockId),
+    db.prepare("DELETE FROM mock_drafts WHERE status = 'complete' AND id <> ?")
+      .bind(mockId),
     db.prepare("DELETE FROM mock_drafts WHERE id = ?").bind(mockId),
   ]);
   return results.at(-1)?.meta.changes === 1 ? "ok" : "stale_mock";

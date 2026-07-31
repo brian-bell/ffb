@@ -22,3 +22,15 @@ export function nextMockView(state: MockViewState, event: MockViewEvent): MockVi
       return { ...state, visibleLimit: state.visibleLimit + LIST_CHUNK };
   }
 }
+
+export function reconcileMockSelection(
+  selectedKey: string | null,
+  previousMockId: string | null,
+  nextMockId: string | null,
+  availablePlayers: readonly { key: string }[],
+): string | null {
+  if (selectedKey === null || previousMockId !== nextMockId) return null;
+  return availablePlayers.some((player) => player.key === selectedKey)
+    ? selectedKey
+    : null;
+}

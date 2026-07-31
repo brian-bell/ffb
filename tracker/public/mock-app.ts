@@ -1,6 +1,10 @@
 import { isValidBoard } from "../src/board";
 import type { MockState } from "../src/mock-draft";
-import { initialMockView, nextMockView } from "../src/mock-view";
+import {
+  initialMockView,
+  nextMockView,
+  reconcileMockSelection,
+} from "../src/mock-view";
 import { buildPlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
@@ -114,7 +118,9 @@ function availablePool() {
 }
 
 function selectedPlayer(): Player | null {
-  return board?.players.find((player) => player.key === selectedKey) ?? null;
+  return (
+    availablePool().available.find((player) => player.key === selectedKey) ?? null
+  );
 }
 
 function renderTabs(): void {
@@ -264,9 +270,18 @@ function errorMessage(value: unknown, fallback: string): string {
 }
 
 function applyMockState(value: MockState): void {
+  const previousMockId = mock?.mock?.id ?? null;
   mock = value;
   if (value.configured && value.board && isValidBoard(value.board)) {
+    selectedKey = reconcileMockSelection(
+      selectedKey,
+      previousMockId,
+      value.mock?.id ?? null,
+      buildPlayerPool(value.board.players, value.picks).available,
+    );
     setupBoard(value.board);
+  } else {
+    selectedKey = null;
   }
 }
 

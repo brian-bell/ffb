@@ -117,6 +117,45 @@ describe("mock store", () => {
     });
   });
 
+  it("returns to setup after discarding a replacement for a completed mock", async () => {
+    const shortBoard = { ...board, num_teams: 2, roster_slots: { RB: 1 } };
+    const completed = startMock(
+      shortBoard,
+      { user_slot: 1, seed: 8042 },
+      seededMarketStrategy,
+    );
+    await insertMock(env.DB, completed, {
+      id: "mock-completed",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+    const transition = recordUserPick(
+      completed,
+      shortBoard,
+      shortBoard.players[0]!.key,
+      seededMarketStrategy,
+    );
+    expect(
+      await appendMockTransition(env.DB, "mock-completed", 0, transition),
+    ).toBe("ok");
+
+    const replacement = startMock(
+      shortBoard,
+      { user_slot: 1, seed: 9 },
+      seededMarketStrategy,
+    );
+    await insertMock(env.DB, replacement, {
+      id: "mock-replacement",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+
+    expect(await discardCurrentMock(env.DB, "mock-replacement")).toBe("ok");
+    expect(await loadCurrentMock(env.DB)).toBeNull();
+  });
+
   it("explicitly discards mock rows while retaining the deduplicated board snapshot", async () => {
     const aggregate = startMock(board, { user_slot: 1, seed: 7 }, seededMarketStrategy);
     await insertMock(env.DB, aggregate, {
