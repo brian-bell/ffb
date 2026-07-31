@@ -177,9 +177,24 @@ then teams, then configuration) but deliberately leaves the published board in
 KV untouched. The other state routes are `GET`/`PUT /api/draft`, `POST /api/picks`,
 and `DELETE /api/picks/latest`.
 
+The separate `/mock` screen runs an isolated roster-aware rehearsal from an
+immutable snapshot of the published board. Team count and rounds come from that
+snapshot's `num_teams` and `roster_slots`; the Worker never substitutes tracker
+defaults. Choose Brian's slot, a reproducible unsigned seed, and Calm, Realistic,
+or Wild opponent variance. New mocks use the versioned `market-need-v1` strategy,
+which combines market order, open starter needs, tier value, specialist timing,
+and seeded variance. Existing `seeded-market-v0` mocks remain resumable.
+
+Every user and CPU pick passes exact dedicated/flex/bench roster matching plus a
+league-wide completion check, so an accepted pick cannot consume supply another
+team needs to finish. Mock boards, configuration, teams, RNG state, and immutable
+pick snapshots live in separate D1 tables and never mutate the live draft. The
+same board snapshot, strategy version, preset, seed, and ordered user decisions
+replay the same 160-pick Yahoo-shaped draft, including seed zero.
+
 The write API retains validated `manual_player` snapshots for compatibility when
 a Yahoo pick is absent from the board, although the current client intentionally
-offers only board-row selection. Before a live mock, use a fresh local draft and
+offers only board-row selection. Before draft day, use a fresh local draft and
 verify row selection, search replacement/restoration, record, undo, and reset.
 
 ```sh

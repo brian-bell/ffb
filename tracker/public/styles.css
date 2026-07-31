@@ -754,7 +754,7 @@ body {
 .mock-active { flex: none; background: var(--dr-chrome); }
 .mock-status {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 1px;
   border-bottom: 1px solid var(--dr-line);
   background: var(--dr-line);

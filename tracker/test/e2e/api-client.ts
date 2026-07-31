@@ -1,6 +1,7 @@
 import { SELF } from "cloudflare:test";
 import type { DraftConfigInput, DraftState } from "../../src/draft-store";
 import type { MockState } from "../../src/mock-draft";
+import type { VariancePreset } from "../../src/mock-strategy";
 import type { Board } from "../../src/types";
 
 const API_ORIGIN = "https://e2e.test";
@@ -42,10 +43,14 @@ export const api = {
     }),
   resetDraft: () => request<DraftState>("/api/draft", { method: "DELETE" }),
   getCurrentMock: () => request<MockState>("/api/mocks/current"),
-  createMock: (userSlot: number, seed: number) =>
+  createMock: (userSlot: number, seed: number, variancePreset: VariancePreset = "realistic") =>
     request<MockState>("/api/mocks", {
       method: "POST",
-      body: JSON.stringify({ user_slot: userSlot, seed }),
+      body: JSON.stringify({
+        user_slot: userSlot,
+        seed,
+        variance_preset: variancePreset,
+      }),
     }),
   recordMockPlayer: (mockId: string, playerKey: string, expectedRevision: number) =>
     request<MockState>("/api/mocks/current/picks", {

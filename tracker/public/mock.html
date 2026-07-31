@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f15" />
 <title>Draft Mock</title>
-<link rel="stylesheet" href="/styles.css" />
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 <div class="screen mock-screen locked" data-screen>
@@ -36,6 +36,13 @@
       <label class="field">Seed
         <input data-seed type="number" min="0" max="4294967295" step="1" required />
       </label>
+      <label class="field">Opponent variance
+        <select data-variance-preset>
+          <option value="calm">Calm</option>
+          <option value="realistic" selected>Realistic</option>
+          <option value="wild">Wild</option>
+        </select>
+      </label>
       <p class="mock-error" data-error aria-live="polite"></p>
       <button class="mock-primary" type="submit" data-start>Start seeded mock</button>
     </form>
@@ -44,6 +51,7 @@
   <section class="mock-active" data-mock-active hidden>
     <div class="mock-status">
       <div><span>Seed</span><b data-status-seed>—</b></div>
+      <div><span>Variance</span><b data-status-variance>—</b></div>
       <div><span>Slot</span><b data-status-slot>—</b></div>
       <div><span>Round</span><b data-status-round>—</b></div>
       <div><span>Overall</span><b data-status-overall>—</b></div>
@@ -89,6 +97,6 @@
     </form>
   </div>
 </div>
-<script src="/mock-app.js" defer></script>
+<script src="mock-app.js" defer></script>
 </body>
 </html>

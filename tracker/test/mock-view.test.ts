@@ -40,4 +40,5 @@ describe("mock player list view", () => {
       ]),
     ).toBe("available");
   });
+
 });

@@ -216,10 +216,12 @@ describe("generated backend contract", () => {
       ...board,
       players: [
         ...board.players,
-        ...Array.from({ length: mockCapacity - board.players.length }, (_, index) => ({
+        ...Array.from({ length: mockCapacity }, (_, index) => ({
           ...board.players[0]!,
           key: `e2e-mock-extra-${index}`,
           name: `E2E Mock Extra ${index}`,
+          pos: ["QB", "RB", "WR", "TE", "K", "DEF"][index % 6],
+          team: `T${index}`,
           rank: board.players.length + index + 1,
           pos_rank: board.players.length + index + 1,
         })),
@@ -241,6 +243,7 @@ describe("generated backend contract", () => {
     const created = await api.createMock(1, 8042);
     expect(created.status).toBe(201);
     expect(created.json).toMatchObject({
+      mock: { strategy_version: "market-need-v1", variance_preset: "realistic" },
       revision: 0,
       picks: [],
       next: { overall_pick: 1, team_name: "Brian", is_user: true },

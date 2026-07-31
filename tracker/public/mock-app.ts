@@ -5,6 +5,12 @@ import {
   nextMockView,
   reconcileMockSelection,
 } from "../src/mock-view";
+import {
+  mockErrorMessage,
+  readMockSetupControls,
+  renderMockError,
+  renderVariancePreset,
+} from "../src/mock-ui";
 import { buildPlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
@@ -27,6 +33,7 @@ const activePanel = element<HTMLElement>("[data-mock-active]");
 const startForm = element<HTMLFormElement>("[data-start-form]");
 const slotInput = element<HTMLElement>("[data-user-slot]") as unknown as HTMLSelectElement;
 const seedInput = element<HTMLInputElement>("[data-seed]");
+const varianceInput = element<HTMLElement>("[data-variance-preset]") as unknown as HTMLSelectElement;
 const startButton = element<HTMLButtonElement>("[data-start]");
 const setupError = element<HTMLElement>("[data-error]");
 const tabs = element<HTMLElement>("[data-tabs]");
@@ -44,6 +51,7 @@ const teamCount = element<HTMLElement>("[data-team-count]");
 const rounds = element<HTMLElement>("[data-rounds]");
 const scoring = element<HTMLElement>("[data-scoring]");
 const statusSeed = element<HTMLElement>("[data-status-seed]");
+const statusVariance = element<HTMLElement>("[data-status-variance]");
 const statusSlot = element<HTMLElement>("[data-status-slot]");
 const statusRound = element<HTMLElement>("[data-status-round]");
 const statusOverall = element<HTMLElement>("[data-status-overall]");
@@ -174,6 +182,7 @@ function renderState(): void {
 
   const next = mock.next ?? null;
   statusSeed.textContent = String(mock.mock.seed);
+  renderVariancePreset(statusVariance, mock.mock.variance_preset);
   statusSlot.textContent = String(mock.mock.user_slot);
   statusRound.textContent = next ? String(next.round) : "Done";
   statusOverall.textContent = next ? String(next.overall_pick) : "Done";
@@ -212,6 +221,7 @@ function renderBoardRecovery(value: MockState): void {
   rounds.textContent = String(value.mock.rounds);
   scoring.textContent = "Unavailable";
   statusSeed.textContent = String(value.mock.seed);
+  renderVariancePreset(statusVariance, value.mock.variance_preset);
   statusSlot.textContent = String(value.mock.user_slot);
   statusRound.textContent = next ? String(next.round) : "Done";
   statusOverall.textContent = next ? String(next.overall_pick) : "Done";
@@ -259,14 +269,6 @@ function setupBoard(value: Board): void {
     }),
   );
   if (!seedInput.value) seedInput.value = String(generatedSeed());
-}
-
-function errorMessage(value: unknown, fallback: string): string {
-  if (value && typeof value === "object" && "message" in value) {
-    const message = (value as { message?: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return fallback;
 }
 
 function applyMockState(value: MockState): void {
@@ -339,7 +341,7 @@ async function load(): Promise<boolean> {
   const reconciled = current.response?.ok === true && current.value !== null;
   setupError.textContent = reconciled
     ? ""
-    : errorMessage(
+    : mockErrorMessage(
       current.value,
       current.transportError ?? "Unable to reconcile the current mock. Reload and try again.",
     );
@@ -370,15 +372,13 @@ startForm.addEventListener("submit", async (event) => {
   setupError.textContent = "";
   const result = await api<MockState>("/api/mocks", {
     method: "POST",
-    body: JSON.stringify({
-      user_slot: Number(slotInput.value),
-      seed: Number(seedInput.value),
-    }),
+    body: JSON.stringify(readMockSetupControls(slotInput, seedInput, varianceInput)),
   });
   writing = false;
   startButton.disabled = false;
   if (!result.response?.ok || !result.value) {
-    setupError.textContent = errorMessage(
+    renderMockError(
+      setupError,
       result.value,
       result.transportError ?? "The mock was not changed.",
     );
@@ -429,7 +429,8 @@ draftPlayer.addEventListener("click", async () => {
   });
   writing = false;
   if (!result.response?.ok || !result.value) {
-    draftError.textContent = errorMessage(
+    renderMockError(
+      draftError,
       result.value,
       result.transportError ?? "The mock was not changed.",
     );
@@ -453,7 +454,7 @@ discard.addEventListener("click", async () => {
   });
   if (!result.response?.ok || !result.value) {
     writing = false;
-    const message = errorMessage(
+    const message = mockErrorMessage(
       result.value,
       result.transportError ?? "The mock was not changed.",
     );
