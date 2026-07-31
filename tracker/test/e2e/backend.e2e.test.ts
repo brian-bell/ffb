@@ -210,6 +210,22 @@ describe("generated backend contract", () => {
     expect(board?.num_teams).toBe(2);
     expect(board?.players.length).toBeGreaterThanOrEqual(4);
     if (!board) throw new Error("generated board did not decode");
+    const mockCapacity = board.num_teams * Object.values(board.roster_slots)
+      .reduce((total, count) => total + Math.max(0, count), 0);
+    const mockBoard = {
+      ...board,
+      players: [
+        ...board.players,
+        ...Array.from({ length: mockCapacity - board.players.length }, (_, index) => ({
+          ...board.players[0]!,
+          key: `e2e-mock-extra-${index}`,
+          name: `E2E Mock Extra ${index}`,
+          rank: board.players.length + index + 1,
+          pos_rank: board.players.length + index + 1,
+        })),
+      ],
+    };
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(mockBoard));
 
     await api.configureDraft({
       name: "Live E2E",
@@ -231,7 +247,7 @@ describe("generated backend contract", () => {
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
 
-    const advanced = await api.recordMockPlayer(board.players[0]!.key, 0);
+    const advanced = await api.recordMockPlayer(mockBoard.players[0]!.key, 0);
     expect(advanced.status).toBe(201);
     expect(advanced.json).toMatchObject({
       revision: 3,
@@ -250,7 +266,9 @@ describe("generated backend contract", () => {
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
 
-    const discarded = await api.discardMock();
+    const mockId = created.json?.mock?.id;
+    if (!mockId) throw new Error("created mock did not include an ID");
+    const discarded = await api.discardMock(mockId);
     expect(discarded.status).toBe(200);
     expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });
     expect((await api.getDraft()).body).toBe(liveBefore.body);

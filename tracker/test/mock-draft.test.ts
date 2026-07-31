@@ -9,7 +9,7 @@ const board = {
   ...fixtureJson,
   players: [
     ...fixtureJson.players,
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 12 * 15 - fixtureJson.players.length }, (_, index) => ({
       ...fixtureJson.players[0],
       key: `extra-${index}`,
       name: `Extra Player ${index}`,
@@ -163,6 +163,20 @@ describe("mock draft", () => {
 
     expect(() =>
       startMock(thinBoard, { user_slot: 4, seed: 8042 }, seededMarketStrategy),
+    ).toThrowError(expect.objectContaining({ code: "board_unusable" }));
+  });
+
+  it("rejects a board without enough distinct players to complete every pick", () => {
+    const duplicate = { ...board.players[0], key: "sleeper:duplicate", rank: 2 };
+    const thinBoard = {
+      ...board,
+      num_teams: 2,
+      roster_slots: { RB: 2 },
+      players: [board.players[0], duplicate, board.players[1], board.players[2]],
+    };
+
+    expect(() =>
+      startMock(thinBoard, { user_slot: 1, seed: 8042 }, unusedStrategy),
     ).toThrowError(expect.objectContaining({ code: "board_unusable" }));
   });
 });

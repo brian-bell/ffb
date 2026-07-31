@@ -1,5 +1,6 @@
 import { nextPick, type DraftTeam, type NextPick } from "./draft";
 import type { OpponentStrategy } from "./mock-strategy";
+import { isAvailable } from "./player-identity";
 import { buildPlayerPool, type PlayerPoolPick } from "./player-pool";
 import type { Board } from "./types";
 
@@ -39,6 +40,7 @@ export interface MockAggregate {
 
 export interface MockState {
   configured: boolean;
+  board?: Board;
   mock?: MockInfo;
   teams?: DraftTeam[];
   picks: MockPick[];
@@ -91,6 +93,14 @@ function mockTeams(teamCount: number, userSlot: number): DraftTeam[] {
 
 function validUnsignedSeed(seed: number): boolean {
   return Number.isInteger(seed) && seed >= 0 && seed <= 0xffff_ffff;
+}
+
+function distinctPlayerCount(board: Board): number {
+  const distinct = [];
+  for (const player of board.players) {
+    if (isAvailable(player, distinct)) distinct.push(player);
+  }
+  return distinct.length;
 }
 
 interface AdvanceResult {
@@ -154,11 +164,12 @@ function autoAdvance(
 export function startMock(board: Board, setup: MockSetup, strategy: OpponentStrategy): MockAggregate {
   const teamCount = board.num_teams;
   const rounds = mockRounds(board);
+  const playerCount = distinctPlayerCount(board);
   if (
     !Number.isInteger(teamCount)
     || teamCount < 2
-    || board.players.length === 0
     || rounds < 1
+    || playerCount < teamCount * rounds
   ) {
     throw new MockDomainError("board_unusable", "The board cannot support a mock draft.");
   }

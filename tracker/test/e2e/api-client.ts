@@ -55,6 +55,9 @@ export const api = {
         expected_revision: expectedRevision,
       }),
     }),
-  discardMock: () =>
-    request<MockState>("/api/mocks/current", { method: "DELETE" }),
+  discardMock: (mockId: string) =>
+    request<MockState>("/api/mocks/current", {
+      method: "DELETE",
+      body: JSON.stringify({ mock_id: mockId }),
+    }),
 };

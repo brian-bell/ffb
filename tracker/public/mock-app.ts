@@ -1,7 +1,9 @@
 import { isValidBoard } from "../src/board";
 import type { MockState } from "../src/mock-draft";
+import { initialMockView, nextMockView } from "../src/mock-view";
 import { buildPlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
+import { requestJson } from "../src/request-json";
 import { makeStore } from "../src/state";
 import type { Board, Player } from "../src/types";
 
@@ -55,7 +57,7 @@ const keyStore = makeStore(localStorageOrNull());
 let board: Board | null = null;
 let mock: MockState | null = null;
 let selectedKey: string | null = null;
-let position = "ALL";
+let mockView = initialMockView;
 let writing = false;
 
 function authHeaders(json = false): HeadersInit {
@@ -91,24 +93,14 @@ function setLocked(locked: boolean, message = ""): void {
   if (locked) setTimeout(() => keyInput.focus(), 0);
 }
 
-async function api<T>(path: string, init: RequestInit = {}): Promise<{
-  response: Response;
-  value: T | null;
-}> {
-  const response = await fetch(path, {
+async function api<T>(path: string, init: RequestInit = {}) {
+  return requestJson<T>(fetch, path, {
     ...init,
     headers: {
       ...authHeaders(init.body !== undefined),
       ...init.headers,
     },
   });
-  let value: T | null = null;
-  try {
-    value = (await response.json()) as T;
-  } catch {
-    value = null;
-  }
-  return { response, value };
 }
 
 function availablePool() {
@@ -129,7 +121,7 @@ function renderTabs(): void {
   tabs.innerHTML = positions
     .map(
       (value) =>
-        `<button class="tab" type="button" data-position="${escaped(value)}" aria-selected="${value === position}">${escaped(value)}</button>`,
+        `<button class="tab" type="button" data-position="${escaped(value)}" aria-selected="${value === mockView.position}">${escaped(value)}</button>`,
     )
     .join("");
 }
@@ -188,11 +180,11 @@ function renderState(): void {
   renderTabs();
 
   const pool = availablePool();
-  list.innerHTML = renderBoard(board, position, {
+  list.innerHTML = renderBoard(board, mockView.position, {
     picked: pool.picked,
     selectable: next?.is_user === true && !writing,
     selectedKey,
-    window: { limit: 200 },
+    window: { limit: mockView.visibleLimit },
   });
 }
 
@@ -217,27 +209,45 @@ function errorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
+function applyMockState(value: MockState): void {
+  mock = value;
+  if (value.configured && value.board && isValidBoard(value.board)) {
+    setupBoard(value.board);
+  }
+}
+
 async function load(): Promise<void> {
-  const boardResult = await api<unknown>("/api/board");
-  if (boardResult.response.status === 401) {
+  const current = await api<MockState>("/api/mocks/current");
+  if (current.response?.status === 401) {
     keyStore.del();
     setLocked(true, "Invalid API key. Check it and try again.");
     return;
   }
-  if (!boardResult.response.ok || !isValidBoard(boardResult.value)) {
+  if (
+    current.response?.ok
+    && current.value?.configured
+    && current.value.board
+    && isValidBoard(current.value.board)
+  ) {
+    applyMockState(current.value);
+    setLocked(false);
+    renderState();
+    return;
+  }
+  const boardResult = await api<unknown>("/api/board");
+  if (boardResult.response?.status === 401) {
+    keyStore.del();
+    setLocked(true, "Invalid API key. Check it and try again.");
+    return;
+  }
+  if (!boardResult.response?.ok || !isValidBoard(boardResult.value)) {
     setLocked(false);
     list.innerHTML =
       '<div class="notice"><b>Board unavailable.</b>Publish a supported board before starting a mock.</div>';
     return;
   }
   setupBoard(boardResult.value);
-  const current = await api<MockState>("/api/mocks/current");
-  if (current.response.status === 401) {
-    keyStore.del();
-    setLocked(true, "Invalid API key. Check it and try again.");
-    return;
-  }
-  mock = current.value;
+  mock = current.response?.ok ? current.value : null;
   setLocked(false);
   renderState();
 }
@@ -267,25 +277,37 @@ startForm.addEventListener("submit", async (event) => {
   });
   writing = false;
   startButton.disabled = false;
-  if (!result.response.ok || !result.value) {
-    setupError.textContent = errorMessage(result.value, "The mock was not changed.");
-    if (result.response.status === 409) await load();
+  if (!result.response?.ok || !result.value) {
+    setupError.textContent = errorMessage(
+      result.value,
+      result.transportError ?? "The mock was not changed.",
+    );
+    if (result.response?.status === 409) await load();
     return;
   }
-  mock = result.value;
+  applyMockState(result.value);
   selectedKey = null;
+  mockView = initialMockView;
   renderState();
 });
 
 tabs.addEventListener("click", (event) => {
   const button = (event.target as Element).closest<HTMLButtonElement>("[data-position]");
   if (!button) return;
-  position = button.dataset.position ?? "ALL";
+  mockView = nextMockView(mockView, {
+    type: "selectPosition",
+    position: button.dataset.position ?? "ALL",
+  });
   selectedKey = null;
   renderState();
 });
 
 list.addEventListener("click", (event) => {
+  if ((event.target as Element).closest("[data-load-more]")) {
+    mockView = nextMockView(mockView, { type: "loadMore" });
+    renderState();
+    return;
+  }
   const row = (event.target as Element).closest<HTMLButtonElement>("[data-player-key]");
   if (!row || writing || mock?.next?.is_user !== true) return;
   selectedKey = decodeURIComponent(row.dataset.playerKey ?? "");
@@ -305,30 +327,42 @@ draftPlayer.addEventListener("click", async () => {
     }),
   });
   writing = false;
-  if (!result.response.ok || !result.value) {
-    draftError.textContent = errorMessage(result.value, "The mock was not changed.");
-    if (result.response.status === 409) await load();
+  if (!result.response?.ok || !result.value) {
+    draftError.textContent = errorMessage(
+      result.value,
+      result.transportError ?? "The mock was not changed.",
+    );
+    if (result.response?.status === 409) await load();
     else renderState();
     return;
   }
-  mock = result.value;
+  applyMockState(result.value);
   selectedKey = null;
   renderState();
 });
 
 discard.addEventListener("click", async () => {
+  if (!mock?.mock) return;
   if (!confirm("Discard this mock draft? Your live draft will not be changed.")) return;
   writing = true;
   renderState();
-  const result = await api<MockState>("/api/mocks/current", { method: "DELETE" });
+  const result = await api<MockState>("/api/mocks/current", {
+    method: "DELETE",
+    body: JSON.stringify({ mock_id: mock.mock.id }),
+  });
   writing = false;
-  if (!result.response.ok || !result.value) {
-    draftError.textContent = errorMessage(result.value, "The mock was not changed.");
-    renderState();
+  if (!result.response?.ok || !result.value) {
+    draftError.textContent = errorMessage(
+      result.value,
+      result.transportError ?? "The mock was not changed.",
+    );
+    if (result.response?.status === 409) await load();
+    else renderState();
     return;
   }
-  mock = result.value;
+  applyMockState(result.value);
   selectedKey = null;
+  mockView = initialMockView;
   seedInput.value = String(generatedSeed());
   renderState();
 });

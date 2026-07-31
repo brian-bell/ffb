@@ -71,20 +71,7 @@ function publicState(row: DraftRow, aggregate: MockAggregate): MockState {
   };
 }
 
-export async function loadCurrentMock(db: D1Database): Promise<LoadedMock | null> {
-  const row = await db
-    .prepare(
-      `SELECT d.id, d.board_fingerprint, b.board_json, d.status, d.seed,
-              d.rng_state, d.strategy_version, d.user_slot, d.team_count,
-              d.rounds, d.revision
-         FROM mock_drafts d
-         JOIN mock_boards b ON b.fingerprint = d.board_fingerprint
-        ORDER BY CASE WHEN d.status = 'active' THEN 0 ELSE 1 END, d.updated_at DESC
-        LIMIT 1`,
-    )
-    .first<DraftRow>();
-  if (!row) return null;
-
+async function hydrateMock(db: D1Database, row: DraftRow): Promise<LoadedMock> {
   const teamRows = await db
     .prepare(
       `SELECT draft_slot, name, is_user
@@ -133,6 +120,34 @@ export async function loadCurrentMock(db: D1Database): Promise<LoadedMock | null
     aggregate,
     state: publicState(row, aggregate),
   };
+}
+
+const MOCK_ROW_SELECT = `SELECT d.id, d.board_fingerprint, b.board_json, d.status, d.seed,
+                                d.rng_state, d.strategy_version, d.user_slot, d.team_count,
+                                d.rounds, d.revision
+                           FROM mock_drafts d
+                           JOIN mock_boards b ON b.fingerprint = d.board_fingerprint`;
+
+export async function loadMock(
+  db: D1Database,
+  mockId: string,
+): Promise<LoadedMock | null> {
+  const row = await db
+    .prepare(`${MOCK_ROW_SELECT} WHERE d.id = ?`)
+    .bind(mockId)
+    .first<DraftRow>();
+  return row ? hydrateMock(db, row) : null;
+}
+
+export async function loadCurrentMock(db: D1Database): Promise<LoadedMock | null> {
+  const row = await db
+    .prepare(
+      `${MOCK_ROW_SELECT}
+        ORDER BY CASE WHEN d.status = 'active' THEN 0 ELSE 1 END, d.updated_at DESC
+        LIMIT 1`,
+    )
+    .first<DraftRow>();
+  return row ? hydrateMock(db, row) : null;
 }
 
 export async function hasActiveMock(db: D1Database): Promise<boolean> {
@@ -263,7 +278,12 @@ export async function appendMockTransition(
   return results.at(-1)?.meta.changes === 1 ? "ok" : "stale_mock";
 }
 
-export async function discardCurrentMock(db: D1Database): Promise<void> {
+export type DiscardMockResult = "ok" | "stale_mock";
+
+export async function discardCurrentMock(
+  db: D1Database,
+  mockId: string,
+): Promise<DiscardMockResult> {
   const current = await db
     .prepare(
       `SELECT id FROM mock_drafts
@@ -271,12 +291,13 @@ export async function discardCurrentMock(db: D1Database): Promise<void> {
         LIMIT 1`,
     )
     .first<{ id: string }>();
-  if (!current) return;
-  await db.batch([
-    db.prepare("DELETE FROM mock_picks WHERE mock_id = ?").bind(current.id),
-    db.prepare("DELETE FROM mock_teams WHERE mock_id = ?").bind(current.id),
-    db.prepare("DELETE FROM mock_drafts WHERE id = ?").bind(current.id),
+  if (current?.id !== mockId) return "stale_mock";
+  const results = await db.batch([
+    db.prepare("DELETE FROM mock_picks WHERE mock_id = ?").bind(mockId),
+    db.prepare("DELETE FROM mock_teams WHERE mock_id = ?").bind(mockId),
+    db.prepare("DELETE FROM mock_drafts WHERE id = ?").bind(mockId),
   ]);
+  return results.at(-1)?.meta.changes === 1 ? "ok" : "stale_mock";
 }
 
 export function unconfiguredMockState(): MockState {

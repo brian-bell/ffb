@@ -11,6 +11,8 @@ import {
   hasActiveMock,
   insertMock,
   loadCurrentMock,
+  loadMock,
+  type LoadedMock,
   unconfiguredMockState,
 } from "./mock-store";
 import { seededMarketStrategy } from "./mock-strategy";
@@ -121,6 +123,19 @@ async function fingerprint(text: string): Promise<string> {
     .join("");
 }
 
+function savedBoard(loaded: LoadedMock): Board | null {
+  try {
+    const parsed = JSON.parse(loaded.board_json) as unknown;
+    return isValidBoard(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function stateWithBoard(loaded: LoadedMock, board: Board) {
+  return { ...loaded.state, board };
+}
+
 async function createMock(request: Request, env: MockApiEnv): Promise<Response> {
   const setup = validSetup(await requestBody(request));
   if (!setup) {
@@ -157,7 +172,7 @@ async function createMock(request: Request, env: MockApiEnv): Promise<Response> 
       return error("board_unusable", "The mock could not be created.", 503);
     }
     return json(
-      { ...loaded.state, appended_picks: aggregate.picks },
+      { ...stateWithBoard(loaded, loadedBoard.board), appended_picks: aggregate.picks },
       201,
     );
   } catch (caught) {
@@ -235,12 +250,8 @@ async function recordMockPick(
     );
   }
 
-  let board: Board;
-  try {
-    const parsed = JSON.parse(loaded.board_json) as unknown;
-    if (!isValidBoard(parsed)) throw new Error("invalid board");
-    board = parsed;
-  } catch {
+  const board = savedBoard(loaded);
+  if (!board) {
     return error(
       "board_unreadable",
       "The mock's board snapshot is unreadable.",
@@ -268,12 +279,12 @@ async function recordMockPick(
         409,
       );
     }
-    const updated = await loadCurrentMock(env.DB);
+    const updated = await loadMock(env.DB, loaded.state.mock!.id);
     if (!updated) {
       return error("mock_unconfigured", "The mock no longer exists.", 409);
     }
     return json(
-      { ...updated.state, appended_picks: transition.appended_picks },
+      { ...stateWithBoard(updated, board), appended_picks: transition.appended_picks },
       201,
     );
   } catch (caught) {
@@ -294,6 +305,31 @@ async function recordMockPick(
   }
 }
 
+async function discardMock(request: Request, env: MockApiEnv): Promise<Response> {
+  const input = await requestBody(request);
+  const mockId = input && typeof input === "object" && "mock_id" in input
+    && typeof input.mock_id === "string" && input.mock_id.trim()
+    ? input.mock_id.trim()
+    : null;
+  if (!mockId) {
+    return error("invalid_request", "Provide the displayed mock ID.", 400);
+  }
+  const result = await discardCurrentMock(env.DB, mockId);
+  if (result !== "ok") {
+    return error(
+      "stale_mock",
+      "The current mock changed in another tab; reload before discarding.",
+      409,
+    );
+  }
+  const current = await loadCurrentMock(env.DB);
+  if (!current) return json(unconfiguredMockState());
+  const board = savedBoard(current);
+  return board
+    ? json(stateWithBoard(current, board))
+    : error("board_unreadable", "The mock's board snapshot is unreadable.", 503);
+}
+
 export async function handleMockApi(
   request: Request,
   env: MockApiEnv,
@@ -307,11 +343,14 @@ export async function handleMockApi(
   if (pathname === "/api/mocks/current") {
     if (request.method === "GET") {
       const current = await loadCurrentMock(env.DB);
-      return json(current?.state ?? unconfiguredMockState());
+      if (!current) return json(unconfiguredMockState());
+      const board = savedBoard(current);
+      return board
+        ? json(stateWithBoard(current, board))
+        : error("board_unreadable", "The mock's board snapshot is unreadable.", 503);
     }
     if (request.method === "DELETE") {
-      await discardCurrentMock(env.DB);
-      return json(unconfiguredMockState());
+      return discardMock(request, env);
     }
     return methodNotAllowed("GET, DELETE");
   }

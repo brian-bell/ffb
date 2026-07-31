@@ -10,7 +10,7 @@ const mockFixture = {
   ...fixtureJson,
   players: [
     ...fixtureJson.players,
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 12 * 15 - fixtureJson.players.length }, (_, index) => ({
       ...fixtureJson.players[0],
       key: `mock-extra-${index}`,
       name: `Mock Extra ${index}`,
@@ -370,6 +370,7 @@ describe("Worker mock draft state", () => {
     ).toBe(liveBefore);
 
     const createdState = (await created.json()) as {
+      mock: { id: string };
       revision: number;
       picks: Array<{ player_key: string }>;
     };
@@ -394,7 +395,8 @@ describe("Worker mock draft state", () => {
 
     const discarded = await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
-      headers: bearer(KEY),
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: createdState.mock.id }),
     });
     expect(discarded.status).toBe(200);
     expect(await discarded.json()).toEqual({
@@ -416,6 +418,7 @@ describe("Worker mock draft state", () => {
       body: JSON.stringify({ user_slot: 4, seed: 8042 }),
     });
     const initial = (await created.json()) as {
+      mock: { id: string };
       picks: Array<{ player_key: string }>;
       revision: number;
     };
@@ -455,7 +458,8 @@ describe("Worker mock draft state", () => {
 
     await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
-      headers: bearer(KEY),
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: initial.mock.id }),
     });
     const replay = await SELF.fetch("https://x/api/mocks", {
       method: "POST",
@@ -509,6 +513,44 @@ describe("Worker mock draft state", () => {
     });
   });
 
+  it("rejects a stale discard without deleting the newer current mock", async () => {
+    const first = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 1 }),
+    });
+    const firstState = (await first.json()) as { mock: { id: string } };
+    const firstDiscard = await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: firstState.mock.id }),
+    });
+    expect(firstDiscard.status).toBe(200);
+
+    const second = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 2 }),
+    });
+    const secondState = (await second.json()) as { mock: { id: string } };
+
+    const staleDiscard = await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: firstState.mock.id }),
+    });
+    expect(staleDiscard.status).toBe(409);
+    expect(await staleDiscard.json()).toMatchObject({ error: "stale_mock" });
+
+    const current = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(await current.json()).toMatchObject({
+      configured: true,
+      mock: { id: secondState.mock.id },
+    });
+  });
+
   it("continues from the immutable board snapshot after a board republish", async () => {
     const original = mockFixture.players[0]!;
     const created = await SELF.fetch("https://x/api/mocks", {
@@ -538,6 +580,18 @@ describe("Worker mock draft state", () => {
       player_key: original.key,
       player_name: original.name,
       source: "user",
+    });
+
+    await env.BOARD.delete(BOARD_KEY);
+    const resumed = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(resumed.status).toBe(200);
+    const resumedState = (await resumed.json()) as { board: Board };
+    expect(resumedState.board.generated_at).toBe(mockFixture.generated_at);
+    expect(resumedState.board.players[0]).toMatchObject({
+      key: original.key,
+      name: original.name,
     });
   });
 });

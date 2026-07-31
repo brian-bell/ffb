@@ -6,12 +6,27 @@ import {
   discardCurrentMock,
   insertMock,
   loadCurrentMock,
+  loadMock,
 } from "../src/mock-store";
 import { seededMarketStrategy } from "../src/mock-strategy";
 import type { Board } from "../src/types";
 import fixtureJson from "./fixtures/board.json";
 
-const board = fixtureJson as Board;
+const board = {
+  ...fixtureJson,
+  players: [
+    ...fixtureJson.players,
+    ...Array.from({ length: 12 * 15 - fixtureJson.players.length }, (_, index) => ({
+      ...fixtureJson.players[0],
+      key: `store-extra-${index}`,
+      name: `Store Extra ${index}`,
+      rank: fixtureJson.players.length + index + 1,
+      pos_rank: index + 10,
+      adp: 140 + index,
+      adp_rank: fixtureJson.players.length + index + 1,
+    })),
+  ],
+} as Board;
 const boardJson = JSON.stringify(board);
 const fingerprint = "a".repeat(64);
 
@@ -86,6 +101,20 @@ describe("mock store", () => {
       complete: true,
     });
     expect(loaded?.aggregate.picks).toHaveLength(2);
+
+    const replacement = startMock(shortBoard, { user_slot: 1, seed: 9 }, seededMarketStrategy);
+    await insertMock(env.DB, replacement, {
+      id: "mock-replacement",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+
+    expect((await loadCurrentMock(env.DB))?.state.mock?.id).toBe("mock-replacement");
+    expect(await loadMock(env.DB, "mock-append")).toMatchObject({
+      state: { mock: { id: "mock-append" }, complete: true },
+      aggregate: { revision: 2, complete: true },
+    });
   });
 
   it("explicitly discards mock rows while retaining the deduplicated board snapshot", async () => {
@@ -97,7 +126,7 @@ describe("mock store", () => {
       board,
     });
 
-    await discardCurrentMock(env.DB);
+    expect(await discardCurrentMock(env.DB, "mock-discard")).toBe("ok");
 
     expect(await loadCurrentMock(env.DB)).toBeNull();
     expect(
