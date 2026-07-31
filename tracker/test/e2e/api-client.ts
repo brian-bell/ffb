@@ -47,10 +47,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ user_slot: userSlot, seed }),
     }),
-  recordMockPlayer: (playerKey: string, expectedRevision: number) =>
+  recordMockPlayer: (mockId: string, playerKey: string, expectedRevision: number) =>
     request<MockState>("/api/mocks/current/picks", {
       method: "POST",
       body: JSON.stringify({
+        mock_id: mockId,
         player_key: playerKey,
         expected_revision: expectedRevision,
       }),

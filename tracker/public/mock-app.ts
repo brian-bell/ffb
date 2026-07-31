@@ -94,13 +94,18 @@ function setLocked(locked: boolean, message = ""): void {
 }
 
 async function api<T>(path: string, init: RequestInit = {}) {
-  return requestJson<T>(fetch, path, {
+  const result = await requestJson<T>(fetch, path, {
     ...init,
     headers: {
       ...authHeaders(init.body !== undefined),
       ...init.headers,
     },
   });
+  if (result.response?.status === 401) {
+    keyStore.del();
+    setLocked(true, "Invalid API key. Check it and try again.");
+  }
+  return result;
 }
 
 function availablePool() {
@@ -188,6 +193,55 @@ function renderState(): void {
   });
 }
 
+function renderBoardRecovery(value: MockState): void {
+  if (!value.mock) return;
+  const next = value.next ?? null;
+  setupPanel.hidden = true;
+  activePanel.hidden = false;
+  tabs.hidden = true;
+  columnHead.hidden = true;
+  list.hidden = true;
+  pickPanel.hidden = false;
+  teamCount.textContent = String(value.mock.team_count);
+  rounds.textContent = String(value.mock.rounds);
+  scoring.textContent = "Unavailable";
+  statusSeed.textContent = String(value.mock.seed);
+  statusSlot.textContent = String(value.mock.user_slot);
+  statusRound.textContent = next ? String(next.round) : "Done";
+  statusOverall.textContent = next ? String(next.overall_pick) : "Done";
+  statusRevision.textContent = String(value.revision);
+  events.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
+  onClock.textContent = "This mock cannot continue with the current tracker version.";
+  selected.textContent = "Discard the mock to return to setup.";
+  draftPlayer.disabled = true;
+  discard.disabled = writing;
+  draftError.textContent = value.board_error ?? "The saved board is unavailable.";
+  foot.textContent = "Saved board snapshot unavailable";
+}
+
+function renderUnavailableSetup(message: string): void {
+  setupPanel.hidden = false;
+  activePanel.hidden = true;
+  tabs.hidden = true;
+  columnHead.hidden = true;
+  list.hidden = true;
+  pickPanel.hidden = true;
+  teamCount.textContent = "—";
+  rounds.textContent = "—";
+  scoring.textContent = "Unavailable";
+  setupError.textContent = message;
+  startButton.disabled = true;
+  foot.textContent = "board.json unavailable";
+}
+
+function renderCurrentState(): void {
+  if (mock?.configured && mock.board_error && mock.mock) {
+    renderBoardRecovery(mock);
+  } else {
+    renderState();
+  }
+}
+
 function setupBoard(value: Board): void {
   board = value;
   slotInput.replaceChildren(
@@ -219,8 +273,18 @@ function applyMockState(value: MockState): void {
 async function load(): Promise<boolean> {
   const current = await api<MockState>("/api/mocks/current");
   if (current.response?.status === 401) {
-    keyStore.del();
-    setLocked(true, "Invalid API key. Check it and try again.");
+    return false;
+  }
+  if (
+    current.response?.ok
+    && current.value?.configured
+    && current.value.mock
+    && current.value.board_error
+  ) {
+    applyMockState(current.value);
+    startButton.disabled = true;
+    setLocked(false);
+    renderBoardRecovery(current.value);
     return false;
   }
   if (
@@ -238,17 +302,18 @@ async function load(): Promise<boolean> {
   if (!current.response?.ok || !current.value) mock = null;
   const boardResult = await api<unknown>("/api/board");
   if (boardResult.response?.status === 401) {
-    keyStore.del();
-    setLocked(true, "Invalid API key. Check it and try again.");
     return false;
   }
   if (!boardResult.response?.ok || !isValidBoard(boardResult.value)) {
     if (current.response?.ok && current.value) {
       applyMockState(current.value);
     }
+    const message = "Board unavailable. Publish a supported board and try again.";
     if (board && mock?.configured !== true) {
       renderState();
-      setupError.textContent = "Board unavailable. Publish a supported board and try again.";
+      setupError.textContent = message;
+    } else if (mock?.configured !== true) {
+      renderUnavailableSetup(message);
     }
     startButton.disabled = true;
     setLocked(false);
@@ -335,13 +400,14 @@ list.addEventListener("click", (event) => {
 });
 
 draftPlayer.addEventListener("click", async () => {
-  if (!selectedKey || !mock) return;
+  if (!selectedKey || !mock?.mock) return;
   writing = true;
   draftError.textContent = "";
   renderState();
   const result = await api<MockState>("/api/mocks/current/picks", {
     method: "POST",
     body: JSON.stringify({
+      mock_id: mock.mock.id,
       player_key: selectedKey,
       expected_revision: mock.revision,
     }),
@@ -365,19 +431,22 @@ discard.addEventListener("click", async () => {
   if (!mock?.mock) return;
   if (!confirm("Discard this mock draft? Your live draft will not be changed.")) return;
   writing = true;
-  renderState();
+  renderCurrentState();
   const result = await api<MockState>("/api/mocks/current", {
     method: "DELETE",
     body: JSON.stringify({ mock_id: mock.mock.id }),
   });
   if (!result.response?.ok || !result.value) {
     writing = false;
-    draftError.textContent = errorMessage(
+    const message = errorMessage(
       result.value,
       result.transportError ?? "The mock was not changed.",
     );
     if (result.response?.status === 409) await load();
-    else renderState();
+    else {
+      renderCurrentState();
+      draftError.textContent = message;
+    }
     return;
   }
   applyMockState(result.value);
@@ -386,7 +455,7 @@ discard.addEventListener("click", async () => {
   seedInput.value = String(generatedSeed());
   if (result.value.configured) {
     writing = false;
-    renderState();
+    renderCurrentState();
   } else {
     startButton.disabled = true;
     renderState();

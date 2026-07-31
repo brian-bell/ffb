@@ -41,6 +41,7 @@ export interface MockAggregate {
 export interface MockState {
   configured: boolean;
   board?: Board;
+  board_error?: string;
   mock?: MockInfo;
   teams?: DraftTeam[];
   picks: MockPick[];

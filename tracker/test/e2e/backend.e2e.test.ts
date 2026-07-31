@@ -247,7 +247,9 @@ describe("generated backend contract", () => {
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
 
-    const advanced = await api.recordMockPlayer(mockBoard.players[0]!.key, 0);
+    const mockId = created.json?.mock?.id;
+    if (!mockId) throw new Error("created mock did not include an ID");
+    const advanced = await api.recordMockPlayer(mockId, mockBoard.players[0]!.key, 0);
     expect(advanced.status).toBe(201);
     expect(advanced.json).toMatchObject({
       revision: 3,
@@ -266,8 +268,6 @@ describe("generated backend contract", () => {
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
 
-    const mockId = created.json?.mock?.id;
-    if (!mockId) throw new Error("created mock did not include an ID");
     const discarded = await api.discardMock(mockId);
     expect(discarded.status).toBe(200);
     expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });

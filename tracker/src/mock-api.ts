@@ -136,6 +136,13 @@ function stateWithBoard(loaded: LoadedMock, board: Board) {
   return { ...loaded.state, board };
 }
 
+function stateWithBoardError(loaded: LoadedMock) {
+  return {
+    ...loaded.state,
+    board_error: "The mock's board snapshot is unreadable or unsupported.",
+  };
+}
+
 async function createMock(request: Request, env: MockApiEnv): Promise<Response> {
   const setup = validSetup(await requestBody(request));
   if (!setup) {
@@ -199,26 +206,32 @@ async function recordMockPick(
   if (!input || typeof input !== "object") {
     return error(
       "invalid_request",
-      "Provide a player key and displayed mock revision.",
+      "Provide a player key, displayed mock ID, and displayed mock revision.",
       400,
     );
   }
   const value = input as {
+    mock_id?: unknown;
     player_key?: unknown;
     expected_revision?: unknown;
   };
+  const mockId =
+    typeof value.mock_id === "string" && value.mock_id.trim()
+      ? value.mock_id.trim()
+      : null;
   const playerKey =
     typeof value.player_key === "string" && value.player_key.trim()
       ? value.player_key.trim()
       : null;
   if (
-    playerKey === null
+    mockId === null
+    || playerKey === null
     || !Number.isInteger(value.expected_revision)
     || (value.expected_revision as number) < 0
   ) {
     return error(
       "invalid_request",
-      "Provide a player key and displayed mock revision.",
+      "Provide a player key, displayed mock ID, and displayed mock revision.",
       400,
     );
   }
@@ -228,6 +241,13 @@ async function recordMockPick(
     return error(
       "mock_unconfigured",
       "Start a mock before recording a pick.",
+      409,
+    );
+  }
+  if (loaded.state.mock?.id !== mockId) {
+    return error(
+      "stale_mock",
+      "The mock changed in another tab; reload before recording.",
       409,
     );
   }
@@ -327,7 +347,7 @@ async function discardMock(request: Request, env: MockApiEnv): Promise<Response>
   const board = savedBoard(current);
   return board
     ? json(stateWithBoard(current, board))
-    : error("board_unreadable", "The mock's board snapshot is unreadable.", 503);
+    : json(stateWithBoardError(current));
 }
 
 export async function handleMockApi(
@@ -347,7 +367,7 @@ export async function handleMockApi(
       const board = savedBoard(current);
       return board
         ? json(stateWithBoard(current, board))
-        : error("board_unreadable", "The mock's board snapshot is unreadable.", 503);
+        : json(stateWithBoardError(current));
     }
     if (request.method === "DELETE") {
       return discardMock(request, env);

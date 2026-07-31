@@ -278,6 +278,7 @@ describe("Worker mock draft state", () => {
       body: JSON.stringify({ user_slot: 4, seed: 8042 }),
     });
     const initial = (await created.json()) as {
+      mock: { id: string };
       picks: Array<{ player_key: string }>;
       revision: number;
     };
@@ -288,6 +289,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: initial.mock.id,
         player_key: selected.key,
         expected_revision: initial.revision,
       }),
@@ -324,6 +326,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: initial.mock.id,
         player_key: mockFixture.players.at(-1)!.key,
         expected_revision: initial.revision,
       }),
@@ -382,6 +385,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: createdState.mock.id,
         player_key: selected.key,
         expected_revision: createdState.revision,
       }),
@@ -436,6 +440,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: initial.mock.id,
         player_key: initialKeys[0],
         expected_revision: initial.revision,
       }),
@@ -449,6 +454,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: initial.mock.id,
         player_key: "not-on-snapshot",
         expected_revision: initial.revision,
       }),
@@ -479,6 +485,7 @@ describe("Worker mock draft state", () => {
       body: JSON.stringify({ user_slot: 4, seed: 8042 }),
     });
     const initial = (await created.json()) as {
+      mock: { id: string };
       picks: Array<{ player_key: string }>;
       revision: number;
     };
@@ -493,6 +500,7 @@ describe("Worker mock draft state", () => {
           method: "POST",
           headers: { ...bearer(KEY), "content-type": "application/json" },
           body: JSON.stringify({
+            mock_id: initial.mock.id,
             player_key: player.key,
             expected_revision: initial.revision,
           }),
@@ -551,6 +559,83 @@ describe("Worker mock draft state", () => {
     });
   });
 
+  it("rejects a stale pick for a replaced mock with the same revision", async () => {
+    const first = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 1 }),
+    });
+    const firstState = (await first.json()) as { mock: { id: string } };
+    await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: firstState.mock.id }),
+    });
+
+    const second = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 2 }),
+    });
+    const secondState = (await second.json()) as { mock: { id: string } };
+
+    const stalePick = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        mock_id: firstState.mock.id,
+        player_key: mockFixture.players[0]!.key,
+        expected_revision: 0,
+      }),
+    });
+    expect(stalePick.status).toBe(409);
+    expect(await stalePick.json()).toMatchObject({ error: "stale_mock" });
+
+    const current = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(await current.json()).toMatchObject({
+      mock: { id: secondState.mock.id },
+      revision: 0,
+      picks: [],
+    });
+  });
+
+  it("keeps an active mock discardable when its saved board becomes incompatible", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 8042 }),
+    });
+    const createdState = (await created.json()) as {
+      mock: { id: string; board_fingerprint: string };
+    };
+    await env.DB.prepare("UPDATE mock_boards SET board_json = ? WHERE fingerprint = ?")
+      .bind(
+        JSON.stringify({ ...mockFixture, version: mockFixture.version + 1 }),
+        createdState.mock.board_fingerprint,
+      )
+      .run();
+
+    const current = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({
+      configured: true,
+      mock: { id: createdState.mock.id },
+      board_error: "The mock's board snapshot is unreadable or unsupported.",
+    });
+
+    const discarded = await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ mock_id: createdState.mock.id }),
+    });
+    expect(discarded.status).toBe(200);
+    expect(await discarded.json()).toEqual({ configured: false, picks: [], revision: 0 });
+  });
+
   it("continues from the immutable board snapshot after a board republish", async () => {
     const original = mockFixture.players[0]!;
     const created = await SELF.fetch("https://x/api/mocks", {
@@ -559,6 +644,7 @@ describe("Worker mock draft state", () => {
       body: JSON.stringify({ user_slot: 1, seed: 8042 }),
     });
     expect(created.status).toBe(201);
+    const createdState = (await created.clone().json()) as { mock: { id: string } };
     const republished = structuredClone(mockFixture);
     republished.players[0]!.name = `${original.name} republished`;
     await env.BOARD.put(BOARD_KEY, JSON.stringify(republished));
@@ -567,6 +653,7 @@ describe("Worker mock draft state", () => {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({
+        mock_id: createdState.mock.id,
         player_key: original.key,
         expected_revision: 0,
       }),
