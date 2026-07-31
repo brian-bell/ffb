@@ -15,7 +15,11 @@ import {
   type LoadedMock,
   unconfiguredMockState,
 } from "./mock-store";
-import { seededMarketStrategy } from "./mock-strategy";
+import {
+  isVariancePreset,
+  marketNeedStrategy,
+  strategyForVersion,
+} from "./mock-strategy";
 import type { Board } from "./types";
 
 export interface MockApiEnv {
@@ -52,19 +56,27 @@ async function requestBody(request: Request): Promise<unknown | null> {
 
 function validSetup(value: unknown): MockSetup | null {
   if (!value || typeof value !== "object") return null;
-  const input = value as { user_slot?: unknown; seed?: unknown };
+  const input = value as {
+    user_slot?: unknown;
+    seed?: unknown;
+    variance_preset?: unknown;
+  };
   if (
     !Number.isInteger(input.user_slot)
     || (input.user_slot as number) < 1
     || !Number.isInteger(input.seed)
     || (input.seed as number) < 0
     || (input.seed as number) > 0xffff_ffff
+    || (input.variance_preset !== undefined && !isVariancePreset(input.variance_preset))
   ) {
     return null;
   }
   return {
     user_slot: input.user_slot as number,
     seed: input.seed as number,
+    variance_preset: input.variance_preset === undefined
+      ? "realistic"
+      : input.variance_preset as MockSetup["variance_preset"],
   };
 }
 
@@ -166,7 +178,7 @@ async function createMock(request: Request, env: MockApiEnv): Promise<Response> 
     const aggregate = startMock(
       loadedBoard.board,
       setup,
-      seededMarketStrategy,
+      marketNeedStrategy,
     );
     await insertMock(env.DB, aggregate, {
       id: crypto.randomUUID(),
@@ -254,7 +266,8 @@ async function recordMockPick(
   if (loaded.aggregate.complete) {
     return error("mock_complete", "The mock draft is complete.", 409);
   }
-  if (loaded.aggregate.strategy_version !== seededMarketStrategy.version) {
+  const strategy = strategyForVersion(loaded.aggregate.strategy_version);
+  if (!strategy) {
     return error(
       "board_unusable",
       "This mock uses an unsupported opponent strategy.",
@@ -284,7 +297,7 @@ async function recordMockPick(
       loaded.aggregate,
       board,
       playerKey,
-      seededMarketStrategy,
+      strategy,
     );
     const result = await appendMockTransition(
       env.DB,
@@ -314,6 +327,7 @@ async function recordMockPick(
       }
       if (
         caught.code === "player_unavailable"
+        || caught.code === "illegal_roster_pick"
         || caught.code === "mock_complete"
         || caught.code === "not_user_turn"
       ) {

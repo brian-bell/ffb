@@ -135,6 +135,18 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   validated `manual_player` snapshot when a Yahoo pick is absent from the board,
   and resets by explicitly deleting picks, teams, then draft (never relying on
   FK cascade).
+- **Isolated mock state:** migrations `0003_mock_drafts.sql` and
+  `0004_mock_strategy_config.sql` store immutable board snapshots, separate mock
+  teams/picks, RNG state, strategy version, and Calm/Realistic/Wild variance.
+  `/mock` and `/api/mocks*` never write live-draft tables. New mocks use
+  `market-need-v1`; the strategy registry keeps active `seeded-market-v0` mocks
+  resumable. Team count and rounds always come from the saved board snapshot.
+- **Roster-safe simulations:** `roster-fit.ts` uses exact capacity matching for
+  dedicated slots, W/T, W/R/T, and BN, deduplicates the same player identities as
+  availability, and rejects any user or CPU position that would make any league
+  roster impossible to complete. `mock-strategy.ts` receives only safe candidates
+  and applies the frozen market/need/tier/specialist score plus preset-bounded
+  seeded Gumbel variance. Seed zero normalizes to a nonzero RNG state for v1.
 - **Availability + identity:** `player-identity.ts` centralizes
   canonical/fallback/manual and DEF/DST equivalence so search, available rows,
   and the write API exclude the same drafted player representations.
@@ -146,8 +158,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   prefix* on grow (never appends), so scroll position, selection sync, and pick-recording
   DOM surgery keep working against one list shape. Tier-divider counts always
   reflect the full remaining tier, not the rendered window.
-- **Pure testable core:** `src/{auth,board,board-view,draft,player-identity,
-  suggestions,render,selection,setup,state}.ts` are DOM-free or operate through
+- **Pure testable core:** `src/{auth,board,board-view,draft,mock-draft,mock-strategy,
+  mock-ui,mock-view,player-identity,roster-fit,suggestions,render,selection,setup,state}.ts`
+  are DOM-free or operate through
   narrow DOM-like interfaces and are unit-tested;
   `types.ts` mirrors the `board.json` v1 contract; `index.ts` is the Worker entry
   (auth-gate + KV board stream + fall through to Static Assets), and

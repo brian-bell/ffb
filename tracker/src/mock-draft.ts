@@ -1,12 +1,18 @@
 import { nextPick, type DraftTeam, type NextPick } from "./draft";
-import type { OpponentStrategy } from "./mock-strategy";
+import {
+  normalizeInitialRngState,
+  type OpponentStrategy,
+  type VariancePreset,
+} from "./mock-strategy";
 import { isAvailable } from "./player-identity";
 import { buildPlayerPool, type PlayerPoolPick } from "./player-pool";
+import { safePositionsForTurn } from "./roster-fit";
 import type { Board } from "./types";
 
 export interface MockSetup {
   user_slot: number;
   seed: number;
+  variance_preset?: VariancePreset;
 }
 
 export interface MockInfo {
@@ -17,6 +23,7 @@ export interface MockInfo {
   user_slot: number;
   team_count: number;
   rounds: number;
+  variance_preset: VariancePreset;
 }
 
 export interface MockPick extends PlayerPoolPick {
@@ -30,6 +37,7 @@ export interface MockAggregate {
   user_slot: number;
   team_count: number;
   rounds: number;
+  variance_preset: VariancePreset;
   teams: DraftTeam[];
   picks: MockPick[];
   next: NextPick | null;
@@ -64,7 +72,8 @@ export type MockDomainErrorCode =
   | "mock_complete"
   | "not_user_turn"
   | "unknown_player"
-  | "player_unavailable";
+  | "player_unavailable"
+  | "illegal_roster_pick";
 
 export class MockDomainError extends Error {
   constructor(readonly code: MockDomainErrorCode, message: string) {
@@ -117,6 +126,7 @@ function autoAdvance(
   existingPicks: readonly MockPick[],
   rngState: number,
   strategy: OpponentStrategy,
+  variancePreset: VariancePreset,
 ): AdvanceResult {
   const picks = [...existingPicks];
   let next = nextPick(teams, rounds, picks.length + 1);
@@ -124,22 +134,38 @@ function autoAdvance(
 
   while (next && !next.is_user) {
     const available = buildPlayerPool(board.players, picks).available;
-    if (available.length === 0) {
+    const team = teams.find((candidate) => candidate.id === next!.team_id);
+    if (!team) {
+      throw new MockDomainError("board_unusable", "The mock team configuration is invalid.");
+    }
+    const safePositions = safePositionsForTurn({
+      rosterSlots: board.roster_slots,
+      teamCount: teams.length,
+      picks,
+      available,
+      draftSlot: team.draft_slot,
+    });
+    const candidates = available.filter((player) =>
+      typeof player.pos === "string" && safePositions.has(player.pos)
+    );
+    if (candidates.length === 0) {
       throw new MockDomainError("board_unusable", "No legal player remains for the simulated turn.");
     }
     let choice;
     try {
       choice = strategy.choose({
-        available,
+        candidates,
+        team_picks: picks.filter((pick) => pick.draft_slot === team.draft_slot),
+        roster_slots: board.roster_slots,
         next,
-        picks,
+        rounds,
+        variance_preset: variancePreset,
         rng_state: nextRngState,
       });
     } catch {
       throw new MockDomainError("board_unusable", "The opponent strategy could not choose a legal player.");
     }
-    const player = available.find((candidate) => candidate.key === choice.player.key);
-    const team = teams.find((candidate) => candidate.id === next!.team_id);
+    const player = candidates.find((candidate) => candidate.key === choice.player_key);
     if (!player || !team || !validUnsignedSeed(choice.next_rng_state)) {
       throw new MockDomainError("board_unusable", "The opponent strategy returned an invalid choice.");
     }
@@ -184,7 +210,29 @@ export function startMock(board: Board, setup: MockSetup, strategy: OpponentStra
   }
 
   const teams = mockTeams(teamCount, setup.user_slot);
-  const advanced = autoAdvance(board, teams, rounds, [], setup.seed, strategy);
+  const variancePreset = setup.variance_preset ?? "realistic";
+  const initialRngState = strategy.version === "market-need-v1"
+    ? normalizeInitialRngState(setup.seed)
+    : setup.seed;
+  const initialAvailable = buildPlayerPool(board.players, []).available;
+  if (safePositionsForTurn({
+    rosterSlots: board.roster_slots,
+    teamCount,
+    picks: [],
+    available: initialAvailable,
+    draftSlot: setup.user_slot - 1,
+  }).size === 0) {
+    throw new MockDomainError("board_unusable", "The board's player pool cannot complete every roster.");
+  }
+  const advanced = autoAdvance(
+    board,
+    teams,
+    rounds,
+    [],
+    initialRngState,
+    strategy,
+    variancePreset,
+  );
 
   return {
     seed: setup.seed,
@@ -192,6 +240,7 @@ export function startMock(board: Board, setup: MockSetup, strategy: OpponentStra
     user_slot: setup.user_slot,
     team_count: teamCount,
     rounds,
+    variance_preset: variancePreset,
     teams,
     picks: advanced.picks,
     next: advanced.next,
@@ -227,6 +276,19 @@ export function recordUserPick(
   if (!team) {
     throw new MockDomainError("board_unusable", "The mock team configuration is invalid.");
   }
+  const safePositions = safePositionsForTurn({
+    rosterSlots: board.roster_slots,
+    teamCount: aggregate.team_count,
+    picks: aggregate.picks,
+    available: buildPlayerPool(board.players, aggregate.picks).available,
+    draftSlot: team.draft_slot,
+  });
+  if (!availablePlayer.pos || !safePositions.has(availablePlayer.pos)) {
+    throw new MockDomainError(
+      "illegal_roster_pick",
+      "That pick would make at least one configured roster impossible to complete.",
+    );
+  }
 
   const userPick: MockPick = {
     overall_pick: aggregate.next.overall_pick,
@@ -247,6 +309,7 @@ export function recordUserPick(
     [...aggregate.picks, userPick],
     aggregate.rng_state,
     strategy,
+    aggregate.variance_preset,
   );
 
   return {

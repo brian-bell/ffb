@@ -43,6 +43,48 @@ function isManual(key: string): boolean {
   return key.startsWith("manual:");
 }
 
+/** Preserve first occurrence while applying the same equivalence classes as availability. */
+export function distinctPlayerIdentities<T extends PlayerIdentity>(identities: readonly T[]): T[] {
+  const distinct: T[] = [];
+  const exact = new Set<string>();
+  const defenses = new Set<string>();
+  const fallbackBridges = new Set<string>();
+  const canonicalBridges = new Set<string>();
+  const manualWithoutPosition = new Set<string>();
+  const manualWithoutTeam = new Set<string>();
+
+  for (const identity of identities) {
+    if (exact.has(identity.key)) continue;
+    const pos = normalizedPosition(identity.pos);
+    const team = normalizedTeam(identity.team);
+    const name = normalizedName(identity.name);
+    if (pos === "DEF" && team !== null) {
+      if (defenses.has(team)) continue;
+      defenses.add(team);
+    } else if (pos === null) {
+      const key = signature(name, team);
+      if (isManual(identity.key) && manualWithoutPosition.has(key)) continue;
+      if (isManual(identity.key)) manualWithoutPosition.add(key);
+    } else if (team === null) {
+      const key = signature(pos, name);
+      if (isManual(identity.key) && manualWithoutTeam.has(key)) continue;
+      if (isManual(identity.key)) manualWithoutTeam.add(key);
+    } else {
+      const bridge = signature(pos, name, team);
+      if (isFallback(identity.key)) {
+        if (fallbackBridges.has(bridge) || canonicalBridges.has(bridge)) continue;
+        fallbackBridges.add(bridge);
+      } else {
+        if (fallbackBridges.has(bridge)) continue;
+        canonicalBridges.add(bridge);
+      }
+    }
+    exact.add(identity.key);
+    distinct.push(identity);
+  }
+  return distinct;
+}
+
 export interface PlayerIdentityIndex<T extends PlayerIdentity> {
   match(player: PlayerIdentity): T | undefined;
 }

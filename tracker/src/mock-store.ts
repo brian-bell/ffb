@@ -7,6 +7,7 @@ import type {
   MockTransition,
 } from "./mock-draft";
 import type { Board } from "./types";
+import type { VariancePreset } from "./mock-strategy";
 
 export interface MockBoardSnapshot {
   id: string;
@@ -32,6 +33,7 @@ interface DraftRow {
   user_slot: number;
   team_count: number;
   rounds: number;
+  variance_preset: VariancePreset;
   revision: number;
 }
 
@@ -56,6 +58,7 @@ function mockInfo(row: DraftRow): MockInfo {
     user_slot: row.user_slot,
     team_count: row.team_count,
     rounds: row.rounds,
+    variance_preset: row.variance_preset,
   };
 }
 
@@ -108,6 +111,7 @@ async function hydrateMock(db: D1Database, row: DraftRow): Promise<LoadedMock> {
     user_slot: row.user_slot,
     team_count: row.team_count,
     rounds: row.rounds,
+    variance_preset: row.variance_preset,
     teams,
     picks,
     next,
@@ -124,7 +128,7 @@ async function hydrateMock(db: D1Database, row: DraftRow): Promise<LoadedMock> {
 
 const MOCK_ROW_SELECT = `SELECT d.id, d.board_fingerprint, b.board_json, d.status, d.seed,
                                 d.rng_state, d.strategy_version, d.user_slot, d.team_count,
-                                d.rounds, d.revision
+                                d.rounds, d.variance_preset, d.revision
                            FROM mock_drafts d
                            JOIN mock_boards b ON b.fingerprint = d.board_fingerprint`;
 
@@ -180,8 +184,8 @@ export async function insertMock(
     db.prepare(
       `INSERT INTO mock_drafts
         (id, board_fingerprint, status, seed, rng_state, strategy_version,
-         user_slot, team_count, rounds, revision, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         user_slot, team_count, rounds, variance_preset, revision, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       snapshot.id,
       snapshot.fingerprint,
@@ -192,6 +196,7 @@ export async function insertMock(
       aggregate.user_slot,
       aggregate.team_count,
       aggregate.rounds,
+      aggregate.variance_preset,
       aggregate.revision,
       now,
       now,

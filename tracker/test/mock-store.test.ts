@@ -20,6 +20,8 @@ const board = {
       ...fixtureJson.players[0],
       key: `store-extra-${index}`,
       name: `Store Extra ${index}`,
+      pos: ["QB", "RB", "WR", "TE", "K", "DEF"][index % 6],
+      team: `T${index}`,
       rank: fixtureJson.players.length + index + 1,
       pos_rank: index + 10,
       adp: 140 + index,
@@ -58,6 +60,7 @@ describe("mock store", () => {
       user_slot: 4,
       team_count: 12,
       rounds: 15,
+      variance_preset: "realistic",
       revision: 3,
       next: { overall_pick: 4, team_name: "Brian", is_user: true },
     });
@@ -66,7 +69,11 @@ describe("mock store", () => {
     );
     expect(loaded?.state).toMatchObject({
       configured: true,
-      mock: { id: "mock-1", board_fingerprint: fingerprint },
+      mock: {
+        id: "mock-1",
+        board_fingerprint: fingerprint,
+        variance_preset: "realistic",
+      },
       revision: 3,
     });
   });

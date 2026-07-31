@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { BOARD_KEY } from "../src/board";
+import { buildPlayerPool } from "../src/player-pool";
+import { safePositionsForTurn } from "../src/roster-fit";
 import fixtureJson from "./fixtures/board.json";
 import type { Board } from "../src/types";
 
@@ -14,6 +16,8 @@ const mockFixture = {
       ...fixtureJson.players[0],
       key: `mock-extra-${index}`,
       name: `Mock Extra ${index}`,
+      pos: ["QB", "RB", "WR", "TE", "K", "DEF"][index % 6],
+      team: `T${index}`,
       rank: fixtureJson.players.length + index + 1,
       pos_rank: index + 10,
       adp: 140 + index,
@@ -22,6 +26,33 @@ const mockFixture = {
   ],
 } as Board;
 const mockFixtureText = JSON.stringify(mockFixture);
+const workerYahooRoster = {
+  QB: 1, WR: 1, RB: 1, TE: 1, "W/T": 1, "W/R/T": 2, DEF: 1, BN: 8,
+};
+const workerYahooPositions = [
+  ...Array(25).fill("QB"),
+  ...Array(45).fill("RB"),
+  ...Array(45).fill("WR"),
+  ...Array(25).fill("TE"),
+  ...Array(20).fill("DEF"),
+] as string[];
+const workerYahooBoard = {
+  ...mockFixture,
+  num_teams: 10,
+  roster_slots: workerYahooRoster,
+  scoring: "Yahoo half PPR",
+  players: workerYahooPositions.map((pos, index) => ({
+    ...mockFixture.players[index % mockFixture.players.length]!,
+    key: `worker-yahoo-${index}`,
+    name: `Worker Yahoo ${pos} ${index}`,
+    pos,
+    team: `WY${index}`,
+    rank: index + 1,
+    pos_rank: index + 1,
+    adp: index + 1,
+    adp_rank: index + 1,
+  })),
+} as Board;
 
 function bearer(key: string): HeadersInit {
   return { Authorization: `Bearer ${key}` };
@@ -250,7 +281,8 @@ describe("Worker mock draft state", () => {
       configured: true,
       mock: {
         seed: 8042,
-        strategy_version: "seeded-market-v0",
+        strategy_version: "market-need-v1",
+        variance_preset: "realistic",
         user_slot: 4,
         team_count: 12,
         rounds: 15,
@@ -270,6 +302,200 @@ describe("Worker mock draft state", () => {
       revision: 3,
     });
   });
+
+  it("persists an explicit variance preset and rejects unknown presets", async () => {
+    const invalid = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042, variance_preset: "chaos" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ error: "invalid_mock" });
+
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 0, variance_preset: "wild" }),
+    });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      mock: { seed: 0, strategy_version: "market-need-v1", variance_preset: "wild" },
+    });
+  });
+
+  it("continues an active seeded-market-v0 mock through the version registry", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 9 }),
+    });
+    const state = (await created.json()) as { mock: { id: string }; revision: number };
+    await env.DB.prepare(
+      "UPDATE mock_drafts SET strategy_version = 'seeded-market-v0', rng_state = seed WHERE id = ?",
+    ).bind(state.mock.id).run();
+
+    const advanced = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        mock_id: state.mock.id,
+        player_key: mockFixture.players[0]!.key,
+        expected_revision: state.revision,
+      }),
+    });
+    expect(advanced.status).toBe(201);
+    expect(await advanced.json()).toMatchObject({
+      mock: { strategy_version: "seeded-market-v0", variance_preset: "realistic" },
+    });
+  });
+
+  it("maps an impossible user roster choice to 409 without changing revision or RNG", async () => {
+    const positions = ["DEF", "QB", "QB", "DEF", "QB", "QB"] as const;
+    const scarceBoard = {
+      ...mockFixture,
+      num_teams: 2,
+      roster_slots: { DEF: 1, BN: 2 },
+      players: positions.map((pos, index) => ({
+        ...mockFixture.players[index]!,
+        key: `scarce-${index}`,
+        name: `Scarce ${pos} ${index}`,
+        pos,
+        team: `SC${index}`,
+        rank: index + 1,
+        pos_rank: index + 1,
+        adp: index + 1,
+        adp_rank: index + 1,
+      })),
+    };
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(scarceBoard));
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 1, seed: 1, variance_preset: "calm" }),
+    });
+    const initial = (await created.json()) as {
+      mock: { id: string };
+      revision: number;
+    };
+    await env.DB.batch([
+      ...[
+        [1, 1, 1, 0, "scarce-0", "Scarce DEF 0", "DEF", "SC0", "user"],
+        [2, 1, 2, 1, "scarce-1", "Scarce QB 1", "QB", "SC1", "simulated"],
+        [3, 2, 1, 1, "scarce-2", "Scarce QB 2", "QB", "SC2", "simulated"],
+      ].map((values) => env.DB.prepare(
+        `INSERT INTO mock_picks
+          (mock_id, overall_pick, round, round_pick, draft_slot, player_key,
+           player_name, player_pos, player_team, source, picked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(initial.mock.id, ...values, new Date(0).toISOString())),
+      env.DB.prepare("UPDATE mock_drafts SET revision = 3 WHERE id = ?")
+        .bind(initial.mock.id),
+    ]);
+    const before = { revision: 3, mock: initial.mock };
+    const storedBefore = await env.DB.prepare(
+      "SELECT revision, rng_state FROM mock_drafts WHERE id = ?",
+    ).bind(before.mock.id).first<{ revision: number; rng_state: number }>();
+
+    const rejected = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        mock_id: before.mock.id,
+        player_key: "scarce-3",
+        expected_revision: before.revision,
+      }),
+    });
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({ error: "illegal_roster_pick" });
+    expect(await env.DB.prepare(
+      "SELECT revision, rng_state FROM mock_drafts WHERE id = ?",
+    ).bind(before.mock.id).first()).toEqual(storedBefore);
+  });
+
+  it("persists and reloads a complete 160-pick v1 Yahoo mock without touching live state", async () => {
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(workerYahooBoard));
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Live During Mock",
+        rounds: 1,
+        teams: [
+          { name: "Brian", is_user: true },
+          { name: "Other", is_user: false },
+        ],
+      }),
+    });
+    const liveBefore = await (
+      await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+    ).text();
+
+    let state = await (
+      await SELF.fetch("https://x/api/mocks", {
+        method: "POST",
+        headers: { ...bearer(KEY), "content-type": "application/json" },
+        body: JSON.stringify({ user_slot: 5, seed: 0, variance_preset: "wild" }),
+      })
+    ).json() as import("../src/mock-draft").MockState;
+    while (!state.complete) {
+      const available = buildPlayerPool(workerYahooBoard.players, state.picks).available;
+      const safe = safePositionsForTurn({
+        rosterSlots: workerYahooRoster,
+        teamCount: 10,
+        picks: state.picks,
+        available,
+        draftSlot: 4,
+      });
+      const selected = available.find((player) => player.pos && safe.has(player.pos));
+      expect(selected).toBeDefined();
+      const response = await SELF.fetch("https://x/api/mocks/current/picks", {
+        method: "POST",
+        headers: { ...bearer(KEY), "content-type": "application/json" },
+        body: JSON.stringify({
+          mock_id: state.mock!.id,
+          player_key: selected!.key,
+          expected_revision: state.revision,
+        }),
+      });
+      expect(response.status).toBe(201);
+      state = await response.json() as import("../src/mock-draft").MockState;
+    }
+
+    expect(state).toMatchObject({
+      complete: true,
+      revision: 160,
+      next: null,
+      mock: {
+        seed: 0,
+        strategy_version: "market-need-v1",
+        variance_preset: "wild",
+        team_count: 10,
+        rounds: 16,
+      },
+    });
+    expect(state.picks).toHaveLength(160);
+    expect(new Set(state.picks.map((pick) => pick.player_key)).size).toBe(160);
+    const stored = await env.DB.prepare(
+      "SELECT status, revision, rng_state, variance_preset FROM mock_drafts WHERE id = ?",
+    ).bind(state.mock!.id).first<Record<string, unknown>>();
+    expect(stored).toMatchObject({
+      status: "complete",
+      revision: 160,
+      variance_preset: "wild",
+    });
+    expect(stored?.rng_state).not.toBe(0);
+
+    const reloaded = await SELF.fetch("https://x/api/mocks/current", { headers: bearer(KEY) });
+    expect(await reloaded.json()).toMatchObject({
+      complete: true,
+      revision: 160,
+      next: null,
+      mock: { id: state.mock!.id, variance_preset: "wild" },
+    });
+    expect(await (
+      await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
+    ).text()).toBe(liveBefore);
+  }, 30_000);
 
   it("atomically records Brian's pick plus CPU turns and rejects a stale replay", async () => {
     const created = await SELF.fetch("https://x/api/mocks", {
@@ -704,6 +930,10 @@ describe("Worker static shell", () => {
     expect(body).toContain("DRAFTMOCK");
     expect(body).toContain("ISOLATED MODE");
     expect(body).toContain("Mock picks only");
+    expect(body).toContain('value="realistic" selected');
+    expect(body).toContain("data-status-variance");
+    expect(body).toContain('href="styles.css"');
+    expect(body).toContain('src="mock-app.js"');
 
     const api = await SELF.fetch("https://x/api/mocks/not-a-route", {
       headers: bearer(KEY),
