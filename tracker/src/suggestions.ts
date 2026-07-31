@@ -1,7 +1,7 @@
 import { indexPlayerIdentities, type PlayerIdentity } from "./player-identity";
 import type { Player } from "./types";
 
-function marketOrder(a: Player, b: Player): number {
+export function marketOrder(a: Player, b: Player): number {
   const aHasAdp = typeof a.adp === "number";
   const bHasAdp = typeof b.adp === "number";
   if (aHasAdp !== bHasAdp) return aHasAdp ? -1 : 1;

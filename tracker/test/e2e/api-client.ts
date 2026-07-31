@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import type { DraftConfigInput, DraftState } from "../../src/draft-store";
+import type { MockState } from "../../src/mock-draft";
 import type { Board } from "../../src/types";
 
 const API_ORIGIN = "https://e2e.test";
@@ -40,4 +41,24 @@ export const api = {
       body: JSON.stringify({ player_key: playerKey, expected_overall_pick: expectedOverallPick }),
     }),
   resetDraft: () => request<DraftState>("/api/draft", { method: "DELETE" }),
+  getCurrentMock: () => request<MockState>("/api/mocks/current"),
+  createMock: (userSlot: number, seed: number) =>
+    request<MockState>("/api/mocks", {
+      method: "POST",
+      body: JSON.stringify({ user_slot: userSlot, seed }),
+    }),
+  recordMockPlayer: (mockId: string, playerKey: string, expectedRevision: number) =>
+    request<MockState>("/api/mocks/current/picks", {
+      method: "POST",
+      body: JSON.stringify({
+        mock_id: mockId,
+        player_key: playerKey,
+        expected_revision: expectedRevision,
+      }),
+    }),
+  discardMock: (mockId: string) =>
+    request<MockState>("/api/mocks/current", {
+      method: "DELETE",
+      body: JSON.stringify({ mock_id: mockId }),
+    }),
 };

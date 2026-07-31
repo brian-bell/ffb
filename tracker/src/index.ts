@@ -5,6 +5,7 @@
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
+import { handleMockApi } from "./mock-api";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -48,9 +49,21 @@ export default {
       return handleDraftApi(request, env, pathname);
     }
 
+    if (pathname === "/api/mocks" || pathname.startsWith("/api/mocks/")) {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleMockApi(request, env, pathname);
+    }
+
     // Any other /api/* path is a real 404 (never a static asset).
     if (pathname.startsWith("/api/")) {
       return json({ error: "not found" }, 404);
+    }
+
+    if ((request.method === "GET" || request.method === "HEAD") && pathname === "/mock") {
+      const assetUrl = new URL(request.url);
+      assetUrl.pathname = "/mock.html";
+      return env.ASSETS.fetch(new Request(assetUrl, request));
     }
 
     // Static shell + assets (public — the user must load the page to enter a key).

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f15" />
+<title>Draft Mock</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="screen mock-screen locked" data-screen>
+  <div class="appbar mock-appbar">
+    <div class="row1">
+      <span class="brand" aria-label="DRAFTMOCK">DRAFT<b>MOCK</b></span>
+      <span class="right">
+        <span class="mode-badge">ISOLATED MODE</span>
+        <a class="mode-link" href="/">Return to live draft</a>
+      </span>
+    </div>
+    <div class="safety-strip">Mock picks only · live draft untouched</div>
+  </div>
+
+  <section class="mock-setup" data-mock-setup hidden>
+    <span class="eyebrow">Seeded rehearsal</span>
+    <h1>Start a mock draft</h1>
+    <p>Use the published league shape and an exact board snapshot.</p>
+    <dl class="league-shape">
+      <div><dt>Teams</dt><dd data-team-count>—</dd></div>
+      <div><dt>Rounds</dt><dd data-rounds>—</dd></div>
+      <div><dt>Scoring</dt><dd data-scoring>—</dd></div>
+    </dl>
+    <form data-start-form>
+      <label class="field">Draft slot
+        <select data-user-slot></select>
+      </label>
+      <label class="field">Seed
+        <input data-seed type="number" min="0" max="4294967295" step="1" required />
+      </label>
+      <p class="mock-error" data-error aria-live="polite"></p>
+      <button class="mock-primary" type="submit" data-start>Start seeded mock</button>
+    </form>
+  </section>
+
+  <section class="mock-active" data-mock-active hidden>
+    <div class="mock-status">
+      <div><span>Seed</span><b data-status-seed>—</b></div>
+      <div><span>Slot</span><b data-status-slot>—</b></div>
+      <div><span>Round</span><b data-status-round>—</b></div>
+      <div><span>Overall</span><b data-status-overall>—</b></div>
+      <div><span>Revision</span><b data-status-revision>—</b></div>
+    </div>
+    <div class="mock-events" data-events aria-live="polite"></div>
+  </section>
+
+  <div class="tabs" role="tablist" aria-label="Position filter" data-tabs hidden></div>
+  <div class="colhead" data-colhead hidden aria-hidden="true">
+    <span class="h-rk">#</span>
+    <span class="h-nm">Player</span>
+    <span class="h-vorp">VORP</span>
+    <span class="h-adp">ADP</span>
+    <span class="h-delta">+/&minus;</span>
+  </div>
+  <div class="list" data-list>
+    <div class="notice"><b>Unlock mock mode.</b>Your live draft remains untouched.</div>
+  </div>
+
+  <section class="pickdock mock-dock" data-pick-panel hidden>
+    <div class="dock-summary">
+      <div class="dock-copy">
+        <p class="onclock" data-on-clock></p>
+        <p class="selection-summary" data-selected>No Player Selected.</p>
+      </div>
+      <button class="record" data-draft-player type="button" disabled>Draft player</button>
+    </div>
+    <p class="mock-error dock-error" data-draft-error aria-live="polite"></p>
+    <button class="discard-mock" data-discard type="button">Discard mock</button>
+  </section>
+  <div class="footbar" data-foot>board.json —</div>
+
+  <div class="lock" data-lock>
+    <form class="lockcard" data-unlock-form>
+      <div class="keyicon">◆</div>
+      <h2>Unlock mock mode</h2>
+      <p class="desc">Use the same tracker API key as the live draft.</p>
+      <label for="mock-api-key">API key</label>
+      <input id="mock-api-key" data-key type="password" autocomplete="off" spellcheck="false" />
+      <p class="err" data-key-error hidden></p>
+      <button class="save" type="submit">Unlock mock</button>
+    </form>
+  </div>
+</div>
+<script src="/mock-app.js" defer></script>
+</body>
+</html>

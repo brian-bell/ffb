@@ -29,6 +29,7 @@ describe("player pool", () => {
       round_pick: 1,
       team_name: "Brian",
     });
+    expect(pool.available.map((player) => player.key)).toEqual(["two", "three"]);
     expect(pool.search("alpha").map((player) => player.key)).toEqual(["two", "three"]);
   });
 
@@ -69,6 +70,7 @@ describe("player pool", () => {
       "def:SFO",
       "sleeper:sf",
     ]);
+    expect(pool.available.map((player) => player.key)).toEqual(["canonical:other"]);
     expect(pool.search("a brown").map((player) => player.key)).toEqual(["canonical:other"]);
     expect(pool.search("49ers")).toEqual([]);
   });

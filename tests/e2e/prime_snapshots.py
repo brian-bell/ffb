@@ -11,6 +11,7 @@ from ffb.snapshot import SnapshotCache
 from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
 
 SEASON = 2024
+E2E_TEAMS = 2
 
 
 def prime_snapshots(snapshot_dir: Path) -> None:
@@ -19,7 +20,7 @@ def prime_snapshots(snapshot_dir: Path) -> None:
     fixtures = {
         sleeper.snapshot_key(SEASON): fixture_dir / "sleeper_projections_sample.json",
         espn.snapshot_key(SEASON): fixture_dir / "espn_projections_sample.json",
-        ffc.snapshot_key(SEASON, teams=1, fmt=config.FFC_FORMAT): fixture_dir
+        ffc.snapshot_key(SEASON, teams=E2E_TEAMS, fmt=config.FFC_FORMAT): fixture_dir
         / "ffc_adp_sample.json",
         crosswalk.snapshot_key(): fixture_dir / "ff_playerids_sample.json",
         schedule.snapshot_key(SEASON): fixture_dir / "schedule_sample.json",
