@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>ffb-w0y.2 · Roster-aware simulation prototype</title>
+  <style>
+    :root {
+      --screen:#0f141b;--chrome:#0b0f15;--panel:#121923;--panel2:#171f2a;
+      --line:#273241;--soft:#1a222d;--ink:#e8eef4;--muted:#8a98a8;
+      --faint:#586575;--accent:#f5a623;--accent-bg:#2a1e08;--good:#34d17a;
+      --good-bg:#0b2418;--reach:#ff6b6b;--blue:#69b7ff;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}html{background:var(--chrome)}body{margin:0;color:var(--ink);background:radial-gradient(circle at 10% 0,#f5a62312,transparent 30rem),var(--chrome);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}[hidden]{display:none!important}
+    .topbar{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--line);background:#0b0f15e8;backdrop-filter:blur(14px)}.topbar-in{width:min(1180px,calc(100% - 24px));min-height:58px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{font-weight:780;letter-spacing:-.02em}.brand b{color:var(--good)}.prototype-tag,.mode{padding:5px 8px;border:1px solid #246943;border-radius:999px;background:var(--good-bg);color:var(--good);font:800 9px/1 var(--mono);letter-spacing:.08em}.top-meta{display:flex;align-items:center;gap:8px;color:var(--muted);font:650 10px/1 var(--mono)}
+    main{width:min(1180px,calc(100% - 24px));margin:0 auto;padding:38px 0 70px}.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.55fr);gap:24px;align-items:end;margin-bottom:24px}.eyebrow{display:block;color:var(--good);font:800 10px/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase}.hero h1{max-width:800px;margin:10px 0 12px;font-size:clamp(32px,5vw,58px);line-height:1.02;letter-spacing:-.045em}.hero p{max-width:720px;margin:0;color:#bac4ce;font-size:16px}.scope{padding:18px;border:1px solid #246943;border-radius:14px;background:linear-gradient(145deg,#10271c,var(--panel))}.scope b{display:block;margin-bottom:7px;color:var(--good)}.scope span{color:var(--muted);font-size:12px}
+    .stage{display:grid;grid-template-columns:minmax(360px,560px) minmax(300px,1fr);gap:22px;align-items:start}.phone{overflow:hidden;border:1px solid #344151;border-radius:22px;background:var(--screen);box-shadow:0 30px 80px #0008}.appbar{padding:12px 14px 8px;border-bottom:1px solid #1d5d3a;background:var(--chrome)}.appbar-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.safety{margin-top:8px;padding:6px 8px;border-radius:6px;background:#10271c;color:#7de2a6;text-align:center;font:700 9px/1.2 var(--mono)}
+    .setup{padding:24px 20px;min-height:680px}.setup h2{margin:6px 0 5px;font-size:27px;letter-spacing:-.03em}.setup>p{margin:0 0 18px;color:var(--muted);font-size:13px}.shape{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 20px}.shape div,.status div{min-width:0;padding:10px;border:1px solid var(--line);border-radius:9px;background:#101720}.shape dt,.status span{color:var(--muted);font:750 9px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase}.shape dd{margin:5px 0 0;font:750 14px/1.2 var(--mono)}.field{display:block;margin:0 0 14px;color:var(--muted);font:750 10px/1.2 var(--mono);letter-spacing:.09em;text-transform:uppercase}.field input,.field select{display:block;width:100%;min-height:44px;margin-top:7px;padding:9px 11px;border:1px solid #354151;border-radius:9px;background:#171e26;color:var(--ink);text-transform:none;letter-spacing:0}.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.preset-copy{margin:-5px 0 16px;color:var(--muted);font-size:11px}.primary,.secondary,.quiet{min-height:44px;border-radius:9px;padding:0 13px;font-weight:750}.primary{width:100%;border:0;background:var(--good);color:#06140d}.secondary{border:1px solid #354151;background:#18212c;color:var(--ink)}.quiet{border:1px solid var(--line);background:transparent;color:var(--muted)}
+    .draft{height:760px;display:flex;flex-direction:column}.status{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:var(--line)}.status div{padding:8px 4px;border:0;border-radius:0;background:var(--chrome);text-align:center}.status b{display:block;margin-top:4px;overflow:hidden;color:var(--good);font:750 10px/1 var(--mono);text-overflow:ellipsis}.event{min-height:52px;padding:9px 12px;border-bottom:1px solid var(--line);background:#101720;color:var(--muted);font:600 10px/1.45 var(--mono)}.event b{color:var(--good)}.tabs{display:flex;gap:6px;padding:9px 10px;overflow:auto;background:var(--chrome);scrollbar-width:none}.tab{min-height:38px;flex:none;padding:0 12px;border:0;border-radius:999px;background:#171e26;color:var(--muted);font-size:11px;font-weight:720}.tab.active{background:var(--accent);color:#1a1204}.head,.player{display:grid;grid-template-columns:24px minmax(0,1fr) 46px 40px 38px;gap:7px;align-items:center}.head{padding:8px 11px;color:#6d7a89;background:var(--chrome);font:750 8.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}.head span:not(:nth-child(2)){text-align:right}.list{flex:1;min-height:200px;overflow:auto}.player{width:100%;min-height:52px;padding:7px 11px;border:0;border-bottom:1px solid var(--soft);background:transparent;color:var(--ink);text-align:left}.player:hover{background:#151c24}.player.selected{background:#251b08;box-shadow:inset 3px 0 var(--accent)}.rank,.metric{color:var(--faint);font:650 9.5px/1 var(--mono);text-align:right}.pname{min-width:0}.pname b,.pname span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pname b{font-size:12px}.pname span{color:var(--muted);font:600 9px/1.2 var(--mono)}.vorp{color:var(--ink)}.adp{color:var(--muted)}.delta.good{color:var(--good)}.delta.reach{color:var(--reach)}
+    .dock{padding:10px 12px 12px;border-top:1px solid #354151;background:#101720;box-shadow:0 -12px 26px #0005}.clock{margin:0;color:var(--good);font:750 10px/1.3 var(--mono)}.selection{min-height:20px;margin:5px 0 8px;color:var(--muted);font-size:12px}.selection b{color:var(--accent)}.dock-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.dock .primary{width:auto}.dock button:disabled{cursor:not-allowed;opacity:.45}.complete{flex:1;display:grid;place-items:center;padding:30px;text-align:center}.complete-card{max-width:370px;padding:24px;border:1px solid #246943;border-radius:14px;background:#10271c}.complete-card h2{margin:8px 0}.complete-card p{color:#a9c6b5;font-size:13px}.complete-card .secondary{margin-top:10px}
+    .side{display:grid;gap:14px}.panel{padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.panel h2{margin:0 0 4px;font-size:18px}.panel>p{margin:0;color:var(--muted);font-size:12px}.reason{margin-top:14px;display:grid;gap:8px}.reason-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#101720}.reason-row span{color:var(--muted);font-size:11px}.reason-row b{font:750 11px/1.4 var(--mono)}.reason-total{border-color:#246943;background:var(--good-bg)}.reason-total b{color:var(--good)}.why{margin-top:12px;padding:11px;border-left:3px solid var(--accent);background:#0d131b;color:#c9d4df;font-size:12px}.roster{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:14px}.slot{padding:9px;border:1px solid var(--line);border-radius:8px;background:#101720}.slot span{display:block;color:var(--muted);font:700 9px/1 var(--mono)}.slot b{display:block;margin-top:5px;font:750 13px/1 var(--mono)}.slot.need b{color:var(--accent)}.slot.filled b{color:var(--good)}.shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.shortcuts .secondary,.shortcuts .quiet{width:100%;font-size:12px}.legend{display:grid;gap:9px;margin-top:14px}.legend div{display:grid;grid-template-columns:10px minmax(0,1fr);gap:9px;align-items:start;color:var(--muted);font-size:11px}.dot{width:9px;height:9px;margin-top:4px;border-radius:50%;background:var(--good)}.dot.amber{background:var(--accent)}.dot.blue{background:var(--blue)}.boundary{margin-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}.boundary article{padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.boundary h2{margin:0 0 10px;font-size:17px}.boundary ul{margin:0;padding-left:18px;color:var(--muted);font-size:12px}.boundary li+li{margin-top:5px}.footer{margin-top:24px;color:var(--faint);font:650 10px/1.4 var(--mono);text-align:center}
+    @media(max-width:860px){.hero,.stage{grid-template-columns:1fr}.stage{max-width:600px;margin:auto}.side{grid-template-columns:1fr 1fr}.side .panel:last-child{grid-column:1/-1}.hero{align-items:start}.boundary{grid-template-columns:1fr}}
+    @media(max-width:580px){main{width:100%;padding-top:24px}.hero,.boundary,.side{margin-left:12px;margin-right:12px}.hero,.side{grid-template-columns:1fr}.side .panel:last-child{grid-column:auto}.phone{border-left:0;border-right:0;border-radius:0}.top-meta span:first-child{display:none}.two{grid-template-columns:1fr}.draft{height:740px}.shortcuts{grid-template-columns:1fr}.hero h1{font-size:36px}.scope{display:none}}
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="topbar-in"><div class="brand">DRAFT<b>MOCK</b></div><div class="top-meta"><span>ffb-w0y.2</span><span class="prototype-tag">INTERACTIVE PROTOTYPE</span></div></div></header>
+  <main>
+    <section class="hero">
+      <div><span class="eyebrow">Roster-aware multi-round simulation</span><h1>Plausible opponents. Legal rosters. Exact replay.</h1><p>Choose a slot, seed, and opponent variance. CPU teams draft from the same board while balancing market value against the roster they still need to build.</p></div>
+      <aside class="scope"><b>This prototype shows slice .2</b><span>It demonstrates complete seeded simulations and transparent CPU reasoning. Undo, resume, shared suggestions, and roster review intentionally remain in later slices.</span></aside>
+    </section>
+
+    <section class="stage">
+      <div class="phone" aria-label="Mock draft prototype">
+        <div class="appbar"><div class="appbar-row"><span class="brand">DRAFT<b>MOCK</b></span><span class="mode">ISOLATED MODE</span></div><div class="safety">Mock picks only · live draft untouched</div></div>
+        <section class="setup" data-setup>
+          <span class="eyebrow">Seeded rehearsal</span><h2>Start a mock draft</h2><p>The league shape and player board are frozen for exact replay.</p>
+          <dl class="shape"><div><dt>Teams</dt><dd>10</dd></div><div><dt>Rounds</dt><dd>16</dd></div><div><dt>Scoring</dt><dd>Yahoo league</dd></div></dl>
+          <form data-start-form>
+            <div class="two">
+              <label class="field">Draft slot<select data-slot></select></label>
+              <label class="field">Seed<input data-seed type="number" min="0" max="4294967295" value="8042" required></label>
+            </div>
+            <label class="field">Opponent variance<select data-variance><option value="calm">Calm</option><option value="realistic" selected>Realistic</option><option value="wild">Wild</option></select></label>
+            <p class="preset-copy" data-preset-copy>Balanced market window with visible, believable variation.</p>
+            <button class="primary" type="submit">Start seeded mock</button>
+          </form>
+        </section>
+
+        <section class="draft" data-draft hidden>
+          <div class="status"><div><span>Seed</span><b data-status-seed>—</b></div><div><span>Slot</span><b data-status-slot>—</b></div><div><span>Preset</span><b data-status-preset>—</b></div><div><span>Round</span><b data-status-round>—</b></div><div><span>Pick</span><b data-status-pick>—</b></div></div>
+          <div class="event" data-event aria-live="polite"></div>
+          <div class="tabs" data-tabs></div>
+          <div class="head"><span>#</span><span>Player</span><span>VORP</span><span>ADP</span><span>+/−</span></div>
+          <div class="list" data-list></div>
+          <div class="complete" data-complete hidden><div class="complete-card"><span class="eyebrow">All 160 picks recorded</span><h2>Mock complete</h2><p>Every CPU roster fits Brian’s configured Yahoo slots and the ordered result can be reproduced from this board, preset, seed, and your decisions. Detailed roster review arrives in slice .5.</p><button class="secondary" data-new>Start another mock</button></div></div>
+          <div class="dock" data-dock><p class="clock" data-clock></p><p class="selection" data-selection>Select a legal player from the board.</p><div class="dock-row"><button class="quiet" data-clear>Clear</button><button class="primary" data-draft-player disabled>Draft player</button></div></div>
+        </section>
+      </div>
+
+      <aside class="side">
+        <section class="panel">
+          <span class="eyebrow">Latest CPU decision</span><h2 data-reason-title>Waiting for the draft</h2><p data-reason-copy>Start the mock to see why an opponent chose a player.</p>
+          <div class="reason" data-reason></div><div class="why" data-why>Strategy output is pure: player key, next RNG state, and a compact rationale.</div>
+        </section>
+        <section class="panel">
+          <span class="eyebrow">Brian’s roster shape</span><h2>Needs update every round</h2><p>A position becomes illegal when the entire roster can no longer map to starter, flex, and bench slots.</p><div class="roster" data-roster></div>
+        </section>
+        <section class="panel">
+          <span class="eyebrow">Prototype shortcuts</span><h2>See the full behavior quickly</h2><p>These controls accelerate the demo; they are not proposed product controls.</p><div class="shortcuts"><button class="secondary" data-auto-turn>Use best legal pick</button><button class="secondary" data-auto-complete>Simulate to completion</button><button class="quiet" data-reset>Reset prototype</button><button class="quiet" data-replay>Replay same seed</button></div>
+          <div class="legend"><div><i class="dot"></i><span>Roster safety filters the candidate pool before strategy scoring.</span></div><div><i class="dot amber"></i><span>Need and tier value can move a player above raw market order.</span></div><div><i class="dot blue"></i><span>The saved seed and preset reproduce every CPU choice.</span></div></div>
+        </section>
+      </aside>
+    </section>
+
+    <section class="boundary"><article><h2>Built in this slice</h2><ul><li>Roster-fit legality for user and CPU picks</li><li>Rank, ADP, need, tier/value, and DEF timing</li><li>Calm, Realistic, and Wild seeded variance</li><li>Full 16-round termination and exact replay</li></ul></article><article><h2>Still intentionally absent</h2><ul><li>Pause, resume, undo, and reset lifecycle</li><li>Shared live-board suggestions and search</li><li>Completed-roster review and comparison metrics</li><li>Any mutation of the real draft</li></ul></article></section>
+    <p class="footer">Standalone product prototype · no network, authentication, or production data</p>
+  </main>
+
+  <script>
+    // Confirmed Yahoo defaults from src/ffb/config.py.
+    const TEAM_COUNT=10;
+    const ROSTER={QB:1,WR:1,RB:1,TE:1,"W/T":1,"W/R/T":2,DEF:1,BN:8};
+    const ROUNDS=Object.values(ROSTER).reduce((a,b)=>a+b,0);
+    const FLEX={"W/T":["WR","TE"],"W/R/T":["RB","WR","TE"]};
+    const PRESETS={calm:{label:"Calm",window:4,temp:.18,copy:"Tight market window; CPU teams usually follow consensus."},realistic:{label:"Realistic",window:8,temp:.48,copy:"Balanced market window with visible, believable variation."},wild:{label:"Wild",window:12,temp:.9,copy:"Wider market window for more aggressive rehearsal pressure."}};
+    const starters=[
+      ["Christian McCaffrey","RB","SFO"],["Ja'Marr Chase","WR","CIN"],["CeeDee Lamb","WR","DAL"],["Bijan Robinson","RB","ATL"],["Amon-Ra St. Brown","WR","DET"],["Saquon Barkley","RB","PHI"],["Josh Allen","QB","BUF"],["Garrett Wilson","WR","NYJ"],["Jonathan Taylor","RB","IND"],["Sam LaPorta","TE","DET"],["Lamar Jackson","QB","BAL"],["Breece Hall","RB","NYJ"],["Justin Jefferson","WR","MIN"],["A.J. Brown","WR","PHI"],["Jahmyr Gibbs","RB","DET"],["Puka Nacua","WR","LAR"],["Travis Kelce","TE","KCC"],["De'Von Achane","RB","MIA"],["Patrick Mahomes","QB","KCC"],["Drake London","WR","ATL"],["Trey McBride","TE","ARI"],["Nico Collins","WR","HOU"],["Josh Jacobs","RB","GBP"],["Jalen Hurts","QB","PHI"]
+    ];
+    const teams=["ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GBP","HOU","IND","JAX","KCC","LAC","LAR","LVR","MIA","MIN","NEP","NOS","NYG","NYJ","PHI","PIT","SEA","SFO","TBB","TEN","WAS"];
+    function makeBoard(){
+      const rows=starters.map((p,i)=>({key:`star-${i}`,name:p[0],pos:p[1],team:p[2],rank:i+1,adp:+(i+1+(i%4-1.5)*.8).toFixed(1),vorp:Math.max(12,120-i*4),tier:1+Math.floor(i/8)}));
+      const counts={QB:28,RB:60,WR:60,TE:28,DEF:16};
+      const labels={QB:"Quarterback",RB:"Running Back",WR:"Wide Receiver",TE:"Tight End",DEF:"Defense"};
+      for(const [pos,count] of Object.entries(counts)) for(let i=1;i<=count;i++){
+        if(rows.filter(p=>p.pos===pos).length>=count) break;
+        const rank=rows.length+1;
+        rows.push({key:`${pos.toLowerCase()}-${i}`,name:pos==="DEF"?`${teams[i%teams.length]} Defense`:`${labels[pos]} ${String(i).padStart(2,"0")}`,pos,team:teams[(i*5+rank)%teams.length],rank,adp:+(rank+(i%7-3)*1.3).toFixed(1),vorp:Math.max(-18,84-rank*.52),tier:1+Math.floor(i/12)});
+      }
+      return rows.sort((a,b)=>a.rank-b.rank).map((p,i)=>({...p,rank:i+1}));
+    }
+    const BOARD=makeBoard();
+    const slotInput=document.querySelector("[data-slot]");
+    for(let i=1;i<=TEAM_COUNT;i++){const o=document.createElement("option");o.value=i;o.textContent=`Slot ${i}`;if(i===4)o.selected=true;slotInput.append(o)}
+    const els=Object.fromEntries([...document.querySelectorAll("[data-setup], [data-draft], [data-list], [data-tabs], [data-event], [data-dock], [data-complete], [data-selection], [data-clock], [data-roster], [data-reason], [data-reason-title], [data-reason-copy], [data-why], [data-status-seed], [data-status-slot], [data-status-preset], [data-status-round], [data-status-pick]")].map(el=>[el.dataset[Object.keys(el.dataset)[0]],el]));
+    let state=null,selected=null,filter="ALL",lastSetup={slot:4,seed:8042,preset:"realistic"};
+    function rng(s){let n=s>>>0;n^=n<<13;n^=n>>>17;n^=n<<5;return n>>>0}
+    function gumbel(u){return -Math.log(-Math.log(Math.min(.999999,Math.max(.000001,u))))}
+    function expandedSlots(includeBench=true){const out=[];for(const [slot,count] of Object.entries(ROSTER)){if(!includeBench&&slot==="BN")continue;for(let i=0;i<count;i++)out.push(slot)}return out}
+    function accepts(slot,pos){return slot==="BN"||slot===pos||(FLEX[slot]||[]).includes(pos)}
+    function fitPositions(positions,includeBench=true){const slots=expandedSlots(includeBench),match=Array(slots.length).fill(-1);function visit(pi,seen){for(let si=0;si<slots.length;si++){if(seen[si]||!accepts(slots[si],positions[pi]))continue;seen[si]=true;if(match[si]===-1||visit(match[si],seen)){match[si]=pi;return true}}return false}for(let pi=0;pi<positions.length;pi++)if(!visit(pi,Array(slots.length).fill(false)))return null;const filled={};for(let si=0;si<slots.length;si++)if(match[si]!==-1)filled[slots[si]]=(filled[slots[si]]||0)+1;return filled}
+    function canFitPositions(positions,includeBench=true){return fitPositions(positions,includeBench)!==null}
+    function teamPicks(slot){return state.picks.filter(p=>p.slot===slot)}
+    function legalFor(slot,player){return canFitPositions([...teamPicks(slot).map(p=>p.pos),player.pos])}
+    function starterGain(slot,player){const before=teamPicks(slot).map(p=>p.pos);const filled=x=>{const slots=expandedSlots(false),match=Array(slots.length).fill(-1);let total=0;function visit(pi,seen){for(let si=0;si<slots.length;si++){if(seen[si]||!accepts(slots[si],x[pi]))continue;seen[si]=true;if(match[si]===-1||visit(match[si],seen)){match[si]=pi;return true}}return false}for(let i=0;i<x.length;i++)if(visit(i,Array(slots.length).fill(false)))total++;return total};return filled([...before,player.pos])>filled(before)}
+    function nextPick(){const n=state.picks.length+1;if(n>TEAM_COUNT*ROUNDS)return null;const round=Math.floor((n-1)/TEAM_COUNT)+1,offset=(n-1)%TEAM_COUNT,slot=round%2?offset:TEAM_COUNT-1-offset;return{overall:n,round,roundPick:offset+1,slot,isUser:slot===state.userSlot}}
+    function available(){const picked=new Set(state.picks.map(p=>p.key));return BOARD.filter(p=>!picked.has(p.key))}
+    function market(a,b){return a.adp-b.adp||a.rank-b.rank||a.key.localeCompare(b.key)}
+    function chooseCpu(next){
+      const preset=PRESETS[state.preset];
+      const legal=available().filter(p=>legalFor(next.slot,p)).sort(market);
+      const window=legal.slice(0,preset.window);
+      let rngState=state.rngState,best=null;
+      for(const [index,p] of window.entries()){
+        rngState=rng(rngState);const u=rngState/0x100000000;
+        const marketScore=Math.max(0,12-index*1.1),need=starterGain(next.slot,p)?3+next.round/ROUNDS*5:0,tier=Math.max(0,3-p.tier)*.7,penalty=p.pos==="DEF"&&next.round<ROUNDS-4?-5:0,noise=gumbel(u)*preset.temp,total=marketScore+need+tier+penalty+noise;
+        if(!best||total>best.total)best={p,total,marketScore,need,tier,penalty,noise,rngState};
+      }
+      state.rngState=best.rngState;return best;
+    }
+    function appendPick(player,next,source,reason=null){state.picks.push({...player,overall:next.overall,round:next.round,roundPick:next.roundPick,slot:next.slot,source});if(reason)state.lastReason={...reason,player,slot:next.slot,round:next.round}}
+    function advanceCpu(){const appended=[];let next=nextPick();while(next&&!next.isUser){const choice=chooseCpu(next);appendPick(choice.p,next,"CPU",choice);appended.push(choice.p);next=nextPick()}state.latest=appended}
+    function start(setup){lastSetup=setup;state={userSlot:setup.slot-1,seed:setup.seed>>>0,rngState:setup.seed>>>0,preset:setup.preset,picks:[],latest:[],lastReason:null};selected=null;filter="ALL";advanceCpu();render()}
+    function userPick(player){const next=nextPick();if(!next||!next.isUser||!legalFor(next.slot,player))return;appendPick(player,next,"Brian");selected=null;advanceCpu();render()}
+    function bestUser(){const next=nextPick();return next?available().filter(p=>legalFor(next.slot,p)).sort(market)[0]:null}
+    function renderTabs(){const positions=["ALL","QB","RB","WR","TE","DEF"];els.tabs.innerHTML=positions.map(p=>`<button class="tab ${p===filter?"active":""}" data-filter="${p}" aria-pressed="${p===filter}">${p}</button>`).join("")}
+    function renderList(){const rows=available().filter(p=>filter==="ALL"||p.pos===filter).filter(p=>legalFor(state.userSlot,p)).slice(0,28);els.list.innerHTML=rows.map(p=>{const d=Math.round(p.adp-p.rank),cls=d>=0?"good":"reach";return `<button class="player ${selected?.key===p.key?"selected":""}" data-player="${p.key}"><span class="rank">${p.rank}</span><span class="pname"><b>${p.name}</b><span>${p.pos} · ${p.team} · T${p.tier}</span></span><span class="metric vorp">${p.vorp.toFixed(0)}</span><span class="metric adp">${p.adp.toFixed(1)}</span><span class="metric delta ${cls}">${d>0?"+":""}${d}</span></button>`}).join("")||`<div class="event">No legal ${filter} players remain for this roster.</div>`}
+    function renderReason(){const r=state.lastReason;if(!r){els.reasonTitle.textContent="Brian is on the clock";els.reasonCopy.textContent="No CPU decision has been made yet for this seed.";els.reason.innerHTML="";return}els.reasonTitle.textContent=`${r.player.name} · CPU ${r.slot+1}`;els.reasonCopy.textContent=`Round ${r.round} · ${PRESETS[state.preset].label} preset · market-need-v1`;const rows=[["Market position",r.marketScore],["Open-starter need",r.need],["Tier / value",r.tier],["Early DEF",r.penalty],["Seeded noise",r.noise],["Final score",r.total]];els.reason.innerHTML=rows.map((x,i)=>`<div class="reason-row ${i===rows.length-1?"reason-total":""}"><span>${x[0]}</span><b>${x[1]>=0?"+":""}${x[1].toFixed(2)}</b></div>`).join("");els.why.textContent=r.need>0?`${r.player.pos} improved an open starter assignment without making the roster illegal.`:`Market value led this pick; the roster matcher confirmed it still fits.`}
+    function renderRoster(){const picks=teamPicks(state.userSlot),filled=fitPositions(picks.map(p=>p.pos))||{};els.roster.innerHTML=Object.entries(ROSTER).map(([slot,target])=>{const count=filled[slot]||0,cls=count>=target?"filled":"need";return `<div class="slot ${cls}"><span>${slot}${target>1?` ×${target}`:""}</span><b>${count} / ${target}</b></div>`}).join("")}
+    function render(){
+      els.setup.hidden=!!state;els.draft.hidden=!state;if(!state)return;
+      const next=nextPick(),complete=!next;els.statusSeed.textContent=state.seed;els.statusSlot.textContent=state.userSlot+1;els.statusPreset.textContent=PRESETS[state.preset].label;els.statusRound.textContent=next?next.round:"Done";els.statusPick.textContent=next?next.overall:String(TEAM_COUNT*ROUNDS);
+      els.complete.hidden=!complete;els.list.hidden=complete;els.tabs.hidden=complete;els.dock.hidden=complete;
+      if(!complete){els.event.innerHTML=state.latest.length?`<b>${state.latest.length} CPU pick${state.latest.length===1?"":"s"}</b> · ${state.latest.slice(-3).map(p=>`${p.name} ${p.pos}`).join(" · ")}`:`<b>You have the opening pick.</b> No CPU selections yet.`;els.clock.textContent=`Brian · Round ${next.round}, pick ${next.roundPick} · ${ROUNDS*TEAM_COUNT-state.picks.length} players remain`;els.selection.innerHTML=selected?`Selected <b>${selected.name}</b> · ${selected.pos} · ${selected.team}`:"Select a legal player from the board.";document.querySelector("[data-draft-player]").disabled=!selected;renderTabs();renderList()}
+      renderReason();renderRoster();
+    }
+    document.querySelector("[data-variance]").addEventListener("change",e=>document.querySelector("[data-preset-copy]").textContent=PRESETS[e.target.value].copy);
+    document.querySelector("[data-start-form]").addEventListener("submit",e=>{e.preventDefault();start({slot:+slotInput.value,seed:+document.querySelector("[data-seed]").value,preset:document.querySelector("[data-variance]").value})});
+    els.tabs.addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(b){filter=b.dataset.filter;selected=null;render()}});
+    els.list.addEventListener("click",e=>{const b=e.target.closest("[data-player]");if(b){selected=BOARD.find(p=>p.key===b.dataset.player);render()}});
+    document.querySelector("[data-draft-player]").addEventListener("click",()=>selected&&userPick(selected));
+    document.querySelector("[data-clear]").addEventListener("click",()=>{selected=null;render()});
+    document.querySelector("[data-auto-turn]").addEventListener("click",()=>{if(state&&!nextPick())return;const p=bestUser();if(p)userPick(p)});
+    document.querySelector("[data-auto-complete]").addEventListener("click",()=>{if(!state)return;let guard=0;while(nextPick()&&guard++<ROUNDS+1){const p=bestUser();if(!p)break;userPick(p)}render()});
+    document.querySelector("[data-reset]").addEventListener("click",()=>{state=null;selected=null;render()});
+    document.querySelector("[data-new]").addEventListener("click",()=>{state=null;selected=null;render()});
+    document.querySelector("[data-replay]").addEventListener("click",()=>start(lastSetup));
+    render();
+  </script>
+</body>
+</html>
