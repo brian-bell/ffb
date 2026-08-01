@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any
+from typing import Any, Literal
 
 from ffb import config, identity
 from ffb.tiers import assign_tiers
@@ -59,6 +59,7 @@ def board_rows(
     num_teams: int,
     tier_count: dict[str, int] = config.TIER_COUNT,
     pools: dict[str, int] = config.POSITION_POOL,
+    player_pool: Literal["draftable", "all"] = "draftable",
 ) -> list[dict[str, Any]]:
     """Return board rows (§3g shape) sorted by VORP desc, fully ranked.
 
@@ -66,7 +67,15 @@ def board_rows(
     independent of ADP (FFC is non-exhaustive, so a player it omits must not
     lose their bye with their ADP). The schedule bye wins; a row's FFC ``bye``
     is only a fallback when the schedule has no entry for that team.
+
+    The default ``draftable`` pool uses projection-source activity for
+    consensus rows and a current canonical FFC team for ADP-only rows. ``all``
+    retains the former matched-player diagnostic pool. Filtering happens before
+    all derived values and never reaches the serialized contract.
     """
+    if player_pool not in {"draftable", "all"}:
+        raise ValueError(f"unsupported player pool: {player_pool}")
+
     roster_positions = eligible_positions(roster_slots)
     consensus = [
         row
@@ -92,6 +101,8 @@ def board_rows(
     for a in adp:
         if a["player_key"] not in seen:
             working.append(_working_from_adp(a))
+    if player_pool == "draftable":
+        working = [row for row in working if row["draftable"]]
     for w in working:
         schedule_bye = bye_by_team.get(identity.canonical_team(w["team"]))
         w["bye"] = schedule_bye if schedule_bye is not None else w["bye"]
@@ -122,6 +133,7 @@ def _working_from_consensus(c: dict[str, Any], a: dict[str, Any] | None) -> dict
         "points": c["consensus"],
         "n_sources": c["n"],
         "matched": c["matched"],
+        "draftable": c.get("draftable") is True,
         "bye": a["bye"] if a else None,
         "adp": a["adp"] if a else None,
         "adp_high": a["adp_high"] if a else None,
@@ -139,6 +151,7 @@ def _working_from_adp(a: dict[str, Any]) -> dict[str, Any]:
         "points": None,
         "n_sources": 0,
         "matched": a["matched"],
+        "draftable": identity.canonical_team(a["team"]) is not None,
         "bye": a["bye"],
         "adp": a["adp"],
         "adp_high": a["adp_high"],

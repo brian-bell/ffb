@@ -36,7 +36,8 @@ def consensus_rows(
     but are excluded from consensus.
 
     Each row: ``rank``, ``player_key``, ``full_name``, ``position``, ``team``,
-    ``matched``, ``source_points`` ({source: pts}), ``consensus``, ``n``.
+    ``matched``, ``source_points`` ({source: pts}), ``consensus``, ``n``, and
+    internal ``draftable`` activity aggregated across contributing sources.
     """
     rows = store.projection_rows(season=season, position=position, source=None, scope=scope)
     allowed = set(sources) if sources is not None else None
@@ -56,8 +57,10 @@ def consensus_rows(
                 "team": r["team"],
                 "matched": r["matched"],
                 "source_points": {},
+                "draftable": False,
             },
         )
+        entry["draftable"] = entry["draftable"] or r.get("draftable") is True
         entry["source_points"][r["source"]] = round(
             ppr_points(r["stats"], cfg, position=r["position"]), 2
         )

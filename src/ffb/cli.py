@@ -33,6 +33,7 @@ console = Console()
 
 # Per-source columns shown by --show-sources, in display order.
 _SOURCE_COLUMNS = ("sleeper", "espn")
+_PLAYER_POOLS = frozenset({"draftable", "all"})
 
 
 @app.callback()
@@ -319,7 +320,13 @@ def rankings(
     _report_scoring_provenance(league)
 
 
-def _load_board(season: int) -> tuple[list[dict], object, dict]:
+def _validate_player_pool(player_pool: str) -> str:
+    if player_pool not in _PLAYER_POOLS:
+        raise typer.BadParameter(f"unsupported player pool: {player_pool}")
+    return player_pool
+
+
+def _load_board(season: int, player_pool: str = "draftable") -> tuple[list[dict], object, dict]:
     store = Store(paths.db_path())
     store.init_schema()
     active_sources = [
@@ -349,6 +356,7 @@ def _load_board(season: int) -> tuple[list[dict], object, dict]:
             byes=byes,
             roster_slots=league.roster_slots,
             num_teams=league.num_teams,
+            player_pool=player_pool,
         ),
         league,
         status,
@@ -360,9 +368,12 @@ def board_show(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
     pos: str = typer.Option(None, "-p", "--position", help="Filter terminal rows."),
     limit: int = typer.Option(50, "--limit", help="Max rows to show."),
+    player_pool: str = typer.Option(
+        "draftable", "--player-pool", help="Player pool: draftable or all."
+    ),
 ) -> None:
     """Show a board computed only from persisted season data."""
-    board, league, _ = _load_board(season)
+    board, league, _ = _load_board(season, _validate_player_pool(player_pool))
     if not board:
         console.print(f"[yellow]No board rows for {season}.[/yellow]")
         return
@@ -381,9 +392,12 @@ def board_export(  # noqa: B008
     output_dir: Path | None = typer.Option(  # noqa: B008
         None, "--output-dir", help="Export directory."
     ),
+    player_pool: str = typer.Option(
+        "draftable", "--player-pool", help="Player pool: draftable or all."
+    ),
 ) -> None:
-    """Export the full persisted board in one or more formats."""
-    board, league, _ = _load_board(season)
+    """Export the selected persisted board in one or more formats."""
+    board, league, _ = _load_board(season, _validate_player_pool(player_pool))
     selected = formats or ["json", "csv", "markdown"]
     invalid = sorted(set(selected) - {"json", "csv", "markdown"})
     if invalid:

@@ -22,6 +22,7 @@ def test_upsert_and_read_back(seeded_store):
     assert henry["position"] == "RB"
     assert henry["stats"]["rush_yd"] == 1575.0
     assert henry["src_pts_ppr"] == 288.0
+    assert henry["draftable"] is True
     # No crosswalk seeded -> fallback key, matched False.
     assert henry["player_key"] == "sleeper:3198"
     assert henry["matched"] is False
@@ -33,6 +34,33 @@ def test_upsert_is_idempotent_on_primary_key(seeded_store, sample_rows):
     seeded_store.upsert_projections(resolved)  # same rows again
     after = len(seeded_store.projection_rows(season=2024))
     assert before == after
+
+
+def test_projection_draftability_round_trips_both_values(store):
+    rows = []
+    for native_id, draftable in (("active", True), ("unsigned", False)):
+        rows.append(
+            {
+                "player_key": f"sleeper:{native_id}",
+                "season": 2026,
+                "source": "sleeper",
+                "scope": "season",
+                "native_id": native_id,
+                "full_name": native_id.title(),
+                "position": "RB",
+                "team": "BAL" if draftable else None,
+                "matched": False,
+                "stats": {"rush_yd": 100.0},
+                "src_pts_ppr": 10.0,
+                "draftable": draftable,
+            }
+        )
+
+    store.upsert_projections(rows)
+
+    stored = {row["native_id"]: row for row in store.projection_rows(2026)}
+    assert stored["active"]["draftable"] is True
+    assert stored["unsigned"]["draftable"] is False
 
 
 def test_filter_by_position(seeded_store):

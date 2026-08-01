@@ -363,7 +363,7 @@ def test_rankings_is_read_only_and_leaves_sync_status_unchanged(tmp_path, monkey
     assert before == after
 
 
-def test_board_show_and_default_export_use_persisted_full_board(tmp_path):
+def test_board_show_and_default_export_use_persisted_draftable_board(tmp_path):
     env = _env(tmp_path)
     assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
 
@@ -386,7 +386,75 @@ def test_board_show_and_default_export_use_persisted_full_board(tmp_path):
     payload = json.loads(board_path.read_text())
     assert payload["version"] == 1
     assert payload["season"] == 2024
-    assert len(payload["players"]) > 2
+    assert len(payload["players"]) >= 2
+    players = {player["name"] for player in payload["players"]}
+    assert "Derrick Henry" in players
+    assert "Ja'Marr Chase" in players
+    assert "Rookie Wideout" not in players
+
+
+def test_all_player_pool_restores_inactive_rows_without_mutating_status(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    before = runner.invoke(app, ["season", "status", "2024", "--json"], env=env).output
+
+    default_show = runner.invoke(
+        app,
+        ["board", "show", "2024", "--position", "WR"],
+        env=env,
+    )
+    all_show = runner.invoke(
+        app,
+        ["board", "show", "2024", "--position", "WR", "--player-pool", "all"],
+        env=env,
+    )
+    output_dir = tmp_path / "all-exports"
+    exported = runner.invoke(
+        app,
+        [
+            "board",
+            "export",
+            "2024",
+            "--format",
+            "json",
+            "--output-dir",
+            str(output_dir),
+            "--player-pool",
+            "all",
+        ],
+        env=env,
+    )
+    after = runner.invoke(app, ["season", "status", "2024", "--json"], env=env).output
+
+    assert default_show.exit_code == 0, default_show.output
+    assert "Ja'Marr Chase" in default_show.output
+    assert "Rookie Wideout" not in default_show.output
+    assert all_show.exit_code == 0, all_show.output
+    assert "Ja'Marr Chase" in all_show.output
+    assert "Rookie Wideout" in all_show.output
+    assert exported.exit_code == 0, exported.output
+    players = {
+        player["name"] for player in json.loads((output_dir / "board.json").read_text())["players"]
+    }
+    assert "Derrick Henry" in players
+    assert "Ja'Marr Chase" in players
+    assert "Rookie Wideout" in players
+    assert before == after
+
+
+@pytest.mark.parametrize("command", ["show", "export"])
+def test_board_rejects_unsupported_player_pool_clearly(tmp_path, command):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["board", command, "2024", "--player-pool", "retired"],
+        env=env,
+    )
+
+    assert result.exit_code == 2
+    assert "unsupported player pool: retired" in result.output
 
 
 @pytest.mark.parametrize(
@@ -570,7 +638,17 @@ def test_board_export_keeps_bye_for_player_missing_from_ffc(tmp_path):
     output_dir = tmp_path / "exports"
     exported = runner.invoke(
         app,
-        ["board", "export", "2024", "--format", "json", "--output-dir", str(output_dir)],
+        [
+            "board",
+            "export",
+            "2024",
+            "--format",
+            "json",
+            "--output-dir",
+            str(output_dir),
+            "--player-pool",
+            "all",
+        ],
         env=env,
     )
 

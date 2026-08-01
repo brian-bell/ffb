@@ -25,7 +25,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from ffb import config
+from ffb import config, identity
 
 log = logging.getLogger(__name__)
 
@@ -136,13 +136,16 @@ def parse_projections(
             if native_id in seen:
                 continue
             seen.add(native_id)
+            team = config.ESPN_PRO_TEAM_MAP.get(player.get("proTeamId"))
 
             rows.append(
                 {
                     "native_id": native_id,
                     "full_name": player.get("fullName"),
                     "position": position,
-                    "team": config.ESPN_PRO_TEAM_MAP.get(player.get("proTeamId")),
+                    "team": team,
+                    "draftable": player.get("active") is True
+                    and identity.canonical_team(team) is not None,
                     "season": season,
                     "source": "espn",
                     "scope": "season",

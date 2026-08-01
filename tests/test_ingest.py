@@ -233,12 +233,16 @@ def test_ensure_espn_ingested_resolves_and_coexists_with_sleeper(store, tmp_path
     ensure_ingested(store, cache, season=2024, fetch=_no_network)  # sleeper first
     recon = ensure_espn_ingested(store, cache, season=2024, fetch=_no_network)
 
-    # Henry, Chase, and Tucker use the crosswalk; SFO uses canonical DEF identity.
-    # Allen remains unmatched.
-    assert recon.matched == 4
+    # Henry, Chase, Rookie Wideout, and Tucker use the crosswalk; SFO uses
+    # canonical DEF identity. Allen remains unmatched. The inactive rookie is
+    # retained in normalized storage for diagnostics and the full-pool policy.
+    assert recon.matched == 5
     espn_rows = store.projection_rows(2024, source="espn")
     henry = next(r for r in espn_rows if r["native_id"] == "3043078")
     assert henry["player_key"] == "12626"  # same canonical key as the Sleeper Henry
+    rookie = next(r for r in espn_rows if r["native_id"] == "4500000")
+    assert rookie["player_key"] == "16000"
+    assert rookie["draftable"] is False
     # Ingesting ESPN must not delete the Sleeper slice.
     assert store.has_season(2024, source="sleeper")
     assert store.has_season(2024, source="espn")

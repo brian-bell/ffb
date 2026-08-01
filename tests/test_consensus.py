@@ -3,7 +3,7 @@
 from ffb.consensus import consensus_rows
 
 
-def _row(source, native_id, key, name, pos, stats, matched=True):
+def _row(source, native_id, key, name, pos, stats, matched=True, draftable=None):
     return {
         "player_key": key,
         "native_id": native_id,
@@ -16,6 +16,7 @@ def _row(source, native_id, key, name, pos, stats, matched=True):
         "scope": "season",
         "stats": stats,
         "src_pts_ppr": None,
+        "draftable": draftable,
     }
 
 
@@ -23,14 +24,60 @@ def test_consensus_averages_source_points_and_counts_n(store):
     # Same canonical key from both sources -> one consensus row, n=2.
     store.upsert_projections(
         [
-            _row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 1000.0}),
-            _row("espn", "3043078", "12626", "Derrick Henry", "RB", {"rush_yd": 1200.0}),
+            _row(
+                "sleeper",
+                "3198",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1000.0},
+                draftable=False,
+            ),
+            _row(
+                "espn",
+                "3043078",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1200.0},
+                draftable=True,
+            ),
         ]
     )
     henry = next(r for r in consensus_rows(store, 2024) if r["player_key"] == "12626")
     assert henry["source_points"] == {"sleeper": 100.0, "espn": 120.0}
     assert henry["consensus"] == 110.0
     assert henry["n"] == 2
+    assert henry["draftable"] is True
+
+
+def test_consensus_is_not_draftable_when_all_sources_are_negative(store):
+    store.upsert_projections(
+        [
+            _row(
+                "sleeper",
+                "3198",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1000.0},
+                draftable=False,
+            ),
+            _row(
+                "espn",
+                "3043078",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1200.0},
+                draftable=False,
+            ),
+        ]
+    )
+
+    henry = consensus_rows(store, 2024)[0]
+
+    assert henry["draftable"] is False
 
 
 def test_single_source_consensus_is_that_source(store):
@@ -84,8 +131,24 @@ def test_sources_filter_restricts_contributors(store):
     # depend on what a prior run happened to persist.
     store.upsert_projections(
         [
-            _row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 1000.0}),
-            _row("espn", "3043078", "12626", "Derrick Henry", "RB", {"rush_yd": 1200.0}),
+            _row(
+                "sleeper",
+                "3198",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1000.0},
+                draftable=False,
+            ),
+            _row(
+                "espn",
+                "3043078",
+                "12626",
+                "Derrick Henry",
+                "RB",
+                {"rush_yd": 1200.0},
+                draftable=True,
+            ),
         ]
     )
     sleeper_only = next(
@@ -94,6 +157,7 @@ def test_sources_filter_restricts_contributors(store):
     assert sleeper_only["n"] == 1
     assert sleeper_only["source_points"] == {"sleeper": 100.0}
     assert sleeper_only["consensus"] == 100.0
+    assert sleeper_only["draftable"] is False
 
     both = next(
         r
@@ -102,6 +166,7 @@ def test_sources_filter_restricts_contributors(store):
     )
     assert both["n"] == 2
     assert both["consensus"] == 110.0
+    assert both["draftable"] is True
 
 
 def test_position_filter_applies(store):

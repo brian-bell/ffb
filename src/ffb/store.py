@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS projections (
     native_id   VARCHAR,               -- the source's own id (provenance)
     stats_json  VARCHAR,
     src_pts_ppr DOUBLE,
+    draftable   BOOLEAN,               -- source activity/team evidence
     PRIMARY KEY (player_key, season, source, scope)
 );
 
@@ -285,12 +286,14 @@ class Store:
             self.conn.execute(
                 """
                 INSERT INTO projections
-                    (player_key, season, source, scope, native_id, stats_json, src_pts_ppr)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (player_key, season, source, scope, native_id, stats_json,
+                     src_pts_ppr, draftable)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (player_key, season, source, scope) DO UPDATE SET
                     native_id   = excluded.native_id,
                     stats_json  = excluded.stats_json,
-                    src_pts_ppr = excluded.src_pts_ppr
+                    src_pts_ppr = excluded.src_pts_ppr,
+                    draftable   = excluded.draftable
                 """,
                 [
                     row["player_key"],
@@ -300,6 +303,7 @@ class Store:
                     row["native_id"],
                     json.dumps(row["stats"]),
                     row["src_pts_ppr"],
+                    row.get("draftable"),
                 ],
             )
 
@@ -759,7 +763,8 @@ class Store:
         """
         query = """
             SELECT p.player_key, pl.full_name, pl.position, pl.team, pl.matched,
-                   p.season, p.source, p.native_id, p.stats_json, p.src_pts_ppr
+                   p.season, p.source, p.native_id, p.stats_json, p.src_pts_ppr,
+                   p.draftable
             FROM projections p
             JOIN players pl ON pl.player_key = p.player_key
             WHERE p.season = ? AND p.scope = ?
