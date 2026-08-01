@@ -2,7 +2,9 @@
   {
     "id": 3043078,
     "fullName": "Derrick Henry",
+    "active": true,
     "defaultPositionId": 2,
+    "proTeamId": 33,
     "stats": [
       {
         "statSourceId": 1,
@@ -25,7 +27,9 @@
   {
     "id": 3918298,
     "fullName": "Josh Allen",
+    "active": true,
     "defaultPositionId": 1,
+    "proTeamId": 2,
     "stats": [
       {
         "statSourceId": 1,
@@ -41,7 +45,9 @@
   {
     "id": 4362628,
     "fullName": "Ja'Marr Chase",
+    "active": true,
     "defaultPositionId": 3,
+    "proTeamId": 4,
     "stats": [
       {
         "statSourceId": 1,
@@ -52,8 +58,24 @@
     ]
   },
   {
+    "id": 4500000,
+    "fullName": "Rookie Wideout",
+    "active": false,
+    "defaultPositionId": 3,
+    "proTeamId": 4,
+    "stats": [
+      {
+        "statSourceId": 1,
+        "scoringPeriodId": 0,
+        "appliedTotal": 0,
+        "stats": {"42": 650.0, "43": 4.0, "53": 45.0}
+      }
+    ]
+  },
+  {
     "id": 15683,
     "fullName": "Justin Tucker",
+    "active": true,
     "defaultPositionId": 5,
     "proTeamId": 33,
     "stats": [
@@ -73,6 +95,7 @@
   {
     "id": -16025,
     "fullName": "49ers D/ST",
+    "active": true,
     "defaultPositionId": 16,
     "proTeamId": 25,
     "stats": [

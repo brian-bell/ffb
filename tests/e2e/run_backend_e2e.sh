@@ -81,7 +81,9 @@ assert board.get("version") == 1, "expected board version 1"
 assert board.get("season") == 2024, "expected board season 2024"
 assert all(isinstance(key, str) and key for key in keys), "player keys must be nonempty"
 assert len(set(keys)) == len(keys), "player keys must be unique"
-assert len(keys) >= 4, "expected at least four matched fixture players"
+assert {"12626", "13971", "10976", "def:SFO"}.issubset(keys), \
+    "expected all draftable matched fixture players"
+assert "16000" not in keys, "inactive fixture player must be absent from the default board"
 assert all(player.get("matched") is True for player in board["players"]), \
     "board must exclude unmatched players"
 byes = {player["key"]: player.get("bye") for player in board["players"]}

@@ -20,7 +20,7 @@ from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.store import Store
+from ffb.store import SchemaMismatchError, Store
 
 app = typer.Typer(help="Fantasy football pipeline (walking skeleton).", no_args_is_help=True)
 league_app = typer.Typer(help="Sync and inspect stored league state.", no_args_is_help=True)
@@ -40,6 +40,18 @@ def main() -> None:
     """Keep subcommand names (e.g. ``ffb rankings``) even with one command."""
 
 
+def _open_store() -> Store:
+    """Open the persisted store, reporting a stale schema as a directed error."""
+    store = Store(paths.db_path())
+    try:
+        store.init_schema()
+    except SchemaMismatchError as exc:
+        store.close()
+        console.print(f"[red]Stored database is out of date:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    return store
+
+
 @league_app.command("sync")
 def league_sync(  # noqa: B008
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
@@ -56,8 +68,7 @@ def league_sync(  # noqa: B008
     except ValueError as exc:
         console.print(f"[red]League fixture rejected:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     result = store.replace_league_state(bundle)
     store.close()
     console.print(
@@ -73,8 +84,7 @@ def league_show(
     rosters: bool = typer.Option(False, "--rosters", help="Expand current-week roster players."),
 ) -> None:
     """Display persisted league source state without network access."""
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     context = store.league_context(season)
     if context is None:
         store.close()
@@ -172,8 +182,7 @@ def season_sync(  # noqa: B008
         if offline
         else SnapshotPolicy.MISSING_ONLY
     )
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     try:
         with _verbose_sync_logging(verbose):
             results = _service(store).sync(season, selectors=source, policy=policy, rebuild=rebuild)
@@ -201,8 +210,7 @@ def season_status(
     as_json: bool = typer.Option(False, "--json", help="Emit versioned JSON."),
 ) -> None:
     """Report persisted source and league state without network access."""
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     status = _service(store).status(season)
     store.close()
     if as_json:
@@ -243,8 +251,7 @@ def season_unmatched(
     source: str | None = typer.Option(None, "--source", help="Filter to sleeper, espn, or ffc."),
 ) -> None:
     """List current rows that did not resolve to canonical identities."""
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     try:
         rows = _service(store).unmatched(season, source)
     except ValueError as exc:
@@ -288,8 +295,7 @@ def rankings(
     """Print rankings from persisted projections without ingesting."""
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
-    store = Store(paths.db_path())
-    store.init_schema()
+    store = _open_store()
     active_sources = [
         source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
     ]
@@ -319,9 +325,14 @@ def rankings(
     _report_scoring_provenance(league)
 
 
-def _load_board(season: int) -> tuple[list[dict], object, dict]:
-    store = Store(paths.db_path())
-    store.init_schema()
+def _validate_player_pool(player_pool: str) -> str:
+    if player_pool not in board_mod.PLAYER_POOLS:
+        raise typer.BadParameter(f"unsupported player pool: {player_pool}")
+    return player_pool
+
+
+def _load_board(season: int, player_pool: str = "draftable") -> tuple[list[dict], object, dict]:
+    store = _open_store()
     active_sources = [
         source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
     ]
@@ -342,6 +353,9 @@ def _load_board(season: int) -> tuple[list[dict], object, dict]:
     adp = store.adp_rows(season)
     byes = store.team_bye_rows(season)
     store.close()
+    _report_player_pool(
+        board_mod.pool_counts(consensus, adp, roster_slots=league.roster_slots), player_pool
+    )
     return (
         board_mod.board_rows(
             consensus,
@@ -349,10 +363,26 @@ def _load_board(season: int) -> tuple[list[dict], object, dict]:
             byes=byes,
             roster_slots=league.roster_slots,
             num_teams=league.num_teams,
+            player_pool=player_pool,
         ),
         league,
         status,
     )
+
+
+def _report_player_pool(counts: dict[str, int], player_pool: str) -> None:
+    """Show how many rankable rows the selected pool keeps, and how many it drops.
+
+    A source that stops reporting activity degrades the default ``draftable``
+    pool silently otherwise: the board just gets smaller.
+    """
+    selected = counts[player_pool]
+    excluded = counts["all"] - selected
+    summary = f"Player pool {player_pool}: {selected} of {counts['all']} rankable player(s)"
+    if excluded:
+        summary += f" ({excluded} excluded as not draftable)"
+    style = "yellow" if not selected else "dim"
+    console.print(f"[{style}]{summary}.[/{style}]")
 
 
 @board_app.command("show")
@@ -360,9 +390,12 @@ def board_show(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
     pos: str = typer.Option(None, "-p", "--position", help="Filter terminal rows."),
     limit: int = typer.Option(50, "--limit", help="Max rows to show."),
+    player_pool: str = typer.Option(
+        "draftable", "--player-pool", help="Player pool: draftable or all."
+    ),
 ) -> None:
     """Show a board computed only from persisted season data."""
-    board, league, _ = _load_board(season)
+    board, league, _ = _load_board(season, _validate_player_pool(player_pool))
     if not board:
         console.print(f"[yellow]No board rows for {season}.[/yellow]")
         return
@@ -381,9 +414,19 @@ def board_export(  # noqa: B008
     output_dir: Path | None = typer.Option(  # noqa: B008
         None, "--output-dir", help="Export directory."
     ),
+    player_pool: str = typer.Option(
+        "draftable", "--player-pool", help="Player pool: draftable or all."
+    ),
 ) -> None:
-    """Export the full persisted board in one or more formats."""
-    board, league, _ = _load_board(season)
+    """Export the selected persisted board in one or more formats."""
+    board, league, _ = _load_board(season, _validate_player_pool(player_pool))
+    if not board:
+        console.print(
+            f"[red]No {player_pool} board rows for {season}; refusing to write an empty "
+            f"export.[/red] Re-sync the projection sources, or use --player-pool all to "
+            f"inspect the unfiltered pool."
+        )
+        raise typer.Exit(code=1)
     selected = formats or ["json", "csv", "markdown"]
     invalid = sorted(set(selected) - {"json", "csv", "markdown"})
     if invalid:

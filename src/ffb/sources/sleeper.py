@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from ffb import config
+from ffb import config, identity
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +120,7 @@ def parse_projections(
                     "full_name": full_name,
                     "position": position,
                     "team": player.get("team"),
+                    "draftable": identity.canonical_team(player.get("team")) is not None,
                     "season": int(item.get("season", 0)),
                     "source": "sleeper",
                     "scope": "season",

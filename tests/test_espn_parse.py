@@ -17,6 +17,23 @@ def raw():
     return json.loads(FIXTURE.read_text())
 
 
+def projection_player(*, active, pro_team_id):
+    return {
+        "id": 1,
+        "fullName": "Activity Test Player",
+        "active": active,
+        "defaultPositionId": 2,
+        "proTeamId": pro_team_id,
+        "stats": [
+            {
+                "statSourceId": 1,
+                "scoringPeriodId": 0,
+                "stats": {"24": 100.0},
+            }
+        ],
+    }
+
+
 def test_parses_season_projection_and_translates_stats(raw):
     rows = parse_projections(raw, season=2024)
     henry = next(r for r in rows if r["native_id"] == "3043078")
@@ -30,6 +47,26 @@ def test_parses_season_projection_and_translates_stats(raw):
     assert henry["stats"]["rush_td"] == 11.58
     assert henry["stats"]["rec"] == 23.57
     assert henry["stats"]["fum_lost"] == 0.89
+
+
+def test_marks_active_player_on_a_current_team_draftable():
+    raw = [projection_player(active=True, pro_team_id=2)]
+
+    assert parse_projections(raw, season=2026)[0]["draftable"] is True
+
+
+def test_marks_inactive_player_with_a_stale_team_non_draftable():
+    rows = parse_projections([projection_player(active=False, pro_team_id=2)], season=2026)
+
+    assert rows[0]["draftable"] is False
+
+
+@pytest.mark.parametrize("pro_team_id", [0, 99, None])
+def test_marks_active_player_without_a_current_team_non_draftable(pro_team_id):
+    rows = parse_projections([projection_player(active=True, pro_team_id=pro_team_id)], season=2026)
+
+    assert rows[0]["draftable"] is False
+    assert rows[0]["stats"]["rush_yd"] == 100.0
 
 
 def test_unmapped_stat_ids_are_dropped(raw):

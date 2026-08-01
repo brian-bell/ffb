@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any
+from typing import Any, Literal
 
 from ffb import config, identity
 from ffb.tiers import assign_tiers
 from ffb.vorp import attach_vorp, eligible_positions
 
 BOARD_VERSION = 1
+
+# Selectable player pools: the draft-ready default and the diagnostic superset.
+PLAYER_POOLS = frozenset({"draftable", "all"})
 
 # Contract field order (also the CSV column order). Slice 6 pins against this.
 _BOARD_FIELDS = (
@@ -59,6 +62,7 @@ def board_rows(
     num_teams: int,
     tier_count: dict[str, int] = config.TIER_COUNT,
     pools: dict[str, int] = config.POSITION_POOL,
+    player_pool: Literal["draftable", "all"] = "draftable",
 ) -> list[dict[str, Any]]:
     """Return board rows (§3g shape) sorted by VORP desc, fully ranked.
 
@@ -66,32 +70,17 @@ def board_rows(
     independent of ADP (FFC is non-exhaustive, so a player it omits must not
     lose their bye with their ADP). The schedule bye wins; a row's FFC ``bye``
     is only a fallback when the schedule has no entry for that team.
-    """
-    roster_positions = eligible_positions(roster_slots)
-    consensus = [
-        row
-        for row in consensus
-        if row["matched"]
-        and (row["position"] not in config.FANTASY_POSITIONS or row["position"] in roster_positions)
-    ]
-    adp = [
-        row
-        for row in adp
-        if row["matched"]
-        and (row["position"] not in config.FANTASY_POSITIONS or row["position"] in roster_positions)
-    ]
-    adp_by_key = {r["player_key"]: r for r in adp}
-    bye_by_team = {b["team"]: b["bye"] for b in byes}
 
-    # Working rows carry vorp/tiers-friendly keys (player_key/position/points).
-    working: list[dict[str, Any]] = []
-    for c in consensus:
-        a = adp_by_key.get(c["player_key"])
-        working.append(_working_from_consensus(c, a))
-    seen = {c["player_key"] for c in consensus}
-    for a in adp:
-        if a["player_key"] not in seen:
-            working.append(_working_from_adp(a))
+    The default ``draftable`` pool uses projection-source activity for
+    consensus rows and a current canonical FFC team for ADP-only rows. ``all``
+    retains the former matched-player diagnostic pool. Filtering happens before
+    all derived values and never reaches the serialized contract.
+    """
+    if player_pool not in PLAYER_POOLS:
+        raise ValueError(f"unsupported player pool: {player_pool}")
+
+    bye_by_team = {b["team"]: b["bye"] for b in byes}
+    working = _select_pool(_merged_working(consensus, adp, roster_slots), player_pool)
     for w in working:
         schedule_bye = bye_by_team.get(identity.canonical_team(w["team"]))
         w["bye"] = schedule_bye if schedule_bye is not None else w["bye"]
@@ -113,6 +102,54 @@ def board_rows(
     return [_to_contract(w) for w in ordered]
 
 
+def pool_counts(
+    consensus: list[dict[str, Any]],
+    adp: list[dict[str, Any]],
+    *,
+    roster_slots: dict[str, int],
+) -> dict[str, int]:
+    """Rankable row counts per player pool, before any derived value.
+
+    Lets a caller see how much of the rankable universe the default
+    ``draftable`` pool selects, so a source that stops reporting activity shows
+    up as a shrunken board instead of a silently hollow one.
+    """
+    working = _merged_working(consensus, adp, roster_slots)
+    return {pool: len(_select_pool(working, pool)) for pool in sorted(PLAYER_POOLS)}
+
+
+def _merged_working(
+    consensus: list[dict[str, Any]],
+    adp: list[dict[str, Any]],
+    roster_slots: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Matched, rosterable consensus ⋈ ADP rows, before pool selection.
+
+    Working rows carry vorp/tiers-friendly keys (player_key/position/points).
+    """
+    roster_positions = eligible_positions(roster_slots)
+    consensus = [row for row in consensus if _is_rankable(row, roster_positions)]
+    adp = [row for row in adp if _is_rankable(row, roster_positions)]
+    adp_by_key = {r["player_key"]: r for r in adp}
+
+    working = [_working_from_consensus(c, adp_by_key.get(c["player_key"])) for c in consensus]
+    seen = {c["player_key"] for c in consensus}
+    working.extend(_working_from_adp(a) for a in adp if a["player_key"] not in seen)
+    return working
+
+
+def _is_rankable(row: dict[str, Any], roster_positions: frozenset[str]) -> bool:
+    return bool(row["matched"]) and (
+        row["position"] not in config.FANTASY_POSITIONS or row["position"] in roster_positions
+    )
+
+
+def _select_pool(working: list[dict[str, Any]], player_pool: str) -> list[dict[str, Any]]:
+    if player_pool == "all":
+        return list(working)
+    return [row for row in working if row["draftable"]]
+
+
 def _working_from_consensus(c: dict[str, Any], a: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "player_key": c["player_key"],
@@ -122,6 +159,7 @@ def _working_from_consensus(c: dict[str, Any], a: dict[str, Any] | None) -> dict
         "points": c["consensus"],
         "n_sources": c["n"],
         "matched": c["matched"],
+        "draftable": c.get("draftable") is True,
         "bye": a["bye"] if a else None,
         "adp": a["adp"] if a else None,
         "adp_high": a["adp_high"] if a else None,
@@ -139,6 +177,7 @@ def _working_from_adp(a: dict[str, Any]) -> dict[str, Any]:
         "points": None,
         "n_sources": 0,
         "matched": a["matched"],
+        "draftable": identity.canonical_team(a["team"]) is not None,
         "bye": a["bye"],
         "adp": a["adp"],
         "adp_high": a["adp_high"],

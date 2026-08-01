@@ -2,7 +2,7 @@
 
 import json
 
-from ffb.board import board_rows, to_board_json, to_csv, to_markdown
+from ffb.board import board_rows, pool_counts, to_board_json, to_csv, to_markdown
 
 ROSTER = {"QB": 1, "RB": 1, "WR": 1, "K": 1, "DEF": 1, "BN": 1}
 NUM_TEAMS = 1
@@ -10,7 +10,7 @@ TIER_COUNT = {"RB": 2, "WR": 2, "DEF": 1}
 POOLS = {"RB": 10, "WR": 10, "DEF": 10}
 
 
-def _consensus(key, name, pos, team, points, n=2):
+def _consensus(key, name, pos, team, points, n=2, draftable=True):
     return {
         "player_key": key,
         "full_name": name,
@@ -20,6 +20,7 @@ def _consensus(key, name, pos, team, points, n=2):
         "source_points": {},
         "consensus": points,
         "n": n,
+        "draftable": draftable,
         "rank": 0,
     }
 
@@ -72,6 +73,219 @@ def test_board_joins_adp_and_leaves_missing_adp_null():
 def test_board_excludes_unmatched_adp_only_rows():
     rows = {r["key"]: r for r in _board()}
     assert "ffc:def" not in rows
+
+
+def test_default_board_excludes_non_draftable_consensus_rows():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus(
+            "unsigned",
+            "Unsigned Player",
+            "RB",
+            None,
+            90.0,
+            draftable=False,
+        ),
+    ]
+
+    board = board_rows(
+        consensus,
+        [],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+    assert [row["key"] for row in board] == ["active"]
+
+
+def test_all_player_pool_restores_non_draftable_consensus_rows():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus(
+            "unsigned",
+            "Unsigned Player",
+            "RB",
+            None,
+            90.0,
+            draftable=False,
+        ),
+    ]
+
+    board = board_rows(
+        consensus,
+        [],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+        player_pool="all",
+    )
+
+    assert {row["key"] for row in board} == {"active", "unsigned"}
+
+
+def test_pool_counts_report_what_the_draftable_pool_drops():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus("unsigned", "Unsigned Player", "RB", None, 90.0, draftable=False),
+    ]
+    adp = [
+        _adp("active", "Active Player", "RB", "BAL", 1.2),
+        _adp("ffc:gone", "Retired Guy", "WR", "FA", 200.0),
+    ]
+
+    counts = pool_counts(consensus, adp, roster_slots=ROSTER)
+
+    assert counts == {"all": 3, "draftable": 1}
+    assert counts["draftable"] == len(
+        board_rows(
+            consensus,
+            adp,
+            roster_slots=ROSTER,
+            num_teams=NUM_TEAMS,
+            tier_count=TIER_COUNT,
+            pools=POOLS,
+        )
+    )
+
+
+def test_pool_counts_ignore_rows_the_board_can_never_rank():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus("no_slot", "Tight End", "TE", "BAL", 90.0),
+    ]
+    unmatched = _adp("ffc:unmatched", "Mystery Man", "WR", "BAL", 30.0, matched=False)
+
+    counts = pool_counts(consensus, [unmatched], roster_slots=ROSTER)
+
+    assert counts == {"all": 1, "draftable": 1}
+
+
+def test_default_board_keeps_draftable_zero_point_player():
+    board = board_rows(
+        [_consensus("zero", "Zero Point Player", "RB", "BAL", 0.0)],
+        [],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+    assert [row["key"] for row in board] == ["zero"]
+    assert board[0]["points"] == 0.0
+
+
+def test_adp_cannot_rescue_negative_projection_evidence():
+    board = board_rows(
+        [
+            _consensus(
+                "stale",
+                "Inactive Player",
+                "RB",
+                "BAL",
+                100.0,
+                draftable=False,
+            )
+        ],
+        [_adp("stale", "Inactive Player", "RB", "BAL", 1.0)],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+    assert board == []
+
+
+def test_default_board_keeps_only_current_team_adp_only_rows():
+    board = board_rows(
+        [],
+        [
+            _adp("current", "Current Player", "RB", "BAL", 100.0),
+            _adp("unsigned", "Unsigned Player", "RB", "FA", 101.0),
+            _adp("unknown", "Unknown Player", "RB", None, 102.0),
+        ],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+    assert [row["key"] for row in board] == ["current"]
+
+
+def test_filtering_precedes_vorp_tiers_and_rank_stamping():
+    consensus = [
+        _consensus("rb1", "Best Back", "RB", "BAL", 100.0),
+        _consensus(
+            "rb2",
+            "Inactive Back",
+            "RB",
+            "BUF",
+            90.0,
+            draftable=False,
+        ),
+        _consensus("wr1", "Best Wideout", "WR", "CIN", 80.0),
+    ]
+    adp = [
+        _adp("rb1", "Best Back", "RB", "BAL", 2.0),
+        _adp("rb2", "Inactive Back", "RB", "BUF", 1.0),
+        _adp("wr1", "Best Wideout", "WR", "CIN", 3.0),
+    ]
+
+    board = board_rows(
+        consensus,
+        adp,
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+    rows = {row["key"]: row for row in board}
+
+    assert rows["rb1"]["vorp"] == 100.0
+    assert rows["rb1"]["tier"] == 1
+    assert [row["rank"] for row in board] == [1, 2]
+    assert [row["pos_rank"] for row in board] == [1, 1]
+    assert sorted(row["adp_rank"] for row in board) == [1, 2]
+
+
+def test_serializers_receive_the_same_default_selected_rows():
+    board = board_rows(
+        [
+            _consensus("active", "Active Player", "RB", "BAL", 100.0),
+            _consensus(
+                "inactive",
+                "Inactive Player",
+                "RB",
+                "BUF",
+                90.0,
+                draftable=False,
+            ),
+        ],
+        [],
+        roster_slots=ROSTER,
+        num_teams=NUM_TEAMS,
+        tier_count=TIER_COUNT,
+        pools=POOLS,
+    )
+
+    document = to_board_json(
+        board,
+        season=2026,
+        num_teams=NUM_TEAMS,
+        roster_slots=ROSTER,
+        generated_at="2026-08-01T12:00:00Z",
+    )
+    csv_text = to_csv(board)
+    markdown = to_markdown(board, season=2026)
+
+    assert document["version"] == 1
+    assert [row["key"] for row in document["players"]] == ["active"]
+    assert "Active Player" in csv_text and "Inactive Player" not in csv_text
+    assert "Active Player" in markdown and "Inactive Player" not in markdown
 
 
 def test_board_excludes_positions_with_no_eligible_roster_slot():

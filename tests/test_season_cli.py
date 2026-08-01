@@ -363,7 +363,7 @@ def test_rankings_is_read_only_and_leaves_sync_status_unchanged(tmp_path, monkey
     assert before == after
 
 
-def test_board_show_and_default_export_use_persisted_full_board(tmp_path):
+def test_board_show_and_default_export_use_persisted_draftable_board(tmp_path):
     env = _env(tmp_path)
     assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
 
@@ -386,7 +386,118 @@ def test_board_show_and_default_export_use_persisted_full_board(tmp_path):
     payload = json.loads(board_path.read_text())
     assert payload["version"] == 1
     assert payload["season"] == 2024
-    assert len(payload["players"]) > 2
+    assert len(payload["players"]) >= 2
+    players = {player["name"] for player in payload["players"]}
+    assert "Derrick Henry" in players
+    assert "Ja'Marr Chase" in players
+    assert "Rookie Wideout" not in players
+
+
+def test_all_player_pool_restores_inactive_rows_without_mutating_status(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    before = runner.invoke(app, ["season", "status", "2024", "--json"], env=env).output
+
+    default_show = runner.invoke(
+        app,
+        ["board", "show", "2024", "--position", "WR"],
+        env=env,
+    )
+    all_show = runner.invoke(
+        app,
+        ["board", "show", "2024", "--position", "WR", "--player-pool", "all"],
+        env=env,
+    )
+    output_dir = tmp_path / "all-exports"
+    exported = runner.invoke(
+        app,
+        [
+            "board",
+            "export",
+            "2024",
+            "--format",
+            "json",
+            "--output-dir",
+            str(output_dir),
+            "--player-pool",
+            "all",
+        ],
+        env=env,
+    )
+    after = runner.invoke(app, ["season", "status", "2024", "--json"], env=env).output
+
+    assert default_show.exit_code == 0, default_show.output
+    assert "Ja'Marr Chase" in default_show.output
+    assert "Rookie Wideout" not in default_show.output
+    assert all_show.exit_code == 0, all_show.output
+    assert "Ja'Marr Chase" in all_show.output
+    assert "Rookie Wideout" in all_show.output
+    assert exported.exit_code == 0, exported.output
+    players = {
+        player["name"] for player in json.loads((output_dir / "board.json").read_text())["players"]
+    }
+    assert "Derrick Henry" in players
+    assert "Ja'Marr Chase" in players
+    assert "Rookie Wideout" in players
+    assert before == after
+
+
+def test_board_commands_report_how_much_the_pool_selected(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    shown = runner.invoke(app, ["board", "show", "2024", "--limit", "1"], env=env)
+
+    assert shown.exit_code == 0, shown.output
+    summary = " ".join(shown.output.split())
+    assert "Player pool draftable:" in summary
+    assert "excluded as not draftable" in summary
+
+
+def test_board_export_refuses_to_write_an_empty_board(tmp_path, monkeypatch):
+    from ffb import board as board_module
+
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    monkeypatch.setattr(board_module, "board_rows", lambda *args, **kwargs: [])
+    output_dir = tmp_path / "hollow"
+
+    exported = runner.invoke(
+        app, ["board", "export", "2024", "--output-dir", str(output_dir)], env=env
+    )
+
+    assert exported.exit_code == 1, exported.output
+    assert "refusing" in " ".join(exported.output.split())
+    assert not (output_dir / "board.json").exists()
+
+
+def test_board_reports_a_database_that_predates_the_schema(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    with Store(Path(env["FFB_DB_PATH"])) as store:
+        store.conn.execute("ALTER TABLE projections DROP COLUMN draftable")
+
+    shown = runner.invoke(app, ["board", "show", "2024"], env=env)
+
+    assert shown.exit_code == 1, shown.output
+    message = " ".join(shown.output.split())
+    assert "predates the current schema" in message
+    assert "--offline --rebuild" in message
+
+
+@pytest.mark.parametrize("command", ["show", "export"])
+def test_board_rejects_unsupported_player_pool_clearly(tmp_path, command):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["board", command, "2024", "--player-pool", "retired"],
+        env=env,
+    )
+
+    assert result.exit_code == 2
+    assert "unsupported player pool: retired" in result.output
 
 
 @pytest.mark.parametrize(
@@ -570,7 +681,17 @@ def test_board_export_keeps_bye_for_player_missing_from_ffc(tmp_path):
     output_dir = tmp_path / "exports"
     exported = runner.invoke(
         app,
-        ["board", "export", "2024", "--format", "json", "--output-dir", str(output_dir)],
+        [
+            "board",
+            "export",
+            "2024",
+            "--format",
+            "json",
+            "--output-dir",
+            str(output_dir),
+            "--player-pool",
+            "all",
+        ],
         env=env,
     )
 

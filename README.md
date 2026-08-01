@@ -73,11 +73,12 @@ missing, failed, stale, or untracked.
 `ffb board` turns the persisted consensus and **ADP** from Fantasy Football
 Calculator into a draft board. It computes **VORP** (value over a replacement-level
 baseline derived from the league's roster shape) and **positional tiers** over the
-league-scored consensus and can export the whole thing.
+league-scored consensus and exports the active, draftable pool by default.
 
 ```sh
 uv run ffb board show 2026                       # rich terminal board
 uv run ffb board show 2026 -p RB --limit 20      # one position
+uv run ffb board show 2026 --player-pool all     # full diagnostic pool
 uv run ffb board export 2026                     # all three files -> exports/
 uv run ffb board export 2026 --format json       # board.json only
 uv run ffb board export 2026 --output-dir out/
@@ -85,10 +86,44 @@ uv run ffb board export 2026 --output-dir out/
 
 The terminal columns are `Rank · Tier · Player · Pos · Team · Bye · Proj · VORP ·
 ADP · +/−`, where `+/−` is `adp_rank − rank` (positive = the market drafts them
-later than we value them — a value pick). Export always writes the **full**
-board to `exports/` (or `--output-dir`, or `$FFB_EXPORT_DIR`); `board.json` is
-the versioned, self-contained data contract
-the draft tracker consumes — no runtime dependency on this pipeline.
+later than we value them — a value pick). Show and export select the
+**draftable** player pool unless `--player-pool all` requests the former full
+matched-player pool for diagnostics. Export writes the selected board to
+`exports/` (or `--output-dir`, or `$FFB_EXPORT_DIR`); `board.json` remains the
+version-1, self-contained data contract the draft tracker consumes, with no
+player-field or envelope change and no runtime dependency on this pipeline.
+
+Draftability comes from the raw provider evidence captured before canonical
+identity can replace a source team. A Sleeper row is draftable when its raw
+`player.team` resolves to a current NFL team. An ESPN row requires both
+`active: true` and a `proTeamId` mapped to a current NFL team. A consensus player
+is retained when any contributing projection source is affirmative; projection
+evidence is authoritative, so ADP cannot rescue a player whose contributing
+projection sources are all negative or unknown. A matched ADP-only row requires
+a valid current FFC team. Team defenses follow the same current-team rule, and
+missing or unknown evidence is non-draftable.
+
+Here, “free agent” means an unsigned NFL player, not someone available on Yahoo
+waivers. Injury labels alone do not remove a player: Questionable, IR, PUP, and
+suspended players remain eligible when the provider still reports the required
+activity and team assignment. Selection happens only while the board is read,
+before bye attachment, VORP, tiers, and ranks are computed. Raw snapshots,
+normalized projections, rankings, season status, and unmatched diagnostics keep
+both draftable and non-draftable rows.
+
+Draftability is source evidence, so it is stored, and `data/ffb.duckdb` carries
+a column that databases written by earlier versions lack. The store is a
+disposable cache rather than a migrated database: move such a file aside and
+replay its cached snapshots.
+
+```sh
+mv data/ffb.duckdb data/ffb.duckdb.bak
+uv run ffb season sync 2026 --offline --rebuild
+```
+
+Forgetting to do so is safe: every command opens the store through a schema
+check that compares the file against the current column set and stops with those
+two commands in the message, instead of failing later inside a query.
 
 FFC has no id in the crosswalk, so ADP resolves by **normalized name + position**
 (with a team tiebreak); ambiguity resolves to *unmatched*, never a guess. Team
@@ -267,11 +302,16 @@ make deploy-app      # typecheck/test, apply remote D1 migrations, deploy app/as
 make deploy-all      # deploy the app, then export/publish the persisted board
 ```
 
-`deploy-board` never fetches source data; it exports the current DuckDB state,
-checks that `exports/board.json` is nonempty, and publishes that file. Run the
-explicit `season sync` first for projection, ADP, or schedule updates. Use `deploy-app` for
-Worker or browser-app changes; it applies committed D1 migrations before
-deploying code that needs them.
+`deploy-board` never fetches source data; it exports the current DuckDB state
+using the CLI's default draftable pool, checks that `exports/board.json` is
+nonempty and holds at least `MIN_BOARD_PLAYERS` (100 by default) players, and
+publishes that file. The count gate is what keeps a board hollowed out by a
+degraded projection source from reaching production; `board export` itself
+refuses to write an empty board, and both board commands print how many rankable
+players the selected pool kept. Run the explicit `season sync` first for
+projection, ADP, or schedule updates. Use `deploy-app` for Worker or browser-app
+changes; it applies committed D1 migrations before deploying code that needs
+them.
 
 Publishing a GitHub Release runs `make deploy-app`, which validates the tracker,
 applies remote D1 migrations, and deploys the Worker and static assets. Configure

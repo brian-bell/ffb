@@ -27,6 +27,10 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 - **Points are computed, never stored.** Sources contribute stat lines;
   `scoring.py` scores them at read time. A source's own point total is kept only
   as `src_pts_ppr` for validation.
+- **Draftability is captured, not inferred from the finished board.** Projection
+  parsers persist provider activity/team evidence on every normalized row. The
+  board applies it only at read time; snapshots, normalized rows, rankings,
+  source status, and unmatched diagnostics remain complete.
 
 ## At a glance
 
@@ -70,22 +74,31 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   config.SLEEPER_COMPANY` (`"rotowire"`, pinned for determinism); drop rows with no
   player/position/id; dedupe by `player_id`. Each kept row becomes
   `{native_id, full_name, position, team, season, source="sleeper",
-  scope="season", stats, src_pts_ppr=stats.pts_ppr}`. The **entire raw `stats`
-  dict is stored** — scoring later picks out the keys it knows.
-- **Stat keys actually scored** (via `config.LEAGUE_SCORING`): offense
-  (`pass_yd/td/int/2pt`, `rush_yd/td/2pt`, `rec/rec_yd/rec_td/rec_2pt`,
-  `fum_lost`), kicking (`fgm_40_49`, `fgm_50p`, `xpm`), and D/ST (`sack`, `int`,
-  `fum_rec`, `safe`, `blk_kick`, `def_fum_td`, `def_kr_td`, `pass_int_td`,
-  `pr_td`, `pts_allow_0`). Everything else Sleeper emits (`adp_*`, `bonus_rec_*`,
-  `idp_*`, per-distance receptions, first downs, attempts) is intentionally
-  unscored and ignored at read time.
+  scope="season", stats, src_pts_ppr=stats.pts_ppr, draftable}`. `draftable` is
+  true only when the raw `player.team` canonicalizes to a current NFL team;
+  null, blank, `FA`, and unknown codes are false. The **entire raw `stats` dict
+  is stored** — scoring later picks out the keys it knows.
+- **Stat keys actually scored** (via `config.LEAGUE_SCORING`, the config the CLI
+  passes for every read command): offense (`pass_yd/td/2pt`, `rush_yd/td/2pt`,
+  `rec/rec_yd/rec_td/rec_2pt`, `fum_rec_td`) and D/ST (`sack`, `int`,
+  `fum_rec`, `safe`, `blk_kick`, `def_fum_td`, `pass_int_td`, `def_ret_td`,
+  `def_2pt`, and the `pts_allow_0`…`pts_allow_21_27` ladder). The league
+  configures **no turnover penalties and no kicking rules**, so `pass_int`,
+  `fum_lost`, and every FG/XP key score zero under it; `config.DEFAULT_PPR` (the
+  generic full-PPR config `ppr_points` falls back to for library callers) does
+  weight `pass_int` and `fum_lost`. Everything else Sleeper emits (`adp_*`,
+  `bonus_rec_*`, `idp_*`, per-distance receptions, first downs, attempts) is
+  intentionally unscored and ignored at read time.
 - **Snapshot key** — `sleeper/projections_nfl_{season}_regular`.
 - **Gotchas**
   - One company is pinned; multi-company averaging is not done.
   - The rotowire kicker line only projects **40+ yard** FGs (`fgm_40_49`,
-    `fgm_50p`) — there is no total-FGM or sub-40 band, so kicker points reflect
-    long FGs + XP (this matches Sleeper's own `pts_std`; validated to ~2 pt median
-    diff in `tests/test_scoring_validation.py`).
+    `fgm_50p`) — there is no total-FGM or sub-40 band. That gap is inert under
+    the configured league, which has no kicking rules and no `K` roster slot, so
+    kickers score zero and `board.py` drops the position outright. The raw stats
+    are stored, so a league that adds kicking is a config change, not a re-ingest.
+    (`tests/test_scoring_validation.py` cross-checks our points against
+    Sleeper's own `pts_ppr` for QB/RB/WR/TE only, under `DEFAULT_PPR`.)
   - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands).
 
 ### 2. ESPN — season projections
@@ -105,10 +118,10 @@ auth, may drift.
   60s timeout. The `limit` (`DEFAULT_LIMIT = 5000`) is deliberately above the full
   player universe (~2,900) so the low-owned tail is never silently dropped.
 - **Response** — a **bare top-level JSON list** of player objects (not wrapped in
-  `{"players": …}`). Each has `id`, `fullName`, `defaultPositionId`, and a
-  `stats[]` array. The **season projection** is the `stats[]` entry with
-  `statSourceId == 1 && scoringPeriodId == 0`; its `stats` is a
-  `{numeric statId: value}` map.
+  `{"players": …}`). Each has `id`, `fullName`, `active`, `proTeamId`,
+  `defaultPositionId`, and a `stats[]` array. The **season projection** is the
+  `stats[]` entry with `statSourceId == 1 && scoringPeriodId == 0`; its `stats`
+  is a `{numeric statId: value}` map.
 - **What we extract** (`parse_projections`):
   - Position via `config.ESPN_POSITION_MAP` (`defaultPositionId` →
     `QB/RB/WR/TE/K/DEF`; ESPN's D/ST label is normalized to `DEF`).
@@ -119,6 +132,9 @@ auth, may drift.
   - Numeric `proTeamId` maps to the canonical MFL-style team code used by the
     crosswalk and defense identity. `src_pts_ppr=None` — ESPN's `appliedTotal` is
     0 in this view, so we score it ourselves.
+  - `draftable` is true only when `active is true` and `proTeamId` maps to a
+    current canonical team. Inactive or unknown activity and team 0/unknown are
+    false; those rows remain stored when they otherwise have usable stats.
   - **Rows with no decoded scorable stats are skipped** rather than emitted at
     zero, which avoids incorrectly diluting a cross-source consensus.
 - **Snapshot key** — `espn/projections_{season}`.
@@ -171,9 +187,10 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
   ```
   GET https://fantasyfootballcalculator.com/api/v1/adp/{fmt}?teams={N}&year={season}
   ```
-  One format/teams combo matching the league: `fmt = config.FFC_FORMAT` (`"ppr"`),
+  One format/teams combo matching the league: `fmt = config.FFC_FORMAT`
+  (`"half-ppr"`),
   while `N` comes from the stored league context and falls back to
-  `config.LEAGUE_NUM_TEAMS` (`12`). Header `User-Agent: ffb/0.1 (personal use)`,
+  `config.LEAGUE_NUM_TEAMS` (`10`). Header `User-Agent: ffb/0.1 (personal use)`,
   `Accept: application/json`, 30s timeout. **No auth.**
 - **Response** — `{"status", "meta": {type, teams, rounds, total_drafts,
   start_date, end_date}, "players": [{player_id, name, position, team, adp,
@@ -206,7 +223,8 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
   re-resolves whenever explicitly synchronized (atomic replace).
   That keeps the mirror honest and buys the late-crosswalk self-heal for free. An
   invalid/empty pull is surfaced as a failure while retaining known-good ADP.
-- **Snapshot key** — `ffc/adp_{fmt}_{teams}_{season}` (e.g. `ffc/adp_ppr_12_2024`).
+- **Snapshot key** — `ffc/adp_{fmt}_{teams}_{season}` (for example,
+  `ffc/adp_half-ppr_10_2024`).
 - **Gotchas**
   - Team defenses join projection consensus through `def:<canonical team>` even
     though they are absent from `ff_playerids`. Kickers join through the crosswalk.
@@ -215,8 +233,8 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
     the tuning loop, not a bug.
   - One format/teams combo per pull. Changing the stored league team count marks
     the existing FFC state stale until `ffb season sync SEASON --source ffc`
-    loads the corresponding snapshot. The format is still the configured `ppr`;
-    half-PPR would require a configuration change.
+    loads the corresponding snapshot. The configured fallback format is
+    `half-ppr`.
 
 ### 5. nflverse schedules — team bye weeks
 
@@ -299,7 +317,9 @@ diagnostics. `ingest.ensure_crosswalk` loads the spine; `ensure_ingested` (Sleep
 identity (so one source can't clobber another's name/team) and keeps misses under
 a fallback key. `consensus.py` excludes those unmatched fallbacks, groups matched
 rows by `player_key`, scores each source's stat line with
-`config.LEAGUE_SCORING`, and averages the points (carrying `n`, the source count).
+`config.LEAGUE_SCORING`, averages the points (carrying `n`, the source count),
+and marks its internal draftability true when any contributing source is
+affirmative.
 
 `league.py` validates a closed, provider-neutral `LeagueBundle` before
 `Store.replace_league_state` atomically mirrors settings/teams and replaces only
@@ -310,9 +330,14 @@ roster components independently, falling back to placeholders safely.
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors
 schedule-derived team byes into `team_byes` the same way. `ffb board show/export`
 then left-joins that ADP onto the consensus in `board.py`, joins byes by
-canonical team, adds VORP (`vorp.py`) and positional tiers (`tiers.py`), and
-renders the board / `board.json` — all computed at read time, so a scoring or
-roster-shape change re-derives everything with no re-ingest.
+canonical team, and defaults to the strict draftable pool. Consensus projection
+evidence is authoritative; ADP-only rows require matched identity plus a current
+FFC team. `--player-pool all` restores the former matched diagnostic pool. The
+selection happens before bye attachment, VORP (`vorp.py`), positional tiers
+(`tiers.py`), and ranks, then renders the board / `board.json` without changing
+the version-1 contract shape. “Free agent” means unsigned by an NFL team, not a
+player on Yahoo waivers; injury labels alone do not exclude an otherwise active,
+team-assigned player.
 
 ---
 
