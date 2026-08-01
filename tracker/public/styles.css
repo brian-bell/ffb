@@ -398,6 +398,7 @@ body {
 
 /* ---------- live draft controls ---------- */
 .viewtabs { display: flex; align-items: center; gap: 6px; padding: 0 12px 9px; background: var(--dr-chrome); }
+.viewtabs[hidden] { display: none; }
 .viewtab, .pickdock button, .setup button { min-height: 44px; border-radius: 9px; border: 1px solid #29323e; background: #171e26; color: var(--dr-ink); font: 650 12px/1 var(--sans); cursor: pointer; }
 .viewtab { padding: 0 12px; color: var(--dr-muted); }
 .viewtab[aria-pressed="true"] { color: var(--dr-accent); border-color: #52400f; }
@@ -415,7 +416,7 @@ body {
 .pick-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; overflow: visible; padding: 0 12px 12px; }
 .onclock, .status { margin: 0; font-size: 12px; color: var(--dr-muted); }
 .pick-tools .status { grid-column: 1 / -1; }
-.pick-tools .status:empty { display: none; }
+.pick-tools .status:empty, .dock-error:empty { display: none; }
 .dock-summary .onclock { margin: 0; color: var(--dr-accent); font: 700 10px/1.35 var(--mono); }
 .selection-summary { min-width: 0; margin: 4px 0 0; overflow: hidden; color: var(--dr-ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .selection-summary b { color: var(--dr-accent); }

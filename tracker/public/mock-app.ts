@@ -1,5 +1,5 @@
 import { isValidBoard } from "../src/board";
-import type { MockState } from "../src/mock-draft";
+import type { MockLifecycleStatus, MockState } from "../src/mock-draft";
 import { initialBoardView, nextBoardView, type BoardPosition, type BoardViewState } from "../src/board-view";
 import { reconcileMockBoardView } from "../src/mock-view";
 import {
@@ -78,6 +78,8 @@ function localStorageOrNull(): Storage | null {
   }
 }
 
+const EVENT_LIMIT = 4;
+
 const keyStore = makeStore(localStorageOrNull());
 let board: Board | null = null;
 let mock: MockState | null = null;
@@ -86,6 +88,8 @@ let writing = false;
 let playerPool: PlayerPool | null = null;
 let pooledPlayers: Board["players"] | null = null;
 let pooledPicks: MockState["picks"] | null = null;
+let suggestedFor: { mock: MockState; pool: PlayerPool } | null = null;
+let suggested: Player[] = [];
 
 function authHeaders(json = false): HeadersInit {
   return {
@@ -146,6 +150,26 @@ function currentPlayerPool(): PlayerPool {
   return playerPool;
 }
 
+function currentSuggestions(
+  state: MockState,
+  pool: PlayerPool,
+  lifecycle: MockLifecycleStatus,
+): Player[] {
+  if (!board || !state.mock) return [];
+  if (suggestedFor?.mock !== state || suggestedFor.pool !== pool) {
+    suggested = mockSuggestions({
+      board,
+      pool,
+      picks: state.picks,
+      lifecycle,
+      next: state.next ?? null,
+      user_slot: state.mock.user_slot,
+    });
+    suggestedFor = { mock: state, pool };
+  }
+  return suggested;
+}
+
 function selectedPlayer(): Player | null {
   return (
     currentPlayerPool().available.find((player) => player.key === boardView.selectedKey) ?? null
@@ -183,10 +207,12 @@ function renderEvents(): void {
     events.innerHTML = "<span>No CPU picks in the latest transition.</span>";
     return;
   }
-  events.innerHTML = latest
-    .map((pick) => `<span><b>${pick.source === "user" ? "You" : escaped(pick.team_name)}</b> ` +
-      `${pick.round}.${String(pick.round_pick).padStart(2, "0")} ${escaped(pick.player_name)}</span>`)
-    .join(" · ");
+  events.innerHTML = `<b>${latest.length} pick${latest.length === 1 ? "" : "s"}</b> `
+    + latest
+      .slice(-EVENT_LIMIT)
+      .map((pick) => `<span>${pick.source === "user" ? "You" : escaped(pick.team_name)} ` +
+        `${pick.round}.${String(pick.round_pick).padStart(2, "0")} ${escaped(pick.player_name)}</span>`)
+      .join(" · ");
 }
 
 function renderClock(): void {
@@ -236,10 +262,7 @@ function renderSuggestions(actionState: ReturnType<typeof actions>, pool: Player
   suggestions.setAttribute("aria-busy", String(writing));
   if (!mock?.mock) return;
   const lifecycle = mock.lifecycle ?? (mock.complete ? "complete" : "active");
-  const choices = mockSuggestions({
-    board: board!, pool, picks: mock.picks, lifecycle,
-    next: mock.next ?? null, user_slot: mock.mock.user_slot,
-  });
+  const choices = currentSuggestions(mock, pool, lifecycle);
   if (lifecycle === "paused") {
     suggestionList.textContent = "Resume to see suggestions";
   } else if (lifecycle === "complete" || mock.next === null) {
@@ -571,7 +594,7 @@ list.addEventListener("click", (event) => {
     type: "playerSelected",
     key: decodeURIComponent(row.dataset.playerKey ?? ""),
   });
-  renderState();
+  renderState(false);
 });
 
 suggestionList.addEventListener("click", (event) => {
@@ -581,17 +604,17 @@ suggestionList.addEventListener("click", (event) => {
     type: "playerSelected",
     key: decodeURIComponent(button.dataset.playerKey ?? ""),
   });
-  renderState();
+  renderState(false);
 });
 
 pickToolsToggle.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "togglePickTools" });
-  renderState();
+  renderState(false);
 });
 
 clearSelection.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "selectionCleared" });
-  renderState();
+  renderState(false);
 });
 
 draftPlayer.addEventListener("click", async () => {
