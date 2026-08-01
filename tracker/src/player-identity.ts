@@ -98,6 +98,12 @@ function signature(...parts: Array<string | null>): string {
  * every pick for every player. The signatures mirror playersEquivalent:
  * canonical keys stay exact, defenses bridge by team, and only fallback/manual
  * identities may bridge by normalized snapshots.
+ *
+ * `candidates` is the full canonical pool the index will be matched against
+ * (board rows). When two or more of them share one normalized (pos, name, team)
+ * signature, that signature is ambiguous, so a canonical row is never bridged to
+ * a fallback/manual pick through it — hiding the wrong player is worse than
+ * leaving a drafted duplicate on the board.
  */
 export function indexPlayerIdentities<T extends PlayerIdentity>(
   identities: readonly T[],
