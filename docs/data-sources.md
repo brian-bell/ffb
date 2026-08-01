@@ -78,20 +78,27 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   true only when the raw `player.team` canonicalizes to a current NFL team;
   null, blank, `FA`, and unknown codes are false. The **entire raw `stats` dict
   is stored** — scoring later picks out the keys it knows.
-- **Stat keys actually scored** (via `config.LEAGUE_SCORING`): offense
-  (`pass_yd/td/int/2pt`, `rush_yd/td/2pt`, `rec/rec_yd/rec_td/rec_2pt`,
-  `fum_lost`), kicking (`fgm_40_49`, `fgm_50p`, `xpm`), and D/ST (`sack`, `int`,
-  `fum_rec`, `safe`, `blk_kick`, `def_fum_td`, `def_ret_td`, `pass_int_td`,
-  `pts_allow_0`). Everything else Sleeper emits (`adp_*`, `bonus_rec_*`,
-  `idp_*`, per-distance receptions, first downs, attempts) is intentionally
-  unscored and ignored at read time.
+- **Stat keys actually scored** (via `config.LEAGUE_SCORING`, the config the CLI
+  passes for every read command): offense (`pass_yd/td/2pt`, `rush_yd/td/2pt`,
+  `rec/rec_yd/rec_td/rec_2pt`, `fum_rec_td`) and D/ST (`sack`, `int`,
+  `fum_rec`, `safe`, `blk_kick`, `def_fum_td`, `pass_int_td`, `def_ret_td`,
+  `def_2pt`, and the `pts_allow_0`…`pts_allow_21_27` ladder). The league
+  configures **no turnover penalties and no kicking rules**, so `pass_int`,
+  `fum_lost`, and every FG/XP key score zero under it; `config.DEFAULT_PPR` (the
+  generic full-PPR config `ppr_points` falls back to for library callers) does
+  weight `pass_int` and `fum_lost`. Everything else Sleeper emits (`adp_*`,
+  `bonus_rec_*`, `idp_*`, per-distance receptions, first downs, attempts) is
+  intentionally unscored and ignored at read time.
 - **Snapshot key** — `sleeper/projections_nfl_{season}_regular`.
 - **Gotchas**
   - One company is pinned; multi-company averaging is not done.
   - The rotowire kicker line only projects **40+ yard** FGs (`fgm_40_49`,
-    `fgm_50p`) — there is no total-FGM or sub-40 band, so kicker points reflect
-    long FGs + XP (this matches Sleeper's own `pts_std`; validated to ~2 pt median
-    diff in `tests/test_scoring_validation.py`).
+    `fgm_50p`) — there is no total-FGM or sub-40 band. That gap is inert under
+    the configured league, which has no kicking rules and no `K` roster slot, so
+    kickers score zero and `board.py` drops the position outright. The raw stats
+    are stored, so a league that adds kicking is a config change, not a re-ingest.
+    (`tests/test_scoring_validation.py` cross-checks our points against
+    Sleeper's own `pts_ppr` for QB/RB/WR/TE only, under `DEFAULT_PPR`.)
   - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands).
 
 ### 2. ESPN — season projections

@@ -9,7 +9,7 @@ MIN_BOARD_PLAYERS ?= 100
 help:
 	@echo "make init          Install Python and tracker dependencies"
 	@echo "make test-backend-e2e  Run the offline CLI-to-Worker backend journey"
-	@echo "make deploy-board  Refresh, export, and publish board.json to production KV"
+	@echo "make deploy-board  Export and publish the persisted board.json to production KV"
 	@echo "make deploy-app    Validate and deploy the tracker application"
 	@echo "make deploy-all    Deploy the application, then publish the board"
 

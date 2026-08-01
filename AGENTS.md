@@ -368,8 +368,11 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   activity is negative rather than guessed. If ESPN drifts, the committed
   fixture keeps CI green; re-verify against a fresh `--refresh` pull.
 - **K/DEF form a Sleeper + ESPN consensus.** ESPN's numeric kicking and defense
-  stat ids decode into the same keys `LEAGUE_SCORING` uses for Sleeper. The ESPN
-  18–21 points-allowed bucket maps to Yahoo's 14–20 bucket as an explicit
+  stat ids decode into the same stat keys Sleeper emits, so one scoring config
+  covers both sources. `LEAGUE_SCORING` weights the defense keys but no kicking
+  ones, and `LEAGUE_ROSTER_SLOTS` has no `K` slot, so the board drops kickers
+  outright rather than ranking them at zero. The ESPN 18–21 points-allowed
+  bucket maps to Yahoo's 14–20 bucket as an explicit
   approximation, and source buckets that collapse onto one league category are
   added. ESPN `DST` normalizes to `DEF`; Sleeper, ESPN, and FFC defense rows share
   `def:<canonical team>` identity. Rows with no decoded scorable stats are still
