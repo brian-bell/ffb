@@ -111,15 +111,17 @@ before bye attachment, VORP, tiers, and ranks are computed. Raw snapshots,
 normalized projections, rankings, season status, and unmatched diagnostics keep
 both draftable and non-draftable rows.
 
-This change adds a column to the disposable DuckDB cache. Preserve an existing
-database and rebuild it from cached snapshots before using the new code:
+Draftability is source evidence, so it is stored, and `data/ffb.duckdb` carries
+a column that databases written by earlier versions lack. The store is a
+disposable cache rather than a migrated database: move such a file aside and
+replay its cached snapshots.
 
 ```sh
-mv data/ffb.duckdb data/ffb.duckdb.pre-draftable
+mv data/ffb.duckdb data/ffb.duckdb.bak
 uv run ffb season sync 2026 --offline --rebuild
 ```
 
-Skipping the rebuild is safe: every command opens the store through a schema
+Forgetting to do so is safe: every command opens the store through a schema
 check that compares the file against the current column set and stops with those
 two commands in the message, instead of failing later inside a query.
 
