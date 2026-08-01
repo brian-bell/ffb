@@ -131,7 +131,8 @@ function playerFromPick(players: readonly Player[], pick: DraftPickSnapshot): Pl
     pos: pick.player_pos,
     team: pick.player_team,
   };
-  const boardPlayer = players.find((player) => playersEquivalent(player, identity));
+  const boardPlayer = players.find((player) => player.key === pick.player_key)
+    ?? players.find((player) => playersEquivalent(player, identity));
   const displayPosition = normalizedPosition(pick.player_pos) ?? pick.player_pos;
   return {
     key: pick.player_key,

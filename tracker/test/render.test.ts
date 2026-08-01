@@ -226,6 +226,36 @@ describe("renderBoard — draft availability", () => {
     expect(history).toContain("Unlisted &lt;Rookie>");
     expect(history).toContain("2.05 · Brian &amp; Co");
   });
+
+  it("uses the exact drafted board row before an equivalent identity for history metrics", () => {
+    const canonical = {
+      ...board.players[0]!,
+      key: "canonical:same",
+      name: "Same Player",
+      adp: 1,
+    };
+    const fallback = {
+      ...canonical,
+      key: "espn:same",
+      adp: 222,
+    };
+    const history = renderBoard({ ...board, players: [canonical, fallback] }, "ALL", {
+      mode: "drafted",
+      draftPicks: [{
+        overall_pick: 1,
+        round: 1,
+        round_pick: 1,
+        team_name: "Brian",
+        player_key: fallback.key,
+        player_name: fallback.name,
+        player_pos: fallback.pos,
+        player_team: fallback.team,
+      }],
+    });
+
+    expect(history).toContain("222.0");
+    expect(history).not.toContain(">1.0<");
+  });
 });
 
 describe("renderBoard — windowed rendering", () => {

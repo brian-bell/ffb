@@ -200,6 +200,40 @@ describe("Worker draft state", () => {
     expect(await duplicate.json()).toMatchObject({ error: "player_already_picked" });
   });
 
+  it("keeps ambiguous canonical board rows recordable after an equivalent manual pick", async () => {
+    const original = fixtureJson.players[0]!;
+    const ambiguousBoard = {
+      ...fixtureJson,
+      players: [
+        { ...original, key: "canonical:one", name: "Ambiguous Player" },
+        { ...original, key: "canonical:two", name: "Ambiguous Player" },
+      ],
+    };
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(ambiguousBoard));
+    await SELF.fetch("https://x/api/draft", {
+      method: "PUT",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ rounds: 1, teams: [{ name: "Brian", is_user: true }, { name: "Other", is_user: false }] }),
+    });
+    const manual = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        expected_overall_pick: 1,
+        manual_player: { name: "Ambiguous Player", pos: original.pos, team: original.team },
+      }),
+    });
+    expect(manual.status).toBe(201);
+
+    const canonical = await SELF.fetch("https://x/api/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ player_key: "canonical:one", expected_overall_pick: 2 }),
+    });
+
+    expect(canonical.status).toBe(201);
+  });
+
   it("requires a teamless manual entry to use an already-listed board row", async () => {
     await SELF.fetch("https://x/api/draft", {
       method: "PUT",

@@ -825,3 +825,7 @@ body {
   .league-shape div:last-child { grid-column: 1 / -1; }
   .mock-status { grid-template-columns: repeat(4, 1fr); }
 }
+@media (max-height: 720px) {
+  .mock-screen { overflow-y: auto; }
+  .mock-screen .list { flex: 0 0 auto; max-height: min(42dvh, 280px); }
+}

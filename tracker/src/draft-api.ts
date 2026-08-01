@@ -1,7 +1,7 @@
-import { BOARD_KEY, BOARD_VERSION, isValidBoard } from "./board";
+import { BOARD_KEY, isValidBoard } from "./board";
 import { configureDraft, getDraftState, recordPick, resetDraft, undoLatestPick, type DraftConfigInput } from "./draft-store";
 import { normalizedName, normalizedPosition } from "./player-identity";
-import type { Player } from "./types";
+import type { Board, Player } from "./types";
 
 export interface DraftApiEnv {
   BOARD: KVNamespace;
@@ -49,12 +49,12 @@ function validConfig(value: unknown, fallbackName: string): DraftConfigInput | n
   return { name, rounds: input.rounds as number, teams: validated };
 }
 
-async function currentBoard(env: DraftApiEnv): Promise<{ board: { season?: unknown; players?: unknown; version?: unknown } } | { response: Response }> {
+async function currentBoard(env: DraftApiEnv): Promise<{ board: Board } | { response: Response }> {
   const text = await env.BOARD.get(BOARD_KEY);
   if (text === null) return { response: error("no_board_published", "No board has been published.", 404) };
   try {
-    const board = JSON.parse(text) as { season?: unknown; players?: unknown; version?: unknown };
-    if (board.version !== BOARD_VERSION || !isValidBoard(board)) return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
+    const board = JSON.parse(text) as unknown;
+    if (!isValidBoard(board)) return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
     return { board };
   } catch {
     return { response: error("board_unreadable", "Board format is unreadable or unsupported.", 503) };
@@ -87,12 +87,14 @@ async function postPick(request: Request, env: DraftApiEnv): Promise<Response> {
   if (!state.next) return error("draft_complete", "The draft is complete.", 409);
   if (state.next.overall_pick !== value.expected_overall_pick) return error("stale_draft", "The draft changed in another tab; reload before recording.", 409);
   let player: Player;
+  let boardPlayers: readonly Player[] = [];
   if (boardKey) {
     const loaded = await currentBoard(env);
     if ("response" in loaded) return loaded.response;
     const found = (loaded.board.players as Player[]).find((candidate) => candidate && candidate.key === boardKey);
     if (!found) return error("unknown_player", "Player is not on the current board.", 422);
     player = found;
+    boardPlayers = loaded.board.players;
   } else {
     const manual = value.manual_player;
     if (!manual || typeof manual !== "object") return error("invalid_manual_player", "Provide a valid manual player snapshot.", 400);
@@ -121,7 +123,12 @@ async function postPick(request: Request, env: DraftApiEnv): Promise<Response> {
     }
     player = { key: `manual:${crypto.randomUUID()}`, name, pos, team, bye: null, points: null, n_sources: 0, vorp: null, tier: null, rank: Number.MAX_SAFE_INTEGER, pos_rank: Number.MAX_SAFE_INTEGER, adp: null, adp_rank: null, adp_high: null, adp_low: null, adp_stdev: null, matched: false };
   }
-  const result = await recordPick(env.DB, player, value.expected_overall_pick as number);
+  const result = await recordPick(
+    env.DB,
+    player,
+    value.expected_overall_pick as number,
+    boardPlayers,
+  );
   if (result !== "ok") return error(result, result.replaceAll("_", " "), 409);
   return json(await getDraftState(env.DB), 201);
 }

@@ -1,5 +1,5 @@
 import { nextPick, type DraftTeam, type NextPick } from "./draft";
-import { playersEquivalent } from "./player-identity";
+import { indexPlayerIdentities } from "./player-identity";
 
 export interface TeamInput {
   name: string;
@@ -121,15 +121,26 @@ export async function configureDraft(db: D1Database, config: DraftConfigInput): 
 }
 
 /** Append one server-derived pick. Schema uniqueness constraints are the race guard. */
-export async function recordPick(db: D1Database, player: PickPlayer, expectedOverallPick: number): Promise<RecordResult> {
+export async function recordPick(
+  db: D1Database,
+  player: PickPlayer,
+  expectedOverallPick: number,
+  boardPlayers: readonly PickPlayer[] = [],
+): Promise<RecordResult> {
   const state = await getDraftState(db);
   if (!state.configured) return "draft_unconfigured";
   if (!state.next) return "draft_complete";
   if (state.next.overall_pick !== expectedOverallPick) return "stale_draft";
-  if (state.picks.some((picked) => playersEquivalent(
-    { key: player.key, name: player.name, pos: player.pos, team: player.team },
-    { key: picked.player_key, name: picked.player_name, pos: picked.player_pos, team: picked.player_team },
-  ))) return "player_already_picked";
+  const pickedIndex = indexPlayerIdentities(
+    state.picks.map((picked) => ({
+      key: picked.player_key,
+      name: picked.player_name,
+      pos: picked.player_pos,
+      team: picked.player_team,
+    })),
+    boardPlayers,
+  );
+  if (pickedIndex.match(player)) return "player_already_picked";
   try {
     await db
       .prepare(
