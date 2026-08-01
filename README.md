@@ -192,10 +192,28 @@ pick snapshots live in separate D1 tables and never mutate the live draft. The
 same board snapshot, strategy version, preset, seed, and ordered user decisions
 replay the same 160-pick Yahoo-shaped draft, including seed zero.
 
+An active mock can be paused and survives refresh with its seed, configuration,
+picks, RNG state, and next turn unchanged; it must be explicitly resumed before
+another pick. **Undo decision** rewinds Brian's latest choice plus every CPU pick
+caused by that choice and restores the pre-decision RNG state. **Restart from
+seed** keeps the mock ID, board snapshot, strategy, variance, and slot while
+deterministically rebuilding the seeded opening. **Discard mock** removes the
+isolated session and returns to setup. All mutations require the displayed
+`mock_id` and monotonic `expected_revision`, so stale tabs cannot revive an old
+state after undo or restart.
+
+The authenticated lifecycle routes are `POST /api/mocks/current/pause`, `POST
+/api/mocks/current/resume`, `DELETE /api/mocks/current/picks/latest`, `POST
+/api/mocks/current/reset`, and `DELETE /api/mocks/current`. Their request body is
+`{"mock_id":"…","expected_revision":N}`. Mock storage and API code use only
+`mock_*` tables; lifecycle operations neither read nor mutate live draft picks.
+
 The write API retains validated `manual_player` snapshots for compatibility when
 a Yahoo pick is absent from the board, although the current client intentionally
 offers only board-row selection. Before draft day, use a fresh local draft and
-verify row selection, search replacement/restoration, record, undo, and reset.
+verify row selection, search replacement/restoration, record, undo, and reset in
+live mode, then pause, resume, undo, restart, and discard a separate rehearsal in
+mock mode.
 
 ```sh
 cd tracker

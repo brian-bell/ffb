@@ -754,7 +754,7 @@ body {
 .mock-active { flex: none; background: var(--dr-chrome); }
 .mock-status {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 1px;
   border-bottom: 1px solid var(--dr-line);
   background: var(--dr-line);
@@ -774,13 +774,32 @@ body {
 .mock-dock .dock-summary { grid-template-columns: minmax(0, 1fr) minmax(120px, 38%); }
 .mock-dock .record { min-height: 44px; border-radius: 9px; }
 .dock-error { padding: 0 12px; }
-.discard-mock {
-  width: calc(100% - 24px);
+.mock-lifecycle-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 12px 8px;
+}
+.mock-control, .discard-mock {
   min-height: 40px;
-  margin: 0 12px 10px;
+  border: 1px solid #344253;
+  border-radius: 8px;
+  background: #17202a;
+  color: var(--dr-ink);
+  font: 700 12px/1 var(--sans);
+  cursor: pointer;
+}
+.mock-control:disabled, .discard-mock:disabled { cursor: default; opacity: .45; }
+.discard-mock {
   border: 1px solid #613333 !important;
   background: #241416 !important;
   color: #ff9393 !important;
+}
+.mock-control-help {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--dr-muted);
+  font: 500 10px/1.4 var(--mono);
 }
 .mock-error { min-height: 18px; margin: 5px 0 10px; color: #ff9393; font-size: 12px; }
 .mock-error:empty { visibility: hidden; }
@@ -791,4 +810,5 @@ body {
   .mock-appbar .right { display: flex; width: 100%; justify-content: space-between; }
   .league-shape { grid-template-columns: 1fr 1fr; }
   .league-shape div:last-child { grid-column: 1 / -1; }
+  .mock-status { grid-template-columns: repeat(4, 1fr); }
 }

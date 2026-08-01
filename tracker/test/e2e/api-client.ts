@@ -61,9 +61,29 @@ export const api = {
         expected_revision: expectedRevision,
       }),
     }),
-  discardMock: (mockId: string) =>
+  pauseMock: (mockId: string, expectedRevision: number) =>
+    request<MockState>("/api/mocks/current/pause", {
+      method: "POST",
+      body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
+    }),
+  resumeMock: (mockId: string, expectedRevision: number) =>
+    request<MockState>("/api/mocks/current/resume", {
+      method: "POST",
+      body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
+    }),
+  undoMock: (mockId: string, expectedRevision: number) =>
+    request<MockState>("/api/mocks/current/picks/latest", {
+      method: "DELETE",
+      body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
+    }),
+  resetMock: (mockId: string, expectedRevision: number) =>
+    request<MockState>("/api/mocks/current/reset", {
+      method: "POST",
+      body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
+    }),
+  discardMock: (mockId: string, expectedRevision: number) =>
     request<MockState>("/api/mocks/current", {
       method: "DELETE",
-      body: JSON.stringify({ mock_id: mockId }),
+      body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
     }),
 };

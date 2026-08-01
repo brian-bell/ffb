@@ -31,6 +31,8 @@ export interface MockPick extends PlayerPoolPick {
   source: "user" | "simulated";
 }
 
+export type MockLifecycleStatus = "active" | "paused" | "complete";
+
 export interface MockAggregate {
   seed: number;
   strategy_version: string;
@@ -55,11 +57,18 @@ export interface MockState {
   picks: MockPick[];
   next?: NextPick | null;
   complete?: boolean;
+  lifecycle?: MockLifecycleStatus;
+  can_undo?: boolean;
   revision: number;
   appended_picks?: MockPick[];
 }
 
 export interface MockTransition {
+  checkpoint: {
+    decision_overall_pick: number;
+    pick_count_before: number;
+    rng_state_before: number;
+  };
   appended_picks: MockPick[];
   next_rng_state: number;
   next: NextPick | null;
@@ -313,6 +322,11 @@ export function recordUserPick(
   );
 
   return {
+    checkpoint: {
+      decision_overall_pick: aggregate.next.overall_pick,
+      pick_count_before: aggregate.picks.length,
+      rng_state_before: aggregate.rng_state,
+    },
     appended_picks: advanced.picks.slice(aggregate.picks.length),
     next_rng_state: advanced.rng_state,
     next: advanced.next,

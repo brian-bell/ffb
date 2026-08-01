@@ -245,6 +245,7 @@ describe("Worker draft state", () => {
 describe("Worker mock draft state", () => {
   beforeEach(async () => {
     await env.DB.batch([
+      env.DB.prepare("DELETE FROM mock_checkpoints"),
       env.DB.prepare("DELETE FROM mock_picks"),
       env.DB.prepare("DELETE FROM mock_teams"),
       env.DB.prepare("DELETE FROM mock_drafts"),
@@ -299,8 +300,140 @@ describe("Worker mock draft state", () => {
         team_name: "Brian",
         is_user: true,
       },
+      lifecycle: "active",
+      can_undo: false,
       revision: 3,
     });
+  });
+
+  it("pauses across reload, resumes, undoes a whole decision, resets, and discards", async () => {
+    const created = await SELF.fetch("https://x/api/mocks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({ user_slot: 4, seed: 8042 }),
+    });
+    const initial = await created.json() as import("../src/mock-draft").MockState;
+    const target = (revision: number) => ({
+      mock_id: initial.mock!.id,
+      expected_revision: revision,
+    });
+
+    const paused = await SELF.fetch("https://x/api/mocks/current/pause", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(target(initial.revision)),
+    });
+    expect(paused.status).toBe(200);
+    expect(await paused.json()).toMatchObject({
+      lifecycle: "paused",
+      revision: initial.revision + 1,
+      picks: initial.picks,
+      next: initial.next,
+    });
+    const reloaded = await SELF.fetch("https://x/api/mocks/current", {
+      headers: bearer(KEY),
+    });
+    expect(await reloaded.json()).toMatchObject({
+      lifecycle: "paused",
+      revision: initial.revision + 1,
+      picks: initial.picks,
+      next: initial.next,
+    });
+
+    const pickedKeys = new Set(initial.picks.map((pick) => pick.player_key));
+    const selected = mockFixture.players.find((player) => !pickedKeys.has(player.key))!;
+    const blockedPick = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...target(initial.revision + 1),
+        player_key: selected.key,
+      }),
+    });
+    expect(blockedPick.status).toBe(409);
+    expect(await blockedPick.json()).toMatchObject({ error: "mock_paused" });
+
+    const resumed = await SELF.fetch("https://x/api/mocks/current/resume", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(target(initial.revision + 1)),
+    });
+    const resumedState = await resumed.json() as import("../src/mock-draft").MockState;
+    expect(resumedState).toMatchObject({ lifecycle: "active", revision: initial.revision + 2 });
+
+    const advanced = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...target(resumedState.revision),
+        player_key: selected.key,
+      }),
+    });
+    const advancedState = await advanced.json() as import("../src/mock-draft").MockState;
+    const firstSequence = advancedState.appended_picks!.map((pick) => pick.player_key);
+    expect(advancedState.can_undo).toBe(true);
+
+    const undone = await SELF.fetch("https://x/api/mocks/current/picks/latest", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(target(advancedState.revision)),
+    });
+    const undoneState = await undone.json() as import("../src/mock-draft").MockState;
+    expect(undoneState).toMatchObject({
+      lifecycle: "active",
+      can_undo: false,
+      revision: advancedState.revision + 1,
+      picks: initial.picks,
+      next: initial.next,
+    });
+
+    const replayed = await SELF.fetch("https://x/api/mocks/current/picks", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        ...target(undoneState.revision),
+        player_key: selected.key,
+      }),
+    });
+    const replayedState = await replayed.json() as import("../src/mock-draft").MockState;
+    expect(replayedState.appended_picks!.map((pick) => pick.player_key)).toEqual(firstSequence);
+
+    const reset = await SELF.fetch("https://x/api/mocks/current/reset", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(target(replayedState.revision)),
+    });
+    const resetState = await reset.json() as import("../src/mock-draft").MockState;
+    expect(resetState).toMatchObject({
+      lifecycle: "active",
+      can_undo: false,
+      revision: replayedState.revision + 1,
+      picks: initial.picks,
+      next: initial.next,
+      mock: initial.mock,
+    });
+
+    const discarded = await SELF.fetch("https://x/api/mocks/current", {
+      method: "DELETE",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(target(resetState.revision)),
+    });
+    expect(discarded.status).toBe(200);
+    expect(await discarded.json()).toEqual({ configured: false, picks: [], revision: 0 });
+  });
+
+  it.each([
+    ["/api/mocks/current/pause", "GET", "POST"],
+    ["/api/mocks/current/resume", "DELETE", "POST"],
+    ["/api/mocks/current/reset", "GET", "POST"],
+    ["/api/mocks/current/picks/latest", "POST", "DELETE"],
+  ])("returns an accurate Allow header for %s", async (path, method, allow) => {
+    const response = await SELF.fetch(`https://x${path}`, {
+      method,
+      headers: bearer(KEY),
+    });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe(allow);
   });
 
   it("persists an explicit variance preset and rejects unknown presets", async () => {
@@ -358,8 +491,25 @@ describe("Worker mock draft state", () => {
       }),
     });
     expect(advanced.status).toBe(201);
-    expect(await advanced.json()).toMatchObject({
+    const advancedState = await advanced.json() as import("../src/mock-draft").MockState;
+    expect(advancedState).toMatchObject({
       mock: { strategy_version: "seeded-market-v0", variance_preset: "realistic" },
+    });
+
+    const reset = await SELF.fetch("https://x/api/mocks/current/reset", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify({
+        mock_id: state.mock.id,
+        expected_revision: advancedState.revision,
+      }),
+    });
+    expect(reset.status).toBe(200);
+    expect(await reset.json()).toMatchObject({
+      mock: { strategy_version: "seeded-market-v0" },
+      lifecycle: "active",
+      picks: [],
+      next: { overall_pick: 1, team_name: "Brian" },
     });
   });
 
@@ -631,6 +781,7 @@ describe("Worker mock draft state", () => {
       }),
     });
     expect(advanced.status).toBe(201);
+    const advancedState = (await advanced.clone().json()) as { revision: number };
     expect(
       await (
         await SELF.fetch("https://x/api/draft", { headers: bearer(KEY) })
@@ -640,7 +791,10 @@ describe("Worker mock draft state", () => {
     const discarded = await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: createdState.mock.id }),
+      body: JSON.stringify({
+        mock_id: createdState.mock.id,
+        expected_revision: advancedState.revision,
+      }),
     });
     expect(discarded.status).toBe(200);
     expect(await discarded.json()).toEqual({
@@ -705,7 +859,10 @@ describe("Worker mock draft state", () => {
     await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: initial.mock.id }),
+      body: JSON.stringify({
+        mock_id: initial.mock.id,
+        expected_revision: initial.revision,
+      }),
     });
     const replay = await SELF.fetch("https://x/api/mocks", {
       method: "POST",
@@ -767,11 +924,14 @@ describe("Worker mock draft state", () => {
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({ user_slot: 1, seed: 1 }),
     });
-    const firstState = (await first.json()) as { mock: { id: string } };
+    const firstState = (await first.json()) as { mock: { id: string }; revision: number };
     const firstDiscard = await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: firstState.mock.id }),
+      body: JSON.stringify({
+        mock_id: firstState.mock.id,
+        expected_revision: firstState.revision,
+      }),
     });
     expect(firstDiscard.status).toBe(200);
 
@@ -785,7 +945,7 @@ describe("Worker mock draft state", () => {
     const staleDiscard = await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: firstState.mock.id }),
+      body: JSON.stringify({ mock_id: firstState.mock.id, expected_revision: 0 }),
     });
     expect(staleDiscard.status).toBe(409);
     expect(await staleDiscard.json()).toMatchObject({ error: "stale_mock" });
@@ -805,11 +965,14 @@ describe("Worker mock draft state", () => {
       headers: { ...bearer(KEY), "content-type": "application/json" },
       body: JSON.stringify({ user_slot: 1, seed: 1 }),
     });
-    const firstState = (await first.json()) as { mock: { id: string } };
+    const firstState = (await first.json()) as { mock: { id: string }; revision: number };
     await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: firstState.mock.id }),
+      body: JSON.stringify({
+        mock_id: firstState.mock.id,
+        expected_revision: firstState.revision,
+      }),
     });
 
     const second = await SELF.fetch("https://x/api/mocks", {
@@ -849,6 +1012,7 @@ describe("Worker mock draft state", () => {
     });
     const createdState = (await created.json()) as {
       mock: { id: string; board_fingerprint: string };
+      revision: number;
     };
     await env.DB.prepare("UPDATE mock_boards SET board_json = ? WHERE fingerprint = ?")
       .bind(
@@ -870,7 +1034,10 @@ describe("Worker mock draft state", () => {
     const discarded = await SELF.fetch("https://x/api/mocks/current", {
       method: "DELETE",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ mock_id: createdState.mock.id }),
+      body: JSON.stringify({
+        mock_id: createdState.mock.id,
+        expected_revision: createdState.revision,
+      }),
     });
     expect(discarded.status).toBe(200);
     expect(await discarded.json()).toEqual({ configured: false, picks: [], revision: 0 });
@@ -946,6 +1113,11 @@ describe("Worker static shell", () => {
     expect(body).toContain("Mock picks only");
     expect(body).toContain('value="realistic" selected');
     expect(body).toContain("data-status-variance");
+    expect(body).toContain("data-status-lifecycle");
+    expect(body).toContain("data-lifecycle-toggle");
+    expect(body).toContain("data-undo");
+    expect(body).toContain("data-reset");
+    expect(body).toContain("rewinds Brian’s latest choice");
     expect(body).toContain('href="styles.css"');
     expect(body).toContain('src="mock-app.js"');
 

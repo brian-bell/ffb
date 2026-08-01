@@ -3,6 +3,19 @@ import { env } from "cloudflare:test";
 import { BOARD_KEY } from "../../src/board";
 import { api } from "./api-client";
 
+async function liveTableSnapshot() {
+  const [drafts, teams, picks] = await Promise.all([
+    env.DB.prepare("SELECT * FROM drafts ORDER BY id").all(),
+    env.DB.prepare("SELECT * FROM teams ORDER BY draft_id, draft_slot").all(),
+    env.DB.prepare("SELECT * FROM picks ORDER BY draft_id, overall_pick").all(),
+  ]);
+  return {
+    drafts: drafts.results,
+    teams: teams.results,
+    picks: picks.results,
+  };
+}
+
 describe("generated backend contract", () => {
   beforeEach(async () => {
     await env.BOARD.put(BOARD_KEY, env.E2E_BOARD_JSON);
@@ -239,6 +252,7 @@ describe("generated backend contract", () => {
     });
     expect((await api.recordBoardPlayer(board.players[0]!.key, 1)).status).toBe(201);
     const liveBefore = await api.getDraft();
+    const liveRowsBefore = await liveTableSnapshot();
 
     const created = await api.createMock(1, 8042);
     expect(created.status).toBe(201);
@@ -249,6 +263,7 @@ describe("generated backend contract", () => {
       next: { overall_pick: 1, team_name: "Brian", is_user: true },
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
 
     const mockId = created.json?.mock?.id;
     if (!mockId) throw new Error("created mock did not include an ID");
@@ -270,10 +285,72 @@ describe("generated backend contract", () => {
       },
     });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
 
-    const discarded = await api.discardMock(mockId);
+    const paused = await api.pauseMock(mockId, advanced.json!.revision);
+    expect(paused.status).toBe(200);
+    expect(paused.json).toMatchObject({
+      lifecycle: "paused",
+      revision: advanced.json!.revision + 1,
+      picks: advanced.json!.picks,
+      next: advanced.json!.next,
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const refreshed = await api.getCurrentMock();
+    expect(refreshed.json).toMatchObject({
+      lifecycle: "paused",
+      revision: paused.json!.revision,
+      picks: advanced.json!.picks,
+      next: advanced.json!.next,
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const resumed = await api.resumeMock(mockId, paused.json!.revision);
+    expect(resumed.json).toMatchObject({
+      lifecycle: "active",
+      revision: paused.json!.revision + 1,
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const undone = await api.undoMock(mockId, resumed.json!.revision);
+    expect(undone.json).toMatchObject({
+      lifecycle: "active",
+      can_undo: false,
+      revision: resumed.json!.revision + 1,
+      picks: [],
+      next: { overall_pick: 1, team_name: "Brian" },
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const replayed = await api.recordMockPlayer(
+      mockId,
+      mockBoard.players[0]!.key,
+      undone.json!.revision,
+    );
+    expect(replayed.json?.appended_picks).toEqual(advanced.json?.appended_picks);
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const reset = await api.resetMock(mockId, replayed.json!.revision);
+    expect(reset.json).toMatchObject({
+      lifecycle: "active",
+      can_undo: false,
+      revision: replayed.json!.revision + 1,
+      picks: [],
+      next: { overall_pick: 1, team_name: "Brian" },
+    });
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const discarded = await api.discardMock(mockId, reset.json!.revision);
     expect(discarded.status).toBe(200);
     expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
   });
 });

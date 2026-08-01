@@ -135,12 +135,19 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   validated `manual_player` snapshot when a Yahoo pick is absent from the board,
   and resets by explicitly deleting picks, teams, then draft (never relying on
   FK cascade).
-- **Isolated mock state:** migrations `0003_mock_drafts.sql` and
-  `0004_mock_strategy_config.sql` store immutable board snapshots, separate mock
-  teams/picks, RNG state, strategy version, and Calm/Realistic/Wild variance.
-  `/mock` and `/api/mocks*` never write live-draft tables. New mocks use
-  `market-need-v1`; the strategy registry keeps active `seeded-market-v0` mocks
-  resumable. Team count and rounds always come from the saved board snapshot.
+- **Isolated mock state:** migrations `0003_mock_drafts.sql`,
+  `0004_mock_strategy_config.sql`, and `0005_mock_lifecycle.sql` store immutable
+  board snapshots, separate mock teams/picks, RNG state, strategy version,
+  Calm/Realistic/Wild variance, paused state, and pre-user-decision checkpoints.
+  Undo removes Brian's latest decision plus its following CPU picks and restores
+  the checkpoint RNG; reset replays the initial seeded CPU prefix. Lifecycle
+  revisions are monotonic mutation tokens and never rewind to pick count, so all
+  pick/pause/resume/undo/reset/discard writes require both the mock ID and the
+  displayed revision. `mock-store.ts` owns lifecycle SQL and references only
+  `mock_*` tables; `/mock` and `/api/mocks*` never read or write live-draft
+  tables. New mocks use `market-need-v1`; the strategy registry keeps active
+  `seeded-market-v0` mocks resumable. Team count and rounds always come from the
+  saved board snapshot.
 - **Roster-safe simulations:** `roster-fit.ts` uses exact capacity matching for
   dedicated slots, W/T, W/R/T, and BN, deduplicates the same player identities as
   availability, and rejects any user or CPU position that would make any league
