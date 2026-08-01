@@ -30,6 +30,7 @@ uv run ruff format .         # format  (CI uses --check)
 uv run ffb season sync 2026 --refresh    # explicit season data refresh
 uv run ffb rankings 2026 -p RB --show-sources
 uv run ffb board export 2026              # board.json + markdown + CSV
+uv run ffb board show 2026 --player-pool all  # full diagnostic matched pool
 ```
 
 The tracker has its own Node toolchain:
@@ -52,8 +53,10 @@ the temporary database, snapshots, and export when diagnosing a failure.
 `deploy-board` is intentionally a data-only deployment: it does **not** fetch or
 sync sources. It exports the currently persisted season, verifies
 `exports/board.json` is nonempty, and writes `board:current` to production KV
-without redeploying code. Run `ffb season sync $(SEASON) --refresh` explicitly
-first when fresh source data is required. `deploy-app` runs the tracker
+without redeploying code. Export uses the CLI's default `draftable` player pool;
+`--player-pool all` is a diagnostic override for direct show/export commands.
+Run `ffb season sync $(SEASON) --refresh` explicitly first when fresh source data
+is required. `deploy-app` runs the tracker
 typecheck and tests, applies pending remote D1 migrations, then builds and
 deploys the Worker and static assets. Both require an authenticated Wrangler
 session; first-time secret setup and key rotation remain manual.
@@ -197,7 +200,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   `players` (canonical/​fallback identity + `matched` flag), `projections` (keyed
   by `(player_key, season, source, scope)` — the `source`/`scope` columns keep
   weekly projections additive later — carrying `native_id`, `stats_json`,
-  `src_pts_ppr`). Exposes writes (`upsert_crosswalk`, `replace_crosswalk`,
+  `src_pts_ppr`, and the source-level `draftable` signal). Exposes writes
+  (`upsert_crosswalk`, `replace_crosswalk`,
   `upsert_projections`, `delete_projections`), the resolver (`resolve`,
   `resolve_batch`), and reads (`projection_rows`, `has_season`, `has_crosswalk`,
   `has_stale_resolution`). Plus the `adp` table (keyed by `(player_key, season,
@@ -231,7 +235,8 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
 - **consensus.py** — groups the requested sources by `player_key`, scores each
   source's stat line, and averages the points; carries `n` (source count). The
   `sources` argument restricts which sources contribute, so output depends on the
-  request rather than on whatever a prior run happened to persist.
+  request rather than on whatever a prior run happened to persist. Its internal
+  `draftable` field is true when any contributing source is affirmative.
 - **identity.py / names.py / vorp.py / tiers.py / board.py** — the cheat-sheet
   compute stack, all pure (dicts in, dicts/strings out; enforced by
   `test_layering`). `identity` canonicalizes NFL teams and DEF/DST keys; `names`
@@ -241,8 +246,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   position at its largest point drops; `board` left-joins ADP onto consensus,
   appends matched ADP-only rows, joins schedule byes by canonical team
   (independent of ADP; the FFC `bye` is only a fallback), computes VORP + tiers,
-  excludes standard positions with no eligible league roster slot, ranks, and
-  serializes to the `board.json` contract / md / csv.
+  excludes standard positions with no eligible league roster slot, selects the
+  requested draftable/all pool before derived values, ranks, and serializes to
+  the `board.json` contract / md / csv.
 - **sources/** — each source is a thin `fetch` + pure `parse` pair with a
   `snapshot_key`. No plugin abstraction yet; projection, ADP, and schedule sources.
 
@@ -261,6 +267,21 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   them by canonical team code independent of ADP — FFC is non-exhaustive, so a
   player it omits keeps their bye. The schedule bye wins; FFC's `bye` field is
   only a fallback when the schedule lacks the team.
+- **Draftability is source evidence, stored but applied only at board read time.**
+  Sleeper is affirmative when raw `player.team` canonicalizes to one of the 32
+  current NFL teams. ESPN requires `active is true` plus a mapped current
+  `proTeamId`; DEF/DST follows the same source-team rule. Consensus uses
+  `any(source draftable)` across only its contributing projection sources, and
+  this projection evidence is authoritative over stale ADP. Matched ADP-only
+  rows require a current canonical FFC team. Missing/unknown evidence is strict
+  false. “Free agent” here means unsigned by an NFL team, not available on Yahoo
+  waivers; Questionable, IR, PUP, and suspended labels alone do not exclude an
+  otherwise active, team-assigned player. `board_rows` defaults to `draftable`;
+  `player_pool="all"` retains the former diagnostic pool. Filtering occurs after
+  matched/roster checks and the consensus/ADP merge but before bye attachment,
+  replacement baselines, VORP, tiers, and rank stamping. Snapshots, normalized
+  projection rows, rankings, source status/counts, unmatched diagnostics, and
+  offline replay remain unfiltered.
 - **Projection parsers enforce the standard position allowlist.** Both
   `parse_projections` drop any row whose position is outside
   `config.FANTASY_POSITIONS` (QB/RB/WR/TE/K/DEF; unmapped/`None` positions drop
@@ -282,7 +303,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   a `version` (bumped on any breaking shape change — the slice-6 tracker pins
   against it) and everything the tracker needs (tiers, ADP, positions, names). The
   CLI does the file writing; `board.py` stays I/O-free and takes `generated_at` as
-  an argument so it's deterministic under test.
+  an argument so it's deterministic under test. Draftability stays internal:
+  the default player set is smaller, but the version-1 envelope and player shape
+  are unchanged.
 - **Canonical identity via the crosswalk (plus team-defense keys).** Player
   sources resolve to an nflverse `mfl_id`; team defenses, which are absent from
   `ff_playerids`, resolve to `def:<canonical MFL team code>`. Valid canonical
@@ -334,8 +357,10 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   top-level JSON list*; the season projection is the `stats[]` entry with
   `statSourceId==1 && scoringPeriodId==0`; stats are `{numeric statId: value}`
   decoded via `config.ESPN_STAT_MAP`. `appliedTotal` is 0 in this view, so ESPN
-  rows carry `src_pts_ppr=None` and we score them ourselves. If ESPN drifts, the
-  committed fixture keeps CI green; re-verify against a fresh `--refresh` pull.
+  rows carry `src_pts_ppr=None` and we score them ourselves. Draftability also
+  requires literal `active=true` and a current mapped `proTeamId`; missing
+  activity is negative rather than guessed. If ESPN drifts, the committed
+  fixture keeps CI green; re-verify against a fresh `--refresh` pull.
 - **K/DEF form a Sleeper + ESPN consensus.** ESPN's numeric kicking and defense
   stat ids decode into the same keys `LEAGUE_SCORING` uses for Sleeper. The ESPN
   18–21 points-allowed bucket maps to Yahoo's 14–20 bucket as an explicit
@@ -372,9 +397,13 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   IF NOT EXISTS` and `ensure_*` skip re-processing when a slice is already
   present, so neither a column change nor a parse/normalization change that alters
   derived-row *content* (e.g. crosswalk `PK`→`K`, or a source dropping unscorable
-  rows) reaches an existing `data/ffb.duckdb`. Delete it and re-ingest (offline,
-  from snapshots) after such a change. The DB is a disposable cache, so this is
-  cheap.
+  rows) reaches an existing `data/ffb.duckdb`. The draftability column requires
+  a rebuild; preserve the old disposable cache and replay existing snapshots:
+
+  ```sh
+  mv data/ffb.duckdb data/ffb.duckdb.pre-draftable
+  uv run ffb season sync 2026 --offline --rebuild
+  ```
 - **Yahoo is fixture-backed only.** `ffb league sync [SEASON] --fixture PATH` stores mock
   league settings, teams, and current-week rosters atomically; it has no OAuth or
   live requests. Task 2b adds YFPY behind the existing provider boundary. Yahoo
