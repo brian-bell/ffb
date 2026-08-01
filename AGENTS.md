@@ -165,6 +165,14 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   prefix* on grow (never appends), so scroll position, selection sync, and pick-recording
   DOM surgery keep working against one list shape. Tier-divider counts always
   reflect the full remaining tier, not the rendered window.
+- **Shared live/mock board loop:** both clients use `BoardViewState`,
+  `buildPlayerPool`, identity-aware search and availability, `renderBoard`, row
+  selection, progressive loading, and `draftClockPresentation`. Mock suggestions
+  rank the pool's available rows by market order after `safePositionsForTurn`
+  restricts them to roster-completable positions. A user decision and all CPU
+  turns remain one authoritative Worker transition; the mock client rebuilds
+  every view from the returned full pick snapshot and saved immutable board.
+  Mock routes and stores continue to use only `mock_*` tables.
 - **Pure testable core:** `src/{auth,board,board-view,draft,mock-draft,mock-strategy,
   mock-ui,mock-view,player-identity,roster-fit,suggestions,render,selection,setup,state}.ts`
   are DOM-free or operate through

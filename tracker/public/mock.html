@@ -12,6 +12,7 @@
   <div class="appbar mock-appbar">
     <div class="row1">
       <span class="brand" aria-label="DRAFTMOCK">DRAFT<b>MOCK</b></span>
+      <span class="clock" data-clock hidden></span>
       <span class="right">
         <span class="mode-badge">ISOLATED MODE</span>
         <a class="mode-link" href="/">Return to live draft</a>
@@ -61,6 +62,14 @@
     <div class="mock-events" data-events aria-live="polite"></div>
   </section>
 
+  <div class="viewtabs" aria-label="Board availability" data-view-tabs hidden>
+    <button class="viewtab" type="button" data-view="available" aria-pressed="true">Available</button>
+    <button class="viewtab" type="button" data-view="drafted" aria-pressed="false">Drafted</button>
+    <label class="player-search" for="mock-player-search">
+      <span class="sr-only">Search available players</span>
+      <input id="mock-player-search" data-player-search type="search" autocomplete="off" placeholder="Search players" />
+    </label>
+  </div>
   <div class="tabs" role="tablist" aria-label="Position filter" data-tabs hidden></div>
   <div class="colhead" data-colhead hidden aria-hidden="true">
     <span class="h-rk">#</span>
@@ -79,9 +88,18 @@
         <p class="onclock" data-on-clock></p>
         <p class="selection-summary" data-selected>No Player Selected.</p>
       </div>
-      <button class="record" data-draft-player type="button" disabled>Draft player</button>
+      <button class="pick-tools-toggle" data-pick-tools-toggle type="button" aria-expanded="false" aria-controls="mock-pick-tools">Pick tools</button>
     </div>
-    <p class="mock-error dock-error" data-draft-error aria-live="polite"></p>
+    <div class="pick-tools" data-pick-tools id="mock-pick-tools" hidden>
+      <button class="record" data-draft-player type="button" disabled>Draft player</button>
+      <button class="mock-control" data-clear-selection type="button" disabled>Clear</button>
+      <p class="mock-error dock-error status" data-draft-error aria-live="polite"></p>
+    </div>
+    <section class="mock-suggestions" data-suggestions aria-label="Likely next suggestions" aria-busy="false">
+      <b>Likely next</b>
+      <div data-suggestion-list></div>
+      <span class="sr-only" data-transition-status aria-live="polite"></span>
+    </section>
     <div class="mock-lifecycle-controls" aria-label="Mock draft controls">
       <button class="mock-control" data-lifecycle-toggle type="button">Pause</button>
       <button class="mock-control" data-undo type="button">Undo decision</button>

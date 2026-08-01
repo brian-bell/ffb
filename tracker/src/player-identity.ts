@@ -101,6 +101,7 @@ function signature(...parts: Array<string | null>): string {
  */
 export function indexPlayerIdentities<T extends PlayerIdentity>(
   identities: readonly T[],
+  candidates: readonly PlayerIdentity[] = [],
 ): PlayerIdentityIndex<T> {
   const exact = new Map<string, T>();
   const defenses = new Map<string, T>();
@@ -108,6 +109,15 @@ export function indexPlayerIdentities<T extends PlayerIdentity>(
   const bridgeToFallback = new Map<string, T>();
   const manualWithoutTeam = new Map<string, T>();
   const manualWithoutPosition = new Map<string, T>();
+  const canonicalBridgeCounts = new Map<string, number>();
+
+  for (const candidate of candidates) {
+    const pos = normalizedPosition(candidate.pos);
+    const team = normalizedTeam(candidate.team);
+    if (isFallback(candidate.key) || pos === null || team === null || pos === "DEF") continue;
+    const bridge = signature(pos, normalizedName(candidate.name), team);
+    canonicalBridgeCounts.set(bridge, (canonicalBridgeCounts.get(bridge) ?? 0) + 1);
+  }
 
   for (const identity of identities) {
     exact.set(identity.key, identity);
@@ -157,7 +167,9 @@ export function indexPlayerIdentities<T extends PlayerIdentity>(
           : undefined;
       }
       const bridge = signature(pos, name, team);
-      return bridgeFromFallback.get(bridge)
+      return (canonicalBridgeCounts.get(bridge) ?? 0) > 1 && !isFallback(player.key)
+        ? undefined
+        : bridgeFromFallback.get(bridge)
         ?? (isFallback(player.key) ? bridgeToFallback.get(bridge) : undefined);
     },
   };

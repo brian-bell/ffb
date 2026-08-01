@@ -1,18 +1,17 @@
 import { isValidBoard } from "../src/board";
 import type { MockState } from "../src/mock-draft";
+import { initialBoardView, nextBoardView, type BoardPosition, type BoardViewState } from "../src/board-view";
+import { reconcileMockBoardView } from "../src/mock-view";
 import {
-  initialMockView,
-  nextMockView,
-  reconcileMockSelection,
-} from "../src/mock-view";
-import {
+  mockClockState,
   mockActionState,
   mockErrorMessage,
+  mockSuggestions,
   readMockSetupControls,
   renderMockError,
   renderVariancePreset,
 } from "../src/mock-ui";
-import { buildPlayerPool } from "../src/player-pool";
+import { buildPlayerPool, type PlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
 import { makeStore } from "../src/state";
@@ -38,12 +37,21 @@ const varianceInput = element<HTMLElement>("[data-variance-preset]") as unknown 
 const startButton = element<HTMLButtonElement>("[data-start]");
 const setupError = element<HTMLElement>("[data-error]");
 const tabs = element<HTMLElement>("[data-tabs]");
+const viewTabs = element<HTMLElement>("[data-view-tabs]");
+const playerSearch = element<HTMLInputElement>("[data-player-search]");
 const columnHead = element<HTMLElement>("[data-colhead]");
 const list = element<HTMLElement>("[data-list]");
 const pickPanel = element<HTMLElement>("[data-pick-panel]");
 const onClock = element<HTMLElement>("[data-on-clock]");
+const clock = element<HTMLElement>("[data-clock]");
 const selected = element<HTMLElement>("[data-selected]");
 const draftPlayer = element<HTMLButtonElement>("[data-draft-player]");
+const clearSelection = element<HTMLButtonElement>("[data-clear-selection]");
+const pickToolsToggle = element<HTMLButtonElement>("[data-pick-tools-toggle]");
+const pickTools = element<HTMLElement>("[data-pick-tools]");
+const suggestions = element<HTMLElement>("[data-suggestions]");
+const suggestionList = element<HTMLElement>("[data-suggestion-list]");
+const transitionStatus = element<HTMLElement>("[data-transition-status]");
 const lifecycleToggle = element<HTMLButtonElement>("[data-lifecycle-toggle]");
 const undo = element<HTMLButtonElement>("[data-undo]");
 const reset = element<HTMLButtonElement>("[data-reset]");
@@ -73,9 +81,11 @@ function localStorageOrNull(): Storage | null {
 const keyStore = makeStore(localStorageOrNull());
 let board: Board | null = null;
 let mock: MockState | null = null;
-let selectedKey: string | null = null;
-let mockView = initialMockView;
+let boardView: BoardViewState = initialBoardView;
 let writing = false;
+let playerPool: PlayerPool | null = null;
+let pooledPlayers: Board["players"] | null = null;
+let pooledPicks: MockState["picks"] | null = null;
 
 function authHeaders(json = false): HeadersInit {
   return {
@@ -125,14 +135,20 @@ async function api<T>(path: string, init: RequestInit = {}) {
   return result;
 }
 
-function availablePool() {
+function currentPlayerPool(): PlayerPool {
   if (!board) throw new Error("board unavailable");
-  return buildPlayerPool(board.players, mock?.picks ?? []);
+  const picks = mock?.picks ?? [];
+  if (playerPool === null || pooledPlayers !== board.players || pooledPicks !== picks) {
+    playerPool = buildPlayerPool(board.players, picks);
+    pooledPlayers = board.players;
+    pooledPicks = picks;
+  }
+  return playerPool;
 }
 
 function selectedPlayer(): Player | null {
   return (
-    availablePool().available.find((player) => player.key === selectedKey) ?? null
+    currentPlayerPool().available.find((player) => player.key === boardView.selectedKey) ?? null
   );
 }
 
@@ -156,7 +172,7 @@ function renderTabs(): void {
   tabs.innerHTML = positions
     .map(
       (value) =>
-        `<button class="tab" type="button" data-position="${escaped(value)}" aria-selected="${value === mockView.position}">${escaped(value)}</button>`,
+        `<button class="tab" type="button" data-position="${escaped(value)}" aria-selected="${value === boardView.position}">${escaped(value)}</button>`,
     )
     .join("");
 }
@@ -167,30 +183,113 @@ function renderEvents(): void {
     events.innerHTML = "<span>No CPU picks in the latest transition.</span>";
     return;
   }
-  const simulated = latest.filter((pick) => pick.source === "simulated");
-  events.innerHTML = simulated.length
-    ? `<b>${simulated.length} CPU pick${simulated.length === 1 ? "" : "s"}</b> ${simulated
-        .slice(-4)
-        .map((pick) => `${pick.round}.${String(pick.round_pick).padStart(2, "0")} ${escaped(pick.player_name)}`)
-        .join(" · ")}`
-    : "<b>Your pick was recorded.</b>";
+  events.innerHTML = latest
+    .map((pick) => `<span><b>${pick.source === "user" ? "You" : escaped(pick.team_name)}</b> ` +
+      `${pick.round}.${String(pick.round_pick).padStart(2, "0")} ${escaped(pick.player_name)}</span>`)
+    .join(" · ");
 }
 
-function renderState(): void {
+function renderClock(): void {
+  if (!mock?.mock || !mock.teams) {
+    clock.hidden = true;
+    return;
+  }
+  clock.hidden = false;
+  const state = mockClockState(
+    mock.lifecycle ?? (mock.complete ? "complete" : "active"),
+    mock.teams,
+    mock.mock.rounds,
+    mock.next ?? null,
+  );
+  onClock.textContent = state.summary;
+  if (!state.presentation) {
+    clock.textContent = "Draft complete";
+    return;
+  }
+  const current = document.createElement("span");
+  const following = document.createElement("span");
+  const accessible = document.createElement("span");
+  current.textContent = state.presentation.current;
+  current.setAttribute("aria-hidden", "true");
+  following.className = "next-team";
+  following.textContent = state.presentation.next;
+  following.setAttribute("aria-hidden", "true");
+  accessible.className = "sr-only";
+  accessible.textContent = state.presentation.accessible;
+  clock.replaceChildren(current, following, accessible);
+}
+
+function renderViewControls(): void {
+  const searching = boardView.searchQuery.trim().length > 0;
+  tabs.querySelectorAll<HTMLButtonElement>("[data-position]").forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.position === boardView.position));
+    tab.disabled = searching;
+  });
+  viewTabs.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((tab) => {
+    tab.setAttribute("aria-pressed", String(tab.dataset.view === (searching ? "available" : boardView.mode)));
+    tab.disabled = searching;
+  });
+  playerSearch.value = boardView.searchQuery;
+}
+
+function renderSuggestions(actionState: ReturnType<typeof actions>, pool: PlayerPool): void {
+  suggestions.setAttribute("aria-busy", String(writing));
+  if (!mock?.mock) return;
+  const lifecycle = mock.lifecycle ?? (mock.complete ? "complete" : "active");
+  const choices = mockSuggestions({
+    board: board!, pool, picks: mock.picks, lifecycle,
+    next: mock.next ?? null, user_slot: mock.mock.user_slot,
+  });
+  if (lifecycle === "paused") {
+    suggestionList.textContent = "Resume to see suggestions";
+  } else if (lifecycle === "complete" || mock.next === null) {
+    suggestionList.textContent = "Draft complete";
+  } else if (choices.length === 0) {
+    suggestionList.textContent = "No legal suggestions";
+  } else {
+    suggestionList.innerHTML = choices.map((player) =>
+      `<button type="button" class="mock-suggestion" data-player-key="${encodeURIComponent(player.key)}"${actionState.can_pick ? "" : " disabled"}>` +
+      `<b>${escaped(player.name)}</b><span>${escaped(player.pos ?? "—")}/${escaped(player.team ?? "FA")}${player.adp === null ? "" : ` · ADP ${player.adp.toFixed(1)}`}</span></button>`
+    ).join("");
+  }
+}
+
+function observeLoadMore(): void {
+  if (!loadMoreObserver) return;
+  loadMoreObserver.disconnect();
+  const sentinel = list.querySelector("[data-load-more]");
+  if (sentinel) loadMoreObserver.observe(sentinel);
+}
+
+function loadMoreRows(): void {
+  boardView = nextBoardView(boardView, { type: "loadMore" });
+  renderState(false);
+}
+
+const loadMoreObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(
+  (entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMoreRows(); },
+  { rootMargin: "600px" },
+);
+
+function renderState(resetScroll = true): void {
   if (!board) return;
   const configured = mock?.configured === true && mock.mock !== undefined;
   setupPanel.hidden = configured;
   activePanel.hidden = !configured;
   tabs.hidden = !configured;
+  viewTabs.hidden = !configured;
   columnHead.hidden = !configured;
   list.hidden = !configured;
   pickPanel.hidden = !configured;
+  clock.hidden = !configured;
+  suggestions.hidden = !configured;
 
   teamCount.textContent = String(board.num_teams);
   rounds.textContent = String(boardRounds(board));
   scoring.textContent = board.scoring;
   foot.textContent = `board.json v${board.version} · ${board.generated_at}`;
   if (!configured || !mock?.mock) {
+    clock.hidden = true;
     list.innerHTML =
       '<div class="notice"><b>Ready for an isolated rehearsal.</b>Choose a slot and seed to begin.</div>';
     return;
@@ -205,16 +304,16 @@ function renderState(): void {
   const actionState = actions();
   statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(mock.revision);
-  onClock.textContent = mock.lifecycle === "paused" && next
-    ? `Paused · ${next.team_name} remains on the clock at ${next.round}.${next.round_pick}`
-    : next
-    ? `${next.team_name} · Round ${next.round}, pick ${next.round_pick}`
-    : "Mock complete";
+  renderClock();
   const player = selectedPlayer();
   selected.innerHTML = player
     ? `<b>${escaped(player.name)}</b> · ${escaped(player.pos ?? "—")} · ${escaped(player.team ?? "FA")}`
     : "No Player Selected.";
   draftPlayer.disabled = !player || !actionState.can_pick;
+  clearSelection.disabled = !player || !actionState.can_pick;
+  pickToolsToggle.setAttribute("aria-expanded", String(boardView.pickToolsExpanded));
+  pickToolsToggle.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
+  pickTools.hidden = !boardView.pickToolsExpanded;
   lifecycleToggle.textContent = actionState.lifecycle_label;
   lifecycleToggle.disabled = !actionState.lifecycle_enabled;
   undo.disabled = !actionState.undo_enabled;
@@ -223,13 +322,22 @@ function renderState(): void {
   renderEvents();
   renderTabs();
 
-  const pool = availablePool();
-  list.innerHTML = renderBoard(board, mockView.position, {
+  const pool = currentPlayerPool();
+  const searching = boardView.searchQuery.trim().length > 0;
+  list.setAttribute("aria-busy", String(writing));
+  list.innerHTML = renderBoard(board, boardView.position, {
     picked: pool.picked,
+    mode: boardView.mode,
+    draftPicks: mock.picks,
     selectable: actionState.can_pick,
-    selectedKey,
-    window: { limit: mockView.visibleLimit },
+    selectedKey: boardView.selectedKey,
+    searchResults: searching ? pool.search(boardView.searchQuery) : undefined,
+    window: { limit: boardView.visibleLimit },
   });
+  if (resetScroll) list.scrollTop = 0;
+  renderViewControls();
+  renderSuggestions(actionState, pool);
+  observeLoadMore();
 }
 
 function renderBoardRecovery(value: MockState): void {
@@ -238,9 +346,12 @@ function renderBoardRecovery(value: MockState): void {
   setupPanel.hidden = true;
   activePanel.hidden = false;
   tabs.hidden = true;
+  viewTabs.hidden = true;
   columnHead.hidden = true;
   list.hidden = true;
   pickPanel.hidden = false;
+  clock.hidden = true;
+  suggestions.hidden = true;
   teamCount.textContent = String(value.mock.team_count);
   rounds.textContent = String(value.mock.rounds);
   scoring.textContent = "Unavailable";
@@ -269,6 +380,7 @@ function renderUnavailableSetup(message: string): void {
   setupPanel.hidden = false;
   activePanel.hidden = true;
   tabs.hidden = true;
+  viewTabs.hidden = true;
   columnHead.hidden = true;
   list.hidden = true;
   pickPanel.hidden = true;
@@ -304,16 +416,19 @@ function setupBoard(value: Board): void {
 function applyMockState(value: MockState): void {
   const previousMockId = mock?.mock?.id ?? null;
   mock = value;
+  playerPool = null;
+  pooledPlayers = null;
+  pooledPicks = null;
   if (value.configured && value.board && isValidBoard(value.board)) {
-    selectedKey = reconcileMockSelection(
-      selectedKey,
+    setupBoard(value.board);
+    boardView = reconcileMockBoardView(
+      boardView,
       previousMockId,
       value.mock?.id ?? null,
-      buildPlayerPool(value.board.players, value.picks).available,
+      currentPlayerPool().available,
     );
-    setupBoard(value.board);
   } else {
-    selectedKey = null;
+    boardView = initialBoardView;
   }
 }
 
@@ -416,36 +531,72 @@ startForm.addEventListener("submit", async (event) => {
     return;
   }
   applyMockState(result.value);
-  selectedKey = null;
-  mockView = initialMockView;
+  boardView = initialBoardView;
   renderState();
 });
 
 tabs.addEventListener("click", (event) => {
   const button = (event.target as Element).closest<HTMLButtonElement>("[data-position]");
   if (!button) return;
-  mockView = nextMockView(mockView, {
+  boardView = nextBoardView(boardView, {
     type: "selectPosition",
-    position: button.dataset.position ?? "ALL",
+    position: (button.dataset.position ?? "ALL") as BoardPosition,
   });
-  selectedKey = null;
+  renderState();
+});
+
+viewTabs.addEventListener("click", (event) => {
+  const button = (event.target as Element).closest<HTMLButtonElement>("[data-view]");
+  if (!button || boardView.searchQuery.trim()) return;
+  boardView = nextBoardView(boardView, {
+    type: "selectMode",
+    mode: button.dataset.view === "drafted" ? "drafted" : "available",
+  });
+  renderState();
+});
+
+playerSearch.addEventListener("input", () => {
+  boardView = nextBoardView(boardView, { type: "searchChanged", query: playerSearch.value });
   renderState();
 });
 
 list.addEventListener("click", (event) => {
   if ((event.target as Element).closest("[data-load-more]")) {
-    mockView = nextMockView(mockView, { type: "loadMore" });
-    renderState();
+    loadMoreRows();
     return;
   }
   const row = (event.target as Element).closest<HTMLButtonElement>("[data-player-key]");
   if (!row || !actions().can_pick) return;
-  selectedKey = decodeURIComponent(row.dataset.playerKey ?? "");
+  boardView = nextBoardView(boardView, {
+    type: "playerSelected",
+    key: decodeURIComponent(row.dataset.playerKey ?? ""),
+  });
+  renderState();
+});
+
+suggestionList.addEventListener("click", (event) => {
+  const button = (event.target as Element).closest<HTMLButtonElement>("[data-player-key]");
+  if (!button || !actions().can_pick) return;
+  boardView = nextBoardView(boardView, {
+    type: "playerSelected",
+    key: decodeURIComponent(button.dataset.playerKey ?? ""),
+  });
+  renderState();
+});
+
+pickToolsToggle.addEventListener("click", () => {
+  boardView = nextBoardView(boardView, { type: "togglePickTools" });
+  renderState();
+});
+
+clearSelection.addEventListener("click", () => {
+  boardView = nextBoardView(boardView, { type: "selectionCleared" });
   renderState();
 });
 
 draftPlayer.addEventListener("click", async () => {
-  if (!selectedKey || !mock?.mock) return;
+  if (!boardView.selectedKey || !mock?.mock) return;
+  const submittedKey = boardView.selectedKey;
   writing = true;
   draftError.textContent = "";
   renderState();
@@ -453,7 +604,7 @@ draftPlayer.addEventListener("click", async () => {
     method: "POST",
     body: JSON.stringify({
       mock_id: mock.mock.id,
-      player_key: selectedKey,
+      player_key: submittedKey,
       expected_revision: mock.revision,
     }),
   });
@@ -464,12 +615,16 @@ draftPlayer.addEventListener("click", async () => {
       result.value,
       result.transportError ?? "The mock was not changed.",
     );
-    if (result.response?.status === 409) await load();
+    if (result.response?.status === 409) {
+      boardView = nextBoardView(boardView, { type: "selectionCleared" });
+      await load();
+    }
     else renderState();
     return;
   }
   applyMockState(result.value);
-  selectedKey = null;
+  boardView = nextBoardView(boardView, { type: "pickRecorded" });
+  transitionStatus.textContent = `${result.value.appended_picks?.length ?? 0} picks recorded. ${result.value.next ? `${result.value.next.team_name} is on the clock.` : "Draft complete."}`;
   renderState();
 });
 
@@ -497,7 +652,7 @@ async function lifecycleRequest(
       result.transportError ?? "The mock was not changed.",
     );
     if (result.response?.status === 409) {
-      selectedKey = null;
+      boardView = nextBoardView(boardView, { type: "selectionCleared" });
       await load();
       draftError.textContent = message;
     } else {
@@ -507,8 +662,9 @@ async function lifecycleRequest(
     return;
   }
   applyMockState(result.value);
-  selectedKey = null;
-  if (resetView) mockView = initialMockView;
+  boardView = resetView
+    ? initialBoardView
+    : nextBoardView(boardView, { type: "selectionCleared" });
   renderCurrentState();
 }
 
@@ -558,8 +714,7 @@ discard.addEventListener("click", async () => {
     return;
   }
   applyMockState(result.value);
-  selectedKey = null;
-  mockView = initialMockView;
+  boardView = initialBoardView;
   seedInput.value = String(generatedSeed());
   if (result.value.configured) {
     writing = false;

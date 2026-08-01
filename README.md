@@ -185,12 +185,26 @@ or Wild opponent variance. New mocks use the versioned `market-need-v1` strategy
 which combines market order, open starter needs, tier value, specialist timing,
 and seeded variance. Existing `seeded-market-v0` mocks remain resumable.
 
+Mock mode uses the same Available/Drafted tabs, name search, position filters,
+progressive list loading, row selection, Pick tools, identity-aware availability,
+and snake clock as the live room. **Likely next** shows up to three available
+players in market order (ADP, then ADP rank and board rank), restricted to
+positions that keep Brian's configured roster completable. These suggestions are
+advisory; the Worker independently enforces roster legality. Selecting a
+suggestion is identical to selecting its board row.
+
 Every user and CPU pick passes exact dedicated/flex/bench roster matching plus a
 league-wide completion check, so an accepted pick cannot consume supply another
 team needs to finish. Mock boards, configuration, teams, RNG state, and immutable
 pick snapshots live in separate D1 tables and never mutate the live draft. The
 same board snapshot, strategy version, preset, seed, and ordered user decisions
 replay the same 160-pick Yahoo-shaped draft, including seed zero.
+
+One Brian decision is one atomic request: the Worker records it, advances every
+CPU turn through Brian's next decision or draft completion, and returns the full
+authoritative state. The client then rebuilds availability, search, Drafted
+history, tier counts, selection, clock, and suggestions from the returned picks
+and the mock's saved immutable board—not from a newly published KV board.
 
 An active mock can be paused and survives refresh with its seed, configuration,
 picks, RNG state, and next turn unchanged; it must be explicitly resumed before

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { BOARD_KEY } from "../src/board";
 import { buildPlayerPool } from "../src/player-pool";
-import { safePositionsForTurn } from "../src/roster-fit";
+import { mockSuggestions } from "../src/mock-ui";
 import fixtureJson from "./fixtures/board.json";
 import type { Board } from "../src/types";
 
@@ -602,16 +602,17 @@ describe("Worker mock draft state", () => {
       })
     ).json() as import("../src/mock-draft").MockState;
     while (!state.complete) {
-      const available = buildPlayerPool(workerYahooBoard.players, state.picks).available;
-      const safe = safePositionsForTurn({
-        rosterSlots: workerYahooRoster,
-        teamCount: 10,
+      const pool = buildPlayerPool(workerYahooBoard.players, state.picks);
+      const selected = mockSuggestions({
+        board: workerYahooBoard,
+        pool,
         picks: state.picks,
-        available,
-        draftSlot: 4,
-      });
-      const selected = available.find((player) => player.pos && safe.has(player.pos));
+        lifecycle: state.lifecycle!,
+        next: state.next!,
+        user_slot: state.mock!.user_slot,
+      })[0];
       expect(selected).toBeDefined();
+      const beforeRevision = state.revision;
       const response = await SELF.fetch("https://x/api/mocks/current/picks", {
         method: "POST",
         headers: { ...bearer(KEY), "content-type": "application/json" },
@@ -623,6 +624,17 @@ describe("Worker mock draft state", () => {
       });
       expect(response.status).toBe(201);
       state = await response.json() as import("../src/mock-draft").MockState;
+      expect(state.revision - beforeRevision).toBe(state.appended_picks!.length);
+      const refreshedPool = buildPlayerPool(workerYahooBoard.players, state.picks);
+      const refreshedSuggestions = mockSuggestions({
+        board: workerYahooBoard,
+        pool: refreshedPool,
+        picks: state.picks,
+        lifecycle: state.lifecycle!,
+        next: state.next ?? null,
+        user_slot: state.mock!.user_slot,
+      });
+      expect(refreshedSuggestions.every((player) => refreshedPool.available.includes(player))).toBe(true);
     }
 
     expect(state).toMatchObject({

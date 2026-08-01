@@ -444,6 +444,18 @@ body {
 }
 .icon-action:hover::after, .icon-action:focus-visible::after { opacity: 1; transform: translateY(0); }
 .pickdock button:disabled { cursor: not-allowed; opacity: .48; }
+.mock-suggestions { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 0 12px 12px; }
+.mock-suggestions[hidden] { display: none; }
+.mock-suggestions > b { color: var(--dr-accent); font: 700 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.mock-suggestions [data-suggestion-list] { display: flex; gap: 6px; min-width: 0; color: var(--dr-muted); font-size: 12px; }
+.mock-suggestion { display: grid; min-width: 0; padding: 7px 9px; text-align: left; }
+.mock-suggestion b, .mock-suggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mock-suggestion span { margin-top: 3px; color: var(--dr-muted); font: 10px/1.2 var(--mono); }
+@media (max-width: 620px) {
+  .mock-suggestions { grid-template-columns: 1fr; }
+  .mock-suggestions [data-suggestion-list] { overflow-x: auto; }
+  .mock-suggestion { flex: 0 0 140px; }
+}
 .viewtab:focus-visible,
 .pickdock button:focus-visible,
 .player-search input:focus-visible {

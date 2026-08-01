@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { searchPlayers, suggestPlayers } from "../src/suggestions";
+import { searchPlayers, suggestAvailablePlayers, suggestPlayers } from "../src/suggestions";
 import type { Player } from "../src/types";
 
 const players = [
@@ -12,6 +12,21 @@ const players = [
 describe("pick suggestions", () => {
   it("uses exact player keys to exclude picks and sorts market ADP before board fallback", () => {
     expect(suggestPlayers(players, new Set(["two"])).map((player) => player.key)).toEqual(["one", "three", "four"]);
+  });
+
+  it("ranks an available pool deterministically without mutating it", () => {
+    const tied = [
+      { ...players[0]!, key: "z", name: "Same", adp: 2, adp_rank: 3, rank: 4 },
+      { ...players[0]!, key: "a", name: "Same", adp: 2, adp_rank: 3, rank: 4 },
+      players[1]!,
+      players[2]!,
+    ];
+    const before = [...tied];
+
+    expect(suggestAvailablePlayers(tied).map((player) => player.key)).toEqual(["a", "z", "two"]);
+    expect(suggestAvailablePlayers(tied, 1).map((player) => player.key)).toEqual(["a"]);
+    expect(tied).toEqual(before);
+    expect(suggestAvailablePlayers([])).toEqual([]);
   });
 
   it("searches available players by normalized prefix before token and substring matches", () => {
