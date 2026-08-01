@@ -226,6 +226,71 @@ describe("renderBoard — draft availability", () => {
     expect(history).toContain("Unlisted &lt;Rookie>");
     expect(history).toContain("2.05 · Brian &amp; Co");
   });
+
+  it("uses the exact drafted board row before an equivalent identity for history metrics", () => {
+    const canonical = {
+      ...board.players[0]!,
+      key: "canonical:same",
+      name: "Same Player",
+      adp: 1,
+    };
+    const fallback = {
+      ...canonical,
+      key: "espn:same",
+      adp: 222,
+    };
+    const history = renderBoard({ ...board, players: [canonical, fallback] }, "ALL", {
+      mode: "drafted",
+      draftPicks: [{
+        overall_pick: 1,
+        round: 1,
+        round_pick: 1,
+        team_name: "Brian",
+        player_key: fallback.key,
+        player_name: fallback.name,
+        player_pos: fallback.pos,
+        player_team: fallback.team,
+      }],
+    });
+
+    expect(history).toContain("222.0");
+    expect(history).not.toContain(">1.0<");
+  });
+
+  it("omits board metrics when an off-board drafted snapshot matches ambiguous canonical rows", () => {
+    const canonical = {
+      ...board.players[0]!,
+      key: "canonical:one",
+      name: "Ambiguous Player",
+      adp: 1,
+    };
+    const otherCanonical = {
+      ...canonical,
+      key: "canonical:two",
+      adp: 222,
+    };
+    const history = renderBoard(
+      { ...board, players: [canonical, otherCanonical] },
+      "ALL",
+      {
+        mode: "drafted",
+        draftPicks: [{
+          overall_pick: 7,
+          round: 1,
+          round_pick: 7,
+          team_name: "Brian",
+          player_key: "manual:ambiguous",
+          player_name: canonical.name,
+          player_pos: canonical.pos,
+          player_team: canonical.team,
+        }],
+      },
+    );
+
+    expect(history).toContain('<span class="num adp tnum na">—</span>');
+    expect(history).not.toContain(">1.0<");
+    expect(history).not.toContain("222.0");
+  });
 });
 
 describe("renderBoard — windowed rendering", () => {

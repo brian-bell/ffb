@@ -1,44 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { LIST_CHUNK } from "../src/board-view";
-import {
-  initialMockView,
-  nextMockView,
-  reconcileMockSelection,
-} from "../src/mock-view";
+import { initialBoardView, LIST_CHUNK, nextBoardView } from "../src/board-view";
+import { reconcileMockBoardView } from "../src/mock-view";
 
 describe("mock player list view", () => {
   it("grows by one shared chunk and resets when the position changes", () => {
-    const grown = nextMockView(initialMockView, { type: "loadMore" });
+    const grown = nextBoardView(initialBoardView, { type: "loadMore" });
     expect(grown.visibleLimit).toBe(LIST_CHUNK * 2);
 
-    expect(nextMockView(grown, { type: "selectPosition", position: "RB" })).toEqual({
-      position: "RB",
-      visibleLimit: LIST_CHUNK,
+    expect(nextBoardView(grown, { type: "selectPosition", position: "RB" })).toEqual({
+      ...initialBoardView, position: "RB", visibleLimit: LIST_CHUNK,
     });
   });
 
   it("clears a selected player that became unavailable after a reload", () => {
     expect(
-      reconcileMockSelection("drafted", "mock-1", "mock-1", [
+      reconcileMockBoardView({ ...initialBoardView, selectedKey: "drafted" }, "mock-1", "mock-1", [
         { key: "available" },
       ]),
-    ).toBeNull();
+    ).toEqual({ ...initialBoardView, selectedKey: null });
   });
 
   it("clears an otherwise available selection when the mock changes", () => {
     expect(
-      reconcileMockSelection("available", "mock-1", "mock-2", [
+      reconcileMockBoardView({ ...initialBoardView, position: "RB", selectedKey: "available" }, "mock-1", "mock-2", [
         { key: "available" },
       ]),
-    ).toBeNull();
+    ).toEqual(initialBoardView);
   });
 
   it("retains an available selection while reloading the same mock", () => {
     expect(
-      reconcileMockSelection("available", "mock-1", "mock-1", [
+      reconcileMockBoardView({ ...initialBoardView, position: "RB", selectedKey: "available" }, "mock-1", "mock-1", [
         { key: "available" },
       ]),
-    ).toBe("available");
+    ).toEqual({ ...initialBoardView, position: "RB", selectedKey: "available" });
   });
 
 });

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { BOARD_KEY } from "../../src/board";
+import { initialBoardView, nextBoardView, type BoardViewState } from "../../src/board-view";
+import { mockClockState, mockSuggestions } from "../../src/mock-ui";
+import { buildPlayerPool } from "../../src/player-pool";
+import { playersEquivalent } from "../../src/player-identity";
 import { api } from "./api-client";
 
 async function liveTableSnapshot() {
@@ -218,7 +222,7 @@ describe("generated backend contract", () => {
     });
   });
 
-  it("drives an isolated mock across round 1 without changing live state", async () => {
+  it("drives a suggestion-led isolated mock to completion without changing live state", async () => {
     const board = (await api.getBoard()).json;
     expect(board?.num_teams).toBe(2);
     expect(board?.players.length).toBeGreaterThanOrEqual(4);
@@ -347,7 +351,71 @@ describe("generated backend contract", () => {
     expect((await api.getDraft()).body).toBe(liveBefore.body);
     expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
 
-    const discarded = await api.discardMock(mockId, reset.json!.revision);
+    let state = reset.json!;
+    let view: BoardViewState = { ...initialBoardView, position: "RB", searchQuery: "mock", visibleLimit: 100 };
+    while (!state.complete) {
+      const pool = buildPlayerPool(mockBoard.players, state.picks);
+      const choices = mockSuggestions({
+        board: mockBoard,
+        pool,
+        picks: state.picks,
+        lifecycle: state.lifecycle!,
+        next: state.next ?? null,
+        user_slot: state.mock!.user_slot,
+      });
+      expect(choices).toHaveLength(Math.min(3, choices.length));
+      expect(choices[0]).toBeDefined();
+      expect(state.next).toMatchObject({ is_user: true });
+
+      view = nextBoardView(view, { type: "playerSelected", key: choices[0]!.key });
+      const beforeRevision = state.revision;
+      const beforePickCount = state.picks.length;
+      const transition = await api.recordMockPlayer(mockId, choices[0]!.key, state.revision);
+      expect(transition.status).toBe(201);
+      state = transition.json!;
+      expect(state.appended_picks?.[0]).toMatchObject({ source: "user", player_key: choices[0]!.key });
+      expect(state.appended_picks?.slice(1).every((pick) => pick.source === "simulated")).toBe(true);
+      expect(state.picks.length - beforePickCount).toBe(state.appended_picks!.length);
+      expect(state.revision - beforeRevision).toBe(state.appended_picks!.length);
+      expect(state.board).toEqual(mockBoard);
+
+      view = nextBoardView(view, { type: "pickRecorded" });
+      expect(view).toMatchObject({
+        position: "RB", searchQuery: "", selectedKey: null, pickToolsExpanded: false, visibleLimit: 100,
+      });
+      const refreshedPool = buildPlayerPool(mockBoard.players, state.picks);
+      expect(refreshedPool.search("mock").every((player) =>
+        state.picks.every((pick) => !playersEquivalent(player, {
+          key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team,
+        }))
+      )).toBe(true);
+      const refreshedSuggestions = mockSuggestions({
+        board: mockBoard, pool: refreshedPool, picks: state.picks,
+        lifecycle: state.lifecycle!, next: state.next ?? null, user_slot: state.mock!.user_slot,
+      });
+      expect(refreshedSuggestions.every((player) =>
+        state.picks.every((pick) => !playersEquivalent(player, {
+          key: pick.player_key, name: pick.player_name, pos: pick.player_pos, team: pick.player_team,
+        }))
+      )).toBe(true);
+      const clock = mockClockState(state.lifecycle!, state.teams!, state.mock!.rounds, state.next ?? null);
+      if (state.complete) expect(clock.summary).toBe("Draft complete");
+      else expect(clock.summary).toContain("Brian is on the clock");
+      view = { ...view, searchQuery: "mock" };
+    }
+
+    expect(state.next).toBeNull();
+    expect(state.lifecycle).toBe("complete");
+    expect(state.picks).toHaveLength(mockCapacity);
+    expect(new Set(state.picks.map((pick) => pick.player_key)).size).toBe(mockCapacity);
+    expect(mockSuggestions({
+      board: mockBoard, pool: buildPlayerPool(mockBoard.players, state.picks), picks: state.picks,
+      lifecycle: state.lifecycle!, next: null, user_slot: state.mock!.user_slot,
+    })).toEqual([]);
+    expect((await api.getDraft()).body).toBe(liveBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+
+    const discarded = await api.discardMock(mockId, state.revision);
     expect(discarded.status).toBe(200);
     expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });
     expect((await api.getDraft()).body).toBe(liveBefore.body);

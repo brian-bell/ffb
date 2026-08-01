@@ -10,7 +10,8 @@ export function marketOrder(a: Player, b: Player): number {
   const bAdpRank = b.adp_rank ?? Number.POSITIVE_INFINITY;
   if (aAdpRank !== bAdpRank) return aAdpRank - bAdpRank;
   if (a.rank !== b.rank) return a.rank - b.rank;
-  return a.name.localeCompare(b.name);
+  const byName = a.name.localeCompare(b.name);
+  return byName !== 0 ? byName : a.key.localeCompare(b.key);
 }
 
 type Picked = readonly PlayerIdentity[] | ReadonlySet<string>;
@@ -20,14 +21,22 @@ function snapshots(picked: Picked): readonly PlayerIdentity[] {
   return picked as readonly PlayerIdentity[];
 }
 
-export function availablePlayers(players: Player[], picked: Picked): Player[] {
+export function availablePlayers(players: readonly Player[], picked: Picked): Player[] {
   const pickedIndex = indexPlayerIdentities(snapshots(picked));
   return players.filter((player) => pickedIndex.match(player) === undefined);
 }
 
-/** Three available players most likely to be selected next by market ADP. */
-export function suggestPlayers(players: Player[], picked: Picked): Player[] {
-  return availablePlayers(players, picked).sort(marketOrder).slice(0, 3);
+/** Rank an already identity-filtered pool without mutating its source array. */
+export function suggestAvailablePlayers(
+  available: readonly Player[],
+  limit = 3,
+): Player[] {
+  return [...available].sort(marketOrder).slice(0, Math.max(0, limit));
+}
+
+/** Compatibility wrapper for callers that have not yet built a PlayerPool. */
+export function suggestPlayers(players: readonly Player[], picked: Picked): Player[] {
+  return suggestAvailablePlayers(availablePlayers(players, picked));
 }
 
 function normalized(value: string): string {
@@ -74,6 +83,6 @@ export function buildPlayerSearch(players: readonly Player[]): PlayerSearch {
 }
 
 /** Search exact board rows only; callers must submit the selected row's key. */
-export function searchPlayers(players: Player[], picked: Picked, query: string): Player[] {
+export function searchPlayers(players: readonly Player[], picked: Picked, query: string): Player[] {
   return buildPlayerSearch(availablePlayers(players, picked)).search(query);
 }

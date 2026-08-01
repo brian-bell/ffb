@@ -4,7 +4,7 @@
 // formats. Kept a pure function so it unit-tests without a DOM round-trip.
 
 import type { Board, Player } from "./types";
-import { normalizedPosition, playersEquivalent } from "./player-identity";
+import { indexPlayerIdentities, normalizedPosition } from "./player-identity";
 
 export interface PickAnnotation {
   overall_pick: number;
@@ -131,7 +131,9 @@ function playerFromPick(players: readonly Player[], pick: DraftPickSnapshot): Pl
     pos: pick.player_pos,
     team: pick.player_team,
   };
-  const boardPlayer = players.find((player) => playersEquivalent(player, identity));
+  const identityIndex = indexPlayerIdentities([identity], players);
+  const boardPlayer = players.find((player) => player.key === pick.player_key)
+    ?? players.find((player) => identityIndex.match(player));
   const displayPosition = normalizedPosition(pick.player_pos) ?? pick.player_pos;
   return {
     key: pick.player_key,

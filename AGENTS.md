@@ -156,7 +156,11 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   seeded Gumbel variance. Seed zero normalizes to a nonzero RNG state for v1.
 - **Availability + identity:** `player-identity.ts` centralizes
   canonical/fallback/manual and DEF/DST equivalence so search, available rows,
-  and the write API exclude the same drafted player representations.
+  and the write API exclude the same drafted player representations. Bridging is
+  conservative: when the board itself holds two canonical rows with the same
+  normalized (pos, name, team), that signature is ambiguous and no canonical row
+  is bridged to a fallback/manual pick through it — a drafted duplicate stays
+  visible rather than hiding the wrong player.
 - **Progressive list loading:** `renderBoard` takes a `window: { limit }` and
   emits a `data-load-more` sentinel button when rows remain; `BoardViewState`
   tracks `visibleLimit` (grown by `loadMore` in `LIST_CHUNK` steps, reset by
@@ -165,8 +169,16 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   prefix* on grow (never appends), so scroll position, selection sync, and pick-recording
   DOM surgery keep working against one list shape. Tier-divider counts always
   reflect the full remaining tier, not the rendered window.
+- **Shared live/mock board loop:** both clients use `BoardViewState`,
+  `buildPlayerPool`, identity-aware search and availability, `renderBoard`, row
+  selection, progressive loading, and `draftClockPresentation`. Mock suggestions
+  rank the pool's available rows by market order after `safePositionsForTurn`
+  restricts them to roster-completable positions. A user decision and all CPU
+  turns remain one authoritative Worker transition; the mock client rebuilds
+  every view from the returned full pick snapshot and saved immutable board.
+  Mock routes and stores continue to use only `mock_*` tables.
 - **Pure testable core:** `src/{auth,board,board-view,draft,mock-draft,mock-strategy,
-  mock-ui,mock-view,player-identity,roster-fit,suggestions,render,selection,setup,state}.ts`
+  mock-ui,mock-view,player-identity,player-pool,roster-fit,suggestions,render,selection,setup,state}.ts`
   are DOM-free or operate through
   narrow DOM-like interfaces and are unit-tested;
   `types.ts` mirrors the `board.json` v1 contract; `index.ts` is the Worker entry

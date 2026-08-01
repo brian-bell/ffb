@@ -91,4 +91,31 @@ describe("player pool", () => {
 
     expect(pool.search("alpha").map((player) => player.key)).toEqual(["two", "one", "three"]);
   });
+
+  it("bridges strict manual and fallback snapshots but keeps conservative negatives available", () => {
+    const identityPlayers = [
+      { key: "mfl:bridge", name: "Bridge Player", pos: "WR", team: "PHI", rank: 1 },
+      { key: "espn:bridge", name: "Bridge Player", pos: "WR", team: "PHI", rank: 2 },
+      { key: "mfl:same-looking", name: "Bridge Player", pos: "WR", team: "PHI", rank: 3 },
+      { key: "mfl:incomplete", name: "Incomplete Player", pos: "RB", team: "BUF", rank: 4 },
+    ].map((player) => ({
+      bye: null, points: 1, n_sources: 1, vorp: 1, tier: 1, pos_rank: 1,
+      adp: null, adp_rank: null, adp_high: null, adp_low: null, adp_stdev: null,
+      matched: true, ...player,
+    })) as Player[];
+    const pool = buildPlayerPool(identityPlayers, [
+      {
+        overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian",
+        player_key: "manual:bridge", player_name: "Bridge Player", player_pos: "WR", player_team: "PHI",
+      },
+      {
+        overall_pick: 2, round: 1, round_pick: 2, team_name: "CPU",
+        player_key: "manual:incomplete", player_name: "Incomplete Player", player_pos: null, player_team: null,
+      },
+    ]);
+
+    expect([...pool.picked.keys()]).toEqual(["espn:bridge"]);
+    expect(pool.available.map((player) => player.key)).toEqual(["mfl:bridge", "mfl:same-looking", "mfl:incomplete"]);
+    expect(pool.search("bridge").map((player) => player.key)).toEqual(["mfl:bridge", "mfl:same-looking"]);
+  });
 });

@@ -20,7 +20,7 @@ export interface PlayerPool {
   search(query: string): Player[];
 }
 
-export function buildPlayerPool(players: Player[], picks: readonly PlayerPoolPick[]): PlayerPool {
+export function buildPlayerPool(players: readonly Player[], picks: readonly PlayerPoolPick[]): PlayerPool {
   const indexedPicks = picks.map((pick) => ({
     ...pick,
     key: pick.player_key,
@@ -28,7 +28,7 @@ export function buildPlayerPool(players: Player[], picks: readonly PlayerPoolPic
     pos: pick.player_pos,
     team: pick.player_team,
   })) satisfies Array<PlayerPoolPick & PlayerIdentity>;
-  const pickIndex = indexPlayerIdentities(indexedPicks);
+  const pickIndex = indexPlayerIdentities(indexedPicks, players);
   const picked = new Map<string, PickAnnotation>();
   const available: Player[] = [];
   for (const player of players) {
