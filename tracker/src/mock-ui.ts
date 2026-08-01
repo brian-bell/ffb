@@ -1,4 +1,5 @@
-import type { MockSetup } from "./mock-draft";
+import type { MockLifecycleStatus, MockSetup } from "./mock-draft";
+import type { NextPick } from "./draft";
 import type { VariancePreset } from "./mock-strategy";
 
 interface ValueControl {
@@ -7,6 +8,41 @@ interface ValueControl {
 
 interface TextTarget {
   textContent: string | null;
+}
+
+export interface MockActionInput {
+  lifecycle: MockLifecycleStatus;
+  can_undo: boolean;
+  next: NextPick | null;
+  writing: boolean;
+  board_available: boolean;
+}
+
+export interface MockActionState {
+  status_label: "Active" | "Paused" | "Complete";
+  can_pick: boolean;
+  lifecycle_label: "Pause" | "Resume";
+  lifecycle_enabled: boolean;
+  undo_enabled: boolean;
+  reset_enabled: boolean;
+  discard_enabled: boolean;
+}
+
+export function mockActionState(input: MockActionInput): MockActionState {
+  const ready = input.board_available && !input.writing;
+  return {
+    status_label: input.lifecycle === "complete"
+      ? "Complete"
+      : input.lifecycle === "paused"
+      ? "Paused"
+      : "Active",
+    can_pick: ready && input.lifecycle === "active" && input.next?.is_user === true,
+    lifecycle_label: input.lifecycle === "paused" ? "Resume" : "Pause",
+    lifecycle_enabled: ready && input.lifecycle !== "complete",
+    undo_enabled: ready && input.can_undo,
+    reset_enabled: ready,
+    discard_enabled: !input.writing,
+  };
 }
 
 export function readMockSetupControls(

@@ -6,6 +6,7 @@ import {
   reconcileMockSelection,
 } from "../src/mock-view";
 import {
+  mockActionState,
   mockErrorMessage,
   readMockSetupControls,
   renderMockError,
@@ -43,6 +44,9 @@ const pickPanel = element<HTMLElement>("[data-pick-panel]");
 const onClock = element<HTMLElement>("[data-on-clock]");
 const selected = element<HTMLElement>("[data-selected]");
 const draftPlayer = element<HTMLButtonElement>("[data-draft-player]");
+const lifecycleToggle = element<HTMLButtonElement>("[data-lifecycle-toggle]");
+const undo = element<HTMLButtonElement>("[data-undo]");
+const reset = element<HTMLButtonElement>("[data-reset]");
 const discard = element<HTMLButtonElement>("[data-discard]");
 const draftError = element<HTMLElement>("[data-draft-error]");
 const events = element<HTMLElement>("[data-events]");
@@ -55,6 +59,7 @@ const statusVariance = element<HTMLElement>("[data-status-variance]");
 const statusSlot = element<HTMLElement>("[data-status-slot]");
 const statusRound = element<HTMLElement>("[data-status-round]");
 const statusOverall = element<HTMLElement>("[data-status-overall]");
+const statusLifecycle = element<HTMLElement>("[data-status-lifecycle]");
 const statusRevision = element<HTMLElement>("[data-status-revision]");
 
 function localStorageOrNull(): Storage | null {
@@ -131,6 +136,17 @@ function selectedPlayer(): Player | null {
   );
 }
 
+function actions(boardAvailable = true) {
+  const lifecycle = mock?.lifecycle ?? (mock?.complete ? "complete" : "active");
+  return mockActionState({
+    lifecycle,
+    can_undo: mock?.can_undo === true,
+    next: mock?.next ?? null,
+    writing,
+    board_available: boardAvailable,
+  });
+}
+
 function renderTabs(): void {
   if (!board) return;
   const positions = [
@@ -186,23 +202,31 @@ function renderState(): void {
   statusSlot.textContent = String(mock.mock.user_slot);
   statusRound.textContent = next ? String(next.round) : "Done";
   statusOverall.textContent = next ? String(next.overall_pick) : "Done";
+  const actionState = actions();
+  statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(mock.revision);
-  onClock.textContent = next
+  onClock.textContent = mock.lifecycle === "paused" && next
+    ? `Paused · ${next.team_name} remains on the clock at ${next.round}.${next.round_pick}`
+    : next
     ? `${next.team_name} · Round ${next.round}, pick ${next.round_pick}`
     : "Mock complete";
   const player = selectedPlayer();
   selected.innerHTML = player
     ? `<b>${escaped(player.name)}</b> · ${escaped(player.pos ?? "—")} · ${escaped(player.team ?? "FA")}`
     : "No Player Selected.";
-  draftPlayer.disabled = writing || !player || next?.is_user !== true;
-  discard.disabled = writing;
+  draftPlayer.disabled = !player || !actionState.can_pick;
+  lifecycleToggle.textContent = actionState.lifecycle_label;
+  lifecycleToggle.disabled = !actionState.lifecycle_enabled;
+  undo.disabled = !actionState.undo_enabled;
+  reset.disabled = !actionState.reset_enabled;
+  discard.disabled = !actionState.discard_enabled;
   renderEvents();
   renderTabs();
 
   const pool = availablePool();
   list.innerHTML = renderBoard(board, mockView.position, {
     picked: pool.picked,
-    selectable: next?.is_user === true && !writing,
+    selectable: actionState.can_pick,
     selectedKey,
     window: { limit: mockView.visibleLimit },
   });
@@ -225,12 +249,18 @@ function renderBoardRecovery(value: MockState): void {
   statusSlot.textContent = String(value.mock.user_slot);
   statusRound.textContent = next ? String(next.round) : "Done";
   statusOverall.textContent = next ? String(next.overall_pick) : "Done";
+  const actionState = actions(false);
+  statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(value.revision);
   events.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
   onClock.textContent = "This mock cannot continue with the current tracker version.";
   selected.textContent = "Discard the mock to return to setup.";
   draftPlayer.disabled = true;
-  discard.disabled = writing;
+  lifecycleToggle.textContent = actionState.lifecycle_label;
+  lifecycleToggle.disabled = true;
+  undo.disabled = true;
+  reset.disabled = true;
+  discard.disabled = !actionState.discard_enabled;
   draftError.textContent = value.board_error ?? "The saved board is unavailable.";
   foot.textContent = "Saved board snapshot unavailable";
 }
@@ -409,7 +439,7 @@ list.addEventListener("click", (event) => {
     return;
   }
   const row = (event.target as Element).closest<HTMLButtonElement>("[data-player-key]");
-  if (!row || writing || mock?.next?.is_user !== true) return;
+  if (!row || !actions().can_pick) return;
   selectedKey = decodeURIComponent(row.dataset.playerKey ?? "");
   renderState();
 });
@@ -443,14 +473,76 @@ draftPlayer.addEventListener("click", async () => {
   renderState();
 });
 
+async function lifecycleRequest(
+  path: string,
+  method: "POST" | "DELETE",
+  resetView: boolean,
+): Promise<void> {
+  if (!mock?.mock || writing) return;
+  const target = {
+    mock_id: mock.mock.id,
+    expected_revision: mock.revision,
+  };
+  writing = true;
+  draftError.textContent = "";
+  renderCurrentState();
+  const result = await api<MockState>(path, {
+    method,
+    body: JSON.stringify(target),
+  });
+  writing = false;
+  if (!result.response?.ok || !result.value) {
+    const message = mockErrorMessage(
+      result.value,
+      result.transportError ?? "The mock was not changed.",
+    );
+    if (result.response?.status === 409) {
+      selectedKey = null;
+      await load();
+      draftError.textContent = message;
+    } else {
+      renderCurrentState();
+      draftError.textContent = message;
+    }
+    return;
+  }
+  applyMockState(result.value);
+  selectedKey = null;
+  if (resetView) mockView = initialMockView;
+  renderCurrentState();
+}
+
+lifecycleToggle.addEventListener("click", async () => {
+  const path = mock?.lifecycle === "paused"
+    ? "/api/mocks/current/resume"
+    : "/api/mocks/current/pause";
+  await lifecycleRequest(path, "POST", false);
+});
+
+undo.addEventListener("click", async () => {
+  await lifecycleRequest("/api/mocks/current/picks/latest", "DELETE", false);
+});
+
+reset.addEventListener("click", async () => {
+  if (!confirm(
+    "Restart this mock from its saved seed? The board snapshot and configuration stay the same, and the seeded opening will be replayed.",
+  )) return;
+  await lifecycleRequest("/api/mocks/current/reset", "POST", true);
+});
+
 discard.addEventListener("click", async () => {
   if (!mock?.mock) return;
-  if (!confirm("Discard this mock draft? Your live draft will not be changed.")) return;
+  if (!confirm(
+    "Discard this mock draft and return to setup? Its saved session will be removed; your live draft will not be changed.",
+  )) return;
   writing = true;
   renderCurrentState();
   const result = await api<MockState>("/api/mocks/current", {
     method: "DELETE",
-    body: JSON.stringify({ mock_id: mock.mock.id }),
+    body: JSON.stringify({
+      mock_id: mock.mock.id,
+      expected_revision: mock.revision,
+    }),
   });
   if (!result.response?.ok || !result.value) {
     writing = false;

@@ -12,7 +12,10 @@ import {
   insertMock,
   loadCurrentMock,
   loadMock,
+  resetCurrentMock,
+  setMockPaused,
   type LoadedMock,
+  undoLatestMockDecision,
   unconfiguredMockState,
 } from "./mock-store";
 import {
@@ -77,6 +80,28 @@ function validSetup(value: unknown): MockSetup | null {
     variance_preset: input.variance_preset === undefined
       ? "realistic"
       : input.variance_preset as MockSetup["variance_preset"],
+  };
+}
+
+interface MockTarget {
+  mock_id: string;
+  expected_revision: number;
+}
+
+function validTarget(value: unknown): MockTarget | null {
+  if (!value || typeof value !== "object") return null;
+  const input = value as { mock_id?: unknown; expected_revision?: unknown };
+  if (
+    typeof input.mock_id !== "string"
+    || !input.mock_id.trim()
+    || !Number.isInteger(input.expected_revision)
+    || (input.expected_revision as number) < 0
+  ) {
+    return null;
+  }
+  return {
+    mock_id: input.mock_id.trim(),
+    expected_revision: input.expected_revision as number,
   };
 }
 
@@ -155,6 +180,41 @@ function stateWithBoardError(loaded: LoadedMock) {
   };
 }
 
+function loadedStateResponse(loaded: LoadedMock, status = 200): Response {
+  const board = savedBoard(loaded);
+  return board
+    ? json(stateWithBoard(loaded, board), status)
+    : json(stateWithBoardError(loaded), status);
+}
+
+async function currentTarget(
+  env: MockApiEnv,
+  target: MockTarget,
+): Promise<LoadedMock | Response> {
+  const loaded = await loadCurrentMock(env.DB);
+  if (!loaded) {
+    return error("mock_unconfigured", "Start a mock before changing it.", 409);
+  }
+  if (
+    loaded.state.mock?.id !== target.mock_id
+    || loaded.aggregate.revision !== target.expected_revision
+  ) {
+    return error(
+      "stale_mock",
+      "The mock changed in another tab; reload before changing it.",
+      409,
+    );
+  }
+  return loaded;
+}
+
+async function reloadedState(env: MockApiEnv, mockId: string): Promise<Response> {
+  const loaded = await loadMock(env.DB, mockId);
+  return loaded
+    ? loadedStateResponse(loaded)
+    : error("mock_unconfigured", "The mock no longer exists.", 409);
+}
+
 async function createMock(request: Request, env: MockApiEnv): Promise<Response> {
   const setup = validSetup(await requestBody(request));
   if (!setup) {
@@ -227,16 +287,13 @@ async function recordMockPick(
     player_key?: unknown;
     expected_revision?: unknown;
   };
-  const mockId =
-    typeof value.mock_id === "string" && value.mock_id.trim()
-      ? value.mock_id.trim()
-      : null;
+  const target = validTarget(value);
   const playerKey =
     typeof value.player_key === "string" && value.player_key.trim()
       ? value.player_key.trim()
       : null;
   if (
-    mockId === null
+    target === null
     || playerKey === null
     || !Number.isInteger(value.expected_revision)
     || (value.expected_revision as number) < 0
@@ -248,20 +305,11 @@ async function recordMockPick(
     );
   }
 
-  const loaded = await loadCurrentMock(env.DB);
-  if (!loaded) {
-    return error(
-      "mock_unconfigured",
-      "Start a mock before recording a pick.",
-      409,
-    );
-  }
-  if (loaded.state.mock?.id !== mockId) {
-    return error(
-      "stale_mock",
-      "The mock changed in another tab; reload before recording.",
-      409,
-    );
+  const targeted = await currentTarget(env, target);
+  if (targeted instanceof Response) return targeted;
+  const loaded = targeted;
+  if (loaded.state.lifecycle === "paused") {
+    return error("mock_paused", "Resume the mock before recording a pick.", 409);
   }
   if (loaded.aggregate.complete) {
     return error("mock_complete", "The mock draft is complete.", 409);
@@ -274,14 +322,7 @@ async function recordMockPick(
       503,
     );
   }
-  const expectedRevision = value.expected_revision as number;
-  if (loaded.aggregate.revision !== expectedRevision) {
-    return error(
-      "stale_mock",
-      "The mock changed in another tab; reload before recording.",
-      409,
-    );
-  }
+  const expectedRevision = target.expected_revision;
 
   const board = savedBoard(loaded);
   if (!board) {
@@ -340,15 +381,21 @@ async function recordMockPick(
 }
 
 async function discardMock(request: Request, env: MockApiEnv): Promise<Response> {
-  const input = await requestBody(request);
-  const mockId = input && typeof input === "object" && "mock_id" in input
-    && typeof input.mock_id === "string" && input.mock_id.trim()
-    ? input.mock_id.trim()
-    : null;
-  if (!mockId) {
-    return error("invalid_request", "Provide the displayed mock ID.", 400);
+  const target = validTarget(await requestBody(request));
+  if (!target) {
+    return error(
+      "invalid_request",
+      "Provide the displayed mock ID and revision.",
+      400,
+    );
   }
-  const result = await discardCurrentMock(env.DB, mockId);
+  const targeted = await currentTarget(env, target);
+  if (targeted instanceof Response) return targeted;
+  const result = await discardCurrentMock(
+    env.DB,
+    target.mock_id,
+    target.expected_revision,
+  );
   if (result !== "ok") {
     return error(
       "stale_mock",
@@ -362,6 +409,111 @@ async function discardMock(request: Request, env: MockApiEnv): Promise<Response>
   return board
     ? json(stateWithBoard(current, board))
     : json(stateWithBoardError(current));
+}
+
+async function changePaused(
+  request: Request,
+  env: MockApiEnv,
+  paused: boolean,
+): Promise<Response> {
+  const target = validTarget(await requestBody(request));
+  if (!target) {
+    return error(
+      "invalid_request",
+      "Provide the displayed mock ID and revision.",
+      400,
+    );
+  }
+  const targeted = await currentTarget(env, target);
+  if (targeted instanceof Response) return targeted;
+  const result = await setMockPaused(
+    env.DB,
+    target.mock_id,
+    target.expected_revision,
+    paused,
+  );
+  if (result === "stale_mock") {
+    return error("stale_mock", "The mock changed in another tab; reload and try again.", 409);
+  }
+  if (result === "invalid_state") {
+    return error(
+      "invalid_mock_state",
+      paused ? "Only an active mock can be paused." : "Only a paused mock can be resumed.",
+      409,
+    );
+  }
+  return reloadedState(env, target.mock_id);
+}
+
+async function undoMock(request: Request, env: MockApiEnv): Promise<Response> {
+  const target = validTarget(await requestBody(request));
+  if (!target) {
+    return error("invalid_request", "Provide the displayed mock ID and revision.", 400);
+  }
+  const targeted = await currentTarget(env, target);
+  if (targeted instanceof Response) return targeted;
+  const result = await undoLatestMockDecision(
+    env.DB,
+    target.mock_id,
+    target.expected_revision,
+  );
+  if (result === "stale_mock") {
+    return error("stale_mock", "The mock changed in another tab; reload and try again.", 409);
+  }
+  if (result === "no_user_decisions") {
+    return error(
+      "no_user_decisions",
+      "There is no Brian decision to undo.",
+      409,
+    );
+  }
+  return reloadedState(env, target.mock_id);
+}
+
+async function resetMock(request: Request, env: MockApiEnv): Promise<Response> {
+  const target = validTarget(await requestBody(request));
+  if (!target) {
+    return error("invalid_request", "Provide the displayed mock ID and revision.", 400);
+  }
+  const targeted = await currentTarget(env, target);
+  if (targeted instanceof Response) return targeted;
+  const board = savedBoard(targeted);
+  if (!board) {
+    return error("board_unreadable", "The mock's board snapshot is unreadable.", 503);
+  }
+  const strategy = strategyForVersion(targeted.aggregate.strategy_version);
+  if (!strategy) {
+    return error("board_unusable", "This mock uses an unsupported opponent strategy.", 503);
+  }
+  try {
+    const restarted = startMock(
+      board,
+      {
+        user_slot: targeted.aggregate.user_slot,
+        seed: targeted.aggregate.seed,
+        variance_preset: targeted.aggregate.variance_preset,
+      },
+      strategy,
+    );
+    const result = await resetCurrentMock(
+      env.DB,
+      target.mock_id,
+      target.expected_revision,
+      restarted,
+    );
+    if (result === "stale_mock") {
+      return error("stale_mock", "The mock changed in another tab; reload and try again.", 409);
+    }
+    if (result === "invalid_state") {
+      return error("invalid_mock_state", "The saved mock configuration cannot be restarted.", 409);
+    }
+    return reloadedState(env, target.mock_id);
+  } catch (caught) {
+    if (caught instanceof MockDomainError) {
+      return error(caught.code, caught.message, 503);
+    }
+    return error("board_unusable", "The mock could not be restarted.", 503);
+  }
 }
 
 export async function handleMockApi(
@@ -391,6 +543,26 @@ export async function handleMockApi(
   if (pathname === "/api/mocks/current/picks") {
     return request.method === "POST"
       ? recordMockPick(request, env)
+      : methodNotAllowed("POST");
+  }
+  if (pathname === "/api/mocks/current/picks/latest") {
+    return request.method === "DELETE"
+      ? undoMock(request, env)
+      : methodNotAllowed("DELETE");
+  }
+  if (pathname === "/api/mocks/current/pause") {
+    return request.method === "POST"
+      ? changePaused(request, env, true)
+      : methodNotAllowed("POST");
+  }
+  if (pathname === "/api/mocks/current/resume") {
+    return request.method === "POST"
+      ? changePaused(request, env, false)
+      : methodNotAllowed("POST");
+  }
+  if (pathname === "/api/mocks/current/reset") {
+    return request.method === "POST"
+      ? resetMock(request, env)
       : methodNotAllowed("POST");
   }
   return error("not_found", "Not found.", 404);

@@ -152,6 +152,11 @@ describe("mock draft", () => {
 
     const transition = recordUserPick(started, board, selected.key, seededMarketStrategy);
 
+    expect(transition.checkpoint).toEqual({
+      decision_overall_pick: 4,
+      pick_count_before: 3,
+      rng_state_before: started.rng_state,
+    });
     expect(transition.appended_picks[0]).toMatchObject({
       overall_pick: 4,
       round: 1,

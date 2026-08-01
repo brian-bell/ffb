@@ -55,6 +55,7 @@
       <div><span>Slot</span><b data-status-slot>—</b></div>
       <div><span>Round</span><b data-status-round>—</b></div>
       <div><span>Overall</span><b data-status-overall>—</b></div>
+      <div><span>Status</span><b data-status-lifecycle>—</b></div>
       <div><span>Revision</span><b data-status-revision>—</b></div>
     </div>
     <div class="mock-events" data-events aria-live="polite"></div>
@@ -81,7 +82,13 @@
       <button class="record" data-draft-player type="button" disabled>Draft player</button>
     </div>
     <p class="mock-error dock-error" data-draft-error aria-live="polite"></p>
-    <button class="discard-mock" data-discard type="button">Discard mock</button>
+    <div class="mock-lifecycle-controls" aria-label="Mock draft controls">
+      <button class="mock-control" data-lifecycle-toggle type="button">Pause</button>
+      <button class="mock-control" data-undo type="button">Undo decision</button>
+      <button class="mock-control" data-reset type="button">Restart from seed</button>
+      <button class="discard-mock" data-discard type="button">Discard mock</button>
+    </div>
+    <p class="mock-control-help">Undo rewinds Brian’s latest choice and every CPU pick that followed it.</p>
   </section>
   <div class="footbar" data-foot>board.json —</div>
 
