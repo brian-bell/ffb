@@ -14,6 +14,7 @@ import {
 import { buildPlayerPool, type PlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
+import { syncSelectedPlayerRow } from "../src/selection";
 import { makeStore } from "../src/state";
 import type { Board, Player } from "../src/types";
 
@@ -277,6 +278,28 @@ function renderSuggestions(actionState: ReturnType<typeof actions>, pool: Player
   }
 }
 
+function renderSelection(actionState: ReturnType<typeof actions>): void {
+  const player = selectedPlayer();
+  selected.innerHTML = player
+    ? `<b>${escaped(player.name)}</b> · ${escaped(player.pos ?? "—")} · ${escaped(player.team ?? "FA")}`
+    : "No Player Selected.";
+  draftPlayer.disabled = !player || !actionState.can_pick;
+  clearSelection.disabled = !player || !actionState.can_pick;
+}
+
+function renderPickTools(): void {
+  pickToolsToggle.setAttribute("aria-expanded", String(boardView.pickToolsExpanded));
+  pickToolsToggle.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
+  pickTools.hidden = !boardView.pickToolsExpanded;
+}
+
+/** Selection changes touch at most two rows, so the list is never rebuilt. */
+function renderSelectionChange(): void {
+  renderSelection(actions());
+  renderPickTools();
+  syncSelectedPlayerRow(list, boardView.selectedKey);
+}
+
 function observeLoadMore(): void {
   if (!loadMoreObserver) return;
   loadMoreObserver.disconnect();
@@ -328,15 +351,8 @@ function renderState(resetScroll = true): void {
   statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(mock.revision);
   renderClock();
-  const player = selectedPlayer();
-  selected.innerHTML = player
-    ? `<b>${escaped(player.name)}</b> · ${escaped(player.pos ?? "—")} · ${escaped(player.team ?? "FA")}`
-    : "No Player Selected.";
-  draftPlayer.disabled = !player || !actionState.can_pick;
-  clearSelection.disabled = !player || !actionState.can_pick;
-  pickToolsToggle.setAttribute("aria-expanded", String(boardView.pickToolsExpanded));
-  pickToolsToggle.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
-  pickTools.hidden = !boardView.pickToolsExpanded;
+  renderSelection(actionState);
+  renderPickTools();
   lifecycleToggle.textContent = actionState.lifecycle_label;
   lifecycleToggle.disabled = !actionState.lifecycle_enabled;
   undo.disabled = !actionState.undo_enabled;
@@ -594,7 +610,7 @@ list.addEventListener("click", (event) => {
     type: "playerSelected",
     key: decodeURIComponent(row.dataset.playerKey ?? ""),
   });
-  renderState(false);
+  renderSelectionChange();
 });
 
 suggestionList.addEventListener("click", (event) => {
@@ -604,17 +620,17 @@ suggestionList.addEventListener("click", (event) => {
     type: "playerSelected",
     key: decodeURIComponent(button.dataset.playerKey ?? ""),
   });
-  renderState(false);
+  renderSelectionChange();
 });
 
 pickToolsToggle.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "togglePickTools" });
-  renderState(false);
+  renderPickTools();
 });
 
 clearSelection.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "selectionCleared" });
-  renderState(false);
+  renderSelectionChange();
 });
 
 draftPlayer.addEventListener("click", async () => {
