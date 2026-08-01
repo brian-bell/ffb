@@ -442,6 +442,49 @@ def test_all_player_pool_restores_inactive_rows_without_mutating_status(tmp_path
     assert before == after
 
 
+def test_board_commands_report_how_much_the_pool_selected(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    shown = runner.invoke(app, ["board", "show", "2024", "--limit", "1"], env=env)
+
+    assert shown.exit_code == 0, shown.output
+    summary = " ".join(shown.output.split())
+    assert "Player pool draftable:" in summary
+    assert "excluded as not draftable" in summary
+
+
+def test_board_export_refuses_to_write_an_empty_board(tmp_path, monkeypatch):
+    from ffb import board as board_module
+
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    monkeypatch.setattr(board_module, "board_rows", lambda *args, **kwargs: [])
+    output_dir = tmp_path / "hollow"
+
+    exported = runner.invoke(
+        app, ["board", "export", "2024", "--output-dir", str(output_dir)], env=env
+    )
+
+    assert exported.exit_code == 1, exported.output
+    assert "refusing" in " ".join(exported.output.split())
+    assert not (output_dir / "board.json").exists()
+
+
+def test_board_reports_a_database_that_predates_the_schema(tmp_path):
+    env = _env(tmp_path)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    with Store(Path(env["FFB_DB_PATH"])) as store:
+        store.conn.execute("ALTER TABLE projections DROP COLUMN draftable")
+
+    shown = runner.invoke(app, ["board", "show", "2024"], env=env)
+
+    assert shown.exit_code == 1, shown.output
+    message = " ".join(shown.output.split())
+    assert "predates the current schema" in message
+    assert "--offline --rebuild" in message
+
+
 @pytest.mark.parametrize("command", ["show", "export"])
 def test_board_rejects_unsupported_player_pool_clearly(tmp_path, command):
     env = _env(tmp_path)

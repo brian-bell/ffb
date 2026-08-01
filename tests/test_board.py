@@ -2,7 +2,7 @@
 
 import json
 
-from ffb.board import board_rows, to_board_json, to_csv, to_markdown
+from ffb.board import board_rows, pool_counts, to_board_json, to_csv, to_markdown
 
 ROSTER = {"QB": 1, "RB": 1, "WR": 1, "K": 1, "DEF": 1, "BN": 1}
 NUM_TEAMS = 1
@@ -124,6 +124,43 @@ def test_all_player_pool_restores_non_draftable_consensus_rows():
     )
 
     assert {row["key"] for row in board} == {"active", "unsigned"}
+
+
+def test_pool_counts_report_what_the_draftable_pool_drops():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus("unsigned", "Unsigned Player", "RB", None, 90.0, draftable=False),
+    ]
+    adp = [
+        _adp("active", "Active Player", "RB", "BAL", 1.2),
+        _adp("ffc:gone", "Retired Guy", "WR", "FA", 200.0),
+    ]
+
+    counts = pool_counts(consensus, adp, roster_slots=ROSTER)
+
+    assert counts == {"all": 3, "draftable": 1}
+    assert counts["draftable"] == len(
+        board_rows(
+            consensus,
+            adp,
+            roster_slots=ROSTER,
+            num_teams=NUM_TEAMS,
+            tier_count=TIER_COUNT,
+            pools=POOLS,
+        )
+    )
+
+
+def test_pool_counts_ignore_rows_the_board_can_never_rank():
+    consensus = [
+        _consensus("active", "Active Player", "RB", "BAL", 100.0),
+        _consensus("no_slot", "Tight End", "TE", "BAL", 90.0),
+    ]
+    unmatched = _adp("ffc:unmatched", "Mystery Man", "WR", "BAL", 30.0, matched=False)
+
+    counts = pool_counts(consensus, [unmatched], roster_slots=ROSTER)
+
+    assert counts == {"all": 1, "draftable": 1}
 
 
 def test_default_board_keeps_draftable_zero_point_player():

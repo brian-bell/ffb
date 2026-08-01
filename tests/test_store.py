@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+import pytest
+
 from ffb.ingest import resolve_rows
-from ffb.store import Store
+from ffb.store import SchemaMismatchError, Store
 
 
 def test_init_schema_is_idempotent(tmp_path):
@@ -11,6 +13,23 @@ def test_init_schema_is_idempotent(tmp_path):
     s.init_schema()
     s.init_schema()  # must not raise
     s.close()
+
+
+def test_init_schema_reports_a_database_predating_a_column(tmp_path):
+    path = tmp_path / "db.duckdb"
+    old = Store(path)
+    old.init_schema()
+    old.conn.execute("ALTER TABLE projections DROP COLUMN draftable")
+    old.close()
+
+    store = Store(path)
+    with pytest.raises(SchemaMismatchError) as excinfo:
+        store.init_schema()
+    store.close()
+
+    message = str(excinfo.value)
+    assert "projections is missing draftable" in message
+    assert "--offline --rebuild" in message
 
 
 def test_upsert_and_read_back(seeded_store):

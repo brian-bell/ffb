@@ -119,6 +119,10 @@ mv data/ffb.duckdb data/ffb.duckdb.pre-draftable
 uv run ffb season sync 2026 --offline --rebuild
 ```
 
+Skipping the rebuild is safe: every command opens the store through a schema
+check that compares the file against the current column set and stops with those
+two commands in the message, instead of failing later inside a query.
+
 FFC has no id in the crosswalk, so ADP resolves by **normalized name + position**
 (with a team tiebreak); ambiguity resolves to *unmatched*, never a guess. Team
 defenses use a source-independent `def:<canonical-team>` identity, so Sleeper
@@ -298,7 +302,11 @@ make deploy-all      # deploy the app, then export/publish the persisted board
 
 `deploy-board` never fetches source data; it exports the current DuckDB state
 using the CLI's default draftable pool, checks that `exports/board.json` is
-nonempty, and publishes that file. Run the explicit `season sync` first for
+nonempty and holds at least `MIN_BOARD_PLAYERS` (100 by default) players, and
+publishes that file. The count gate is what keeps a board hollowed out by a
+degraded projection source from reaching production; `board export` itself
+refuses to write an empty board, and both board commands print how many rankable
+players the selected pool kept. Run the explicit `season sync` first for
 projection, ADP, or schedule updates. Use `deploy-app` for Worker or browser-app
 changes; it applies committed D1 migrations before deploying code that needs
 them.

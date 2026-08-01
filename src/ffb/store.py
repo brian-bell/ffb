@@ -139,6 +139,43 @@ _ADP_COLUMNS = (
 # Which crosswalk column holds each source's native player id.
 _SOURCE_ID_COLUMN = {"sleeper": "sleeper_id", "espn": "espn_id", "yahoo": "yahoo_id"}
 
+_COLUMN_QUERY = """
+    SELECT table_name, column_name
+    FROM duckdb_columns()
+    WHERE database_name = current_database() AND schema_name = 'main'
+"""
+
+_expected_columns_cache: dict[str, frozenset[str]] | None = None
+
+
+class SchemaMismatchError(RuntimeError):
+    """An existing database file predates the current schema.
+
+    ``CREATE TABLE IF NOT EXISTS`` cannot widen a table that already exists, and
+    the store is a disposable local cache (not a migrated system of record), so
+    the recovery is to move the file aside and replay the snapshots.
+    """
+
+
+def _table_columns(conn: duckdb.DuckDBPyConnection) -> dict[str, frozenset[str]]:
+    columns: dict[str, set[str]] = {}
+    for table, column in conn.execute(_COLUMN_QUERY).fetchall():
+        columns.setdefault(table, set()).add(column)
+    return {table: frozenset(cols) for table, cols in columns.items()}
+
+
+def _expected_columns() -> dict[str, frozenset[str]]:
+    """Columns ``SCHEMA`` produces on a fresh database (computed once)."""
+    global _expected_columns_cache
+    if _expected_columns_cache is None:
+        conn = duckdb.connect()
+        try:
+            conn.execute(SCHEMA)
+            _expected_columns_cache = _table_columns(conn)
+        finally:
+            conn.close()
+    return _expected_columns_cache
+
 
 class Store:
     def __init__(self, path: Path | str):
@@ -151,6 +188,33 @@ class Store:
         # cache rebuilt offline from snapshots (see AGENTS.md). Delete the file
         # after a schema change rather than migrating it.
         self.conn.execute(SCHEMA)
+        self._verify_schema()
+
+    def _verify_schema(self) -> None:
+        """Fail with a directed error when an existing file lacks a column.
+
+        Without this, every read and write of the widened table raises a raw
+        ``duckdb`` binder error — including the ones ``season sync --rebuild``
+        needs to repair the file — so the operator gets the rebuild recipe here
+        instead.
+        """
+        actual = _table_columns(self.conn)
+        missing = {
+            table: sorted(columns - actual.get(table, frozenset()))
+            for table, columns in _expected_columns().items()
+            if columns - actual.get(table, frozenset())
+        }
+        if not missing:
+            return
+        detail = "; ".join(
+            f"{table} is missing {', '.join(cols)}" for table, cols in sorted(missing.items())
+        )
+        raise SchemaMismatchError(
+            f"{self.path} predates the current schema ({detail}). The store is a "
+            f"disposable cache: move it aside and replay the snapshots — "
+            f"mv {self.path} {self.path}.bak && "
+            f"uv run ffb season sync SEASON --offline --rebuild"
+        )
 
     def close(self) -> None:
         self.conn.close()

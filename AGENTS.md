@@ -52,9 +52,14 @@ the temporary database, snapshots, and export when diagnosing a failure.
 
 `deploy-board` is intentionally a data-only deployment: it does **not** fetch or
 sync sources. It exports the currently persisted season, verifies
-`exports/board.json` is nonempty, and writes `board:current` to production KV
+`exports/board.json` is nonempty **and holds at least `MIN_BOARD_PLAYERS` (100
+by default) players**, and writes `board:current` to production KV
 without redeploying code. Export uses the CLI's default `draftable` player pool;
 `--player-pool all` is a diagnostic override for direct show/export commands.
+Because the pool is a filter, a degraded source shrinks the board rather than
+failing it: `board show`/`board export` print the selected-vs-rankable row count,
+`board export` refuses to write an empty board, and the publish gate rejects an
+implausibly small one.
 Run `ffb season sync $(SEASON) --refresh` explicitly first when fresh source data
 is required. `deploy-app` runs the tracker
 typecheck and tests, applies pending remote D1 migrations, then builds and
@@ -338,8 +343,9 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
 - **Layering:** `cli → season_data → ingest → store`; read commands use
   `cli → {consensus, board} → {store, scoring}`;
   `board → {vorp, tiers, identity}`; `sources → snapshot`; `identity` and `names`
-  are pure (`identity` is imported by ingest, the schedule source, and the
-  board's bye join; `names` by ingest only). `consensus`/`rankings`/`vorp`/`tiers`/`board`/
+  are pure (`identity` is imported by ingest, the store, the projection and
+  schedule sources — the Sleeper/ESPN draftability check and the canonical team
+  decode — and the board's bye join; `names` by ingest only). `consensus`/`rankings`/`vorp`/`tiers`/`board`/
   `identity`/`names` are pure (data in, data out) — `test_layering` guards them
   against I/O imports.
 - **Git:** never commit to `main`; branch per slice (e.g.
@@ -404,6 +410,12 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   mv data/ffb.duckdb data/ffb.duckdb.pre-draftable
   uv run ffb season sync 2026 --offline --rebuild
   ```
+
+  A column change is at least detected rather than crashing mid-query:
+  `init_schema` compares the opened file against the columns `SCHEMA` builds on a
+  fresh database and raises `SchemaMismatchError` (rendered by the CLI as a
+  directed message naming the two commands above). Content-only changes still
+  need the operator to know a rebuild is due.
 - **Yahoo is fixture-backed only.** `ffb league sync [SEASON] --fixture PATH` stores mock
   league settings, teams, and current-week rosters atomically; it has no OAuth or
   live requests. Task 2b adds YFPY behind the existing provider boundary. Yahoo
