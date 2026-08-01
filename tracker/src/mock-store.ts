@@ -362,41 +362,51 @@ export async function undoLatestMockDecision(
     return current ? "no_user_decisions" : "stale_mock";
   }
 
-  const guard = `EXISTS (
-    SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
-  )`;
+  const nextRevision = expectedRevision + 1;
+  const now = isoNow();
   const results = await db.batch([
     db.prepare(
+      `UPDATE mock_drafts
+          SET rng_state = ?, status = 'active', revision = ?, updated_at = ?
+        WHERE id = ? AND revision = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM mock_drafts
+             WHERE status = 'active' AND id <> ?
+          )`,
+    ).bind(
+      checkpoint.rng_state_before,
+      nextRevision,
+      now,
+      mockId,
+      expectedRevision,
+      mockId,
+    ),
+    db.prepare(
       `DELETE FROM mock_picks
-        WHERE mock_id = ? AND overall_pick > ? AND ${guard}`,
+        WHERE mock_id = ? AND overall_pick > ?
+          AND EXISTS (
+            SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
+          )`,
     ).bind(
       mockId,
       checkpoint.pick_count_before,
       mockId,
-      expectedRevision,
+      nextRevision,
     ),
     db.prepare(
       `DELETE FROM mock_checkpoints
-        WHERE mock_id = ? AND decision_overall_pick = ? AND ${guard}`,
+        WHERE mock_id = ? AND decision_overall_pick = ?
+          AND EXISTS (
+            SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
+          )`,
     ).bind(
       mockId,
       checkpoint.decision_overall_pick,
       mockId,
-      expectedRevision,
-    ),
-    db.prepare(
-      `UPDATE mock_drafts
-          SET rng_state = ?, status = 'active', revision = ?, updated_at = ?
-        WHERE id = ? AND revision = ?`,
-    ).bind(
-      checkpoint.rng_state_before,
-      expectedRevision + 1,
-      isoNow(),
-      mockId,
-      expectedRevision,
+      nextRevision,
     ),
   ]);
-  return results.at(-1)?.meta.changes === 1 ? "ok" : "stale_mock";
+  return results[0]?.meta.changes === 1 ? "ok" : "stale_mock";
 }
 
 export type ResetMockResult = "ok" | "stale_mock" | "invalid_state";
@@ -431,24 +441,49 @@ export async function resetCurrentMock(
     return "invalid_state";
   }
 
-  const guard = `EXISTS (
-    SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
-  )`;
+  const nextRevision = expectedRevision + 1;
   const now = isoNow();
   const results = await db.batch([
     db.prepare(
-      `DELETE FROM mock_checkpoints WHERE mock_id = ? AND ${guard}`,
-    ).bind(mockId, mockId, expectedRevision),
+      `UPDATE mock_drafts
+          SET rng_state = ?, status = ?, paused = 0, revision = ?, updated_at = ?
+        WHERE id = ? AND revision = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM mock_drafts
+             WHERE status = 'active' AND id <> ?
+          )`,
+    ).bind(
+      restarted.rng_state,
+      restarted.complete ? "complete" : "active",
+      nextRevision,
+      now,
+      mockId,
+      expectedRevision,
+      mockId,
+    ),
     db.prepare(
-      `DELETE FROM mock_picks WHERE mock_id = ? AND ${guard}`,
-    ).bind(mockId, mockId, expectedRevision),
+      `DELETE FROM mock_checkpoints
+        WHERE mock_id = ?
+          AND EXISTS (
+            SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
+          )`,
+    ).bind(mockId, mockId, nextRevision),
+    db.prepare(
+      `DELETE FROM mock_picks
+        WHERE mock_id = ?
+          AND EXISTS (
+            SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
+          )`,
+    ).bind(mockId, mockId, nextRevision),
     ...restarted.picks.map((pick) =>
       db.prepare(
         `INSERT INTO mock_picks
           (mock_id, overall_pick, round, round_pick, draft_slot, player_key,
            player_name, player_pos, player_team, source, picked_at)
          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-          WHERE ${guard}`,
+          WHERE EXISTS (
+            SELECT 1 FROM mock_drafts WHERE id = ? AND revision = ?
+          )`,
       ).bind(
         mockId,
         pick.overall_pick,
@@ -462,23 +497,11 @@ export async function resetCurrentMock(
         pick.source,
         now,
         mockId,
-        expectedRevision,
-      )
-    ),
-    db.prepare(
-      `UPDATE mock_drafts
-          SET rng_state = ?, status = ?, paused = 0, revision = ?, updated_at = ?
-        WHERE id = ? AND revision = ?`,
-    ).bind(
-      restarted.rng_state,
-      restarted.complete ? "complete" : "active",
-      expectedRevision + 1,
-      now,
-      mockId,
-      expectedRevision,
+        nextRevision,
+      ),
     ),
   ]);
-  return results.at(-1)?.meta.changes === 1 ? "ok" : "stale_mock";
+  return results[0]?.meta.changes === 1 ? "ok" : "stale_mock";
 }
 
 export type DiscardMockResult = "ok" | "stale_mock";

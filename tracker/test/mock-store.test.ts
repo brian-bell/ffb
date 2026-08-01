@@ -263,6 +263,39 @@ describe("mock store", () => {
     expect(await undoLatestMockDecision(env.DB, "mock-undo", 3)).toBe("no_user_decisions");
   });
 
+  it("rejects undo when another active mock appeared after the target was loaded", async () => {
+    const shortBoard = { ...board, num_teams: 2, roster_slots: { RB: 1 } };
+    const completed = startMock(shortBoard, { user_slot: 1, seed: 8042 }, seededMarketStrategy);
+    await insertMock(env.DB, completed, {
+      id: "mock-undo-race-complete",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+    const transition = recordUserPick(
+      completed,
+      shortBoard,
+      shortBoard.players[0]!.key,
+      seededMarketStrategy,
+    );
+    expect(await appendMockTransition(env.DB, "mock-undo-race-complete", 0, transition)).toBe("ok");
+
+    const replacement = startMock(shortBoard, { user_slot: 1, seed: 9 }, seededMarketStrategy);
+    await insertMock(env.DB, replacement, {
+      id: "mock-undo-race-active",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+
+    expect(await undoLatestMockDecision(env.DB, "mock-undo-race-complete", 2)).toBe("stale_mock");
+    expect((await loadMock(env.DB, "mock-undo-race-complete"))?.state).toMatchObject({
+      lifecycle: "complete",
+      revision: 2,
+    });
+    expect((await loadCurrentMock(env.DB))?.state.mock?.id).toBe("mock-undo-race-active");
+  });
+
   it("keeps a paused mock paused when undoing its latest user decision", async () => {
     const aggregate = startMock(board, { user_slot: 4, seed: 8042 }, seededMarketStrategy);
     await insertMock(env.DB, aggregate, {
@@ -319,5 +352,41 @@ describe("mock store", () => {
     expect(reset?.aggregate.picks.map((pick) => pick.player_key)).toEqual(
       aggregate.picks.map((pick) => pick.player_key),
     );
+  });
+
+  it("rejects reset when another active mock appeared after the target was loaded", async () => {
+    const shortBoard = { ...board, num_teams: 2, roster_slots: { RB: 1 } };
+    const completed = startMock(shortBoard, { user_slot: 1, seed: 8042 }, seededMarketStrategy);
+    await insertMock(env.DB, completed, {
+      id: "mock-reset-race-complete",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+    const transition = recordUserPick(
+      completed,
+      shortBoard,
+      shortBoard.players[0]!.key,
+      seededMarketStrategy,
+    );
+    expect(await appendMockTransition(env.DB, "mock-reset-race-complete", 0, transition)).toBe("ok");
+
+    const replacement = startMock(shortBoard, { user_slot: 1, seed: 9 }, seededMarketStrategy);
+    await insertMock(env.DB, replacement, {
+      id: "mock-reset-race-active",
+      fingerprint,
+      board_json: JSON.stringify(shortBoard),
+      board: shortBoard,
+    });
+
+    const restarted = startMock(shortBoard, { user_slot: 1, seed: 8042 }, seededMarketStrategy);
+    expect(
+      await resetCurrentMock(env.DB, "mock-reset-race-complete", 2, restarted),
+    ).toBe("stale_mock");
+    expect((await loadMock(env.DB, "mock-reset-race-complete"))?.state).toMatchObject({
+      lifecycle: "complete",
+      revision: 2,
+    });
+    expect((await loadCurrentMock(env.DB))?.state.mock?.id).toBe("mock-reset-race-active");
   });
 });
