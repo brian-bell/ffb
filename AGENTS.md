@@ -37,7 +37,7 @@ The tracker has its own Node toolchain:
 
 ```sh
 cd tracker
-nvm use                     # .nvmrc pins Node 22.23.1 / npm 10.9.8
+nvm use                     # .nvmrc pins Node 24.18.0 / npm 11.16.0
 npm ci
 npm run typecheck
 npm test
