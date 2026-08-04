@@ -220,6 +220,13 @@ or Wild opponent variance. New mocks use the versioned `market-need-v1` strategy
 which combines market order, open starter needs, tier value, specialist timing,
 and seeded variance. Existing `seeded-market-v0` mocks remain resumable.
 
+At `1024px` and wider, the same `/mock` client becomes a two-pane workspace: the
+board owns the left-side scroll area while selection, draft action, suggestions,
+latest transition, and lifecycle controls remain in a bounded decision rail.
+Below that breakpoint the existing single-column dock and its remembered **Pick
+tools** disclosure remain unchanged. The route, `MockState`, `BoardViewState`,
+saved board, API writes, and mock-only storage are shared across both layouts.
+
 Mock mode uses the same Available/Drafted tabs, name search, position filters,
 progressive list loading, row selection, Pick tools, identity-aware availability,
 and snake clock as the live room. **Likely next** shows up to three available
@@ -270,6 +277,7 @@ npm ci
 npm test                     # vitest + @cloudflare/vitest-pool-workers (offline)
 npm run typecheck
 npm run build:client         # verify the browser bundle
+npm run test:browser         # build + real Chromium phone/desktop mock journey
 npx wrangler d1 migrations apply ffb-tracker --local
 npm run publish:board        # seed local KV from ../exports/board.json
 npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
@@ -279,6 +287,11 @@ For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
 `tracker/.dev.vars` (gitignored). Regenerate the board with `uv run ffb season
 sync` followed by `uv run ffb board export` (writes `exports/board.json`), then
 `npm run publish:board` to reload the dev store.
+
+The browser suite serves committed fixtures on `127.0.0.1:4173`, uses the test
+key internally, and covers `390×844`, `1024×768`, `1440×900`, and the
+`1280×650` short-height fallback. It does not read or mutate local Wrangler D1
+or KV state.
 
 ### Provisioned Cloudflare deployment (HITL)
 
