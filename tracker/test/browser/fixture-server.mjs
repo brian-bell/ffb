@@ -117,7 +117,8 @@ function currentInput() {
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1:4173");
   if (url.pathname.startsWith("/api/")) {
-    if (request.headers.authorization !== "Bearer test-secret-key") {
+    const authorization = request.headers.authorization;
+    if (authorization !== "Bearer test-secret-key" && authorization !== "Bearer test-recovery-key") {
       sendJson(response, 401, { message: "Unauthorized" });
       return;
     }
@@ -126,6 +127,13 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/mocks/current") {
+      if (authorization === "Bearer test-recovery-key") {
+        sendJson(response, 200, configuredState(currentInput(), {
+          board: undefined,
+          board_error: "Saved board snapshot is unreadable.",
+        }));
+        return;
+      }
       sendJson(response, 200, state ?? unconfiguredState());
       return;
     }

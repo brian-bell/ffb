@@ -298,10 +298,17 @@ function renderSelection(actionState: ReturnType<typeof actions>): void {
 }
 
 function renderPickTools(): void {
+  if (mock?.board_error) {
+    pickToolsToggle.hidden = true;
+    pickToolsToggle.disabled = true;
+    pickTools.hidden = true;
+    return;
+  }
   const presentation = mockPickToolsPresentation(
     desktopQuery.matches,
     boardView.pickToolsExpanded,
   );
+  pickToolsToggle.disabled = false;
   pickToolsToggle.hidden = presentation.toggleHidden;
   pickToolsToggle.setAttribute("aria-expanded", String(presentation.toggleExpanded));
   pickToolsToggle.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
@@ -404,7 +411,7 @@ function renderBoardRecovery(value: MockState): void {
   tabs.hidden = true;
   viewTabs.hidden = true;
   columnHead.hidden = true;
-  list.hidden = true;
+  list.hidden = false;
   pickPanel.hidden = false;
   clock.hidden = true;
   suggestions.hidden = true;
@@ -422,9 +429,18 @@ function renderBoardRecovery(value: MockState): void {
   for (const summary of eventSummaries) {
     summary.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
   }
+  list.innerHTML =
+    '<div class="notice"><b>Saved board unavailable.</b>Discard this mock to return to setup.</div>';
   onClock.textContent = "This mock cannot continue with the current tracker version.";
   selected.textContent = "Discard the mock to return to setup.";
+  pickToolsToggle.hidden = true;
+  pickToolsToggle.disabled = true;
+  pickTools.hidden = true;
   draftPlayer.disabled = true;
+  clearSelection.disabled = true;
+  suggestionList.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+    button.disabled = true;
+  });
   lifecycleToggle.textContent = actionState.lifecycle_label;
   lifecycleToggle.disabled = true;
   undo.disabled = true;
@@ -648,8 +664,7 @@ pickToolsToggle.addEventListener("click", () => {
   renderPickTools();
 });
 
-const stopResponsivePickTools = watchResponsiveQuery(desktopQuery, renderPickTools);
-window.addEventListener("pagehide", stopResponsivePickTools, { once: true });
+watchResponsiveQuery(desktopQuery, renderPickTools);
 
 clearSelection.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "selectionCleared" });

@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function unlockAndStart(page: Page): Promise<void> {
+  await page.request.delete("/api/mocks/current", {
+    headers: { Authorization: "Bearer test-secret-key" },
+  });
   await page.goto("/mock");
   await page.locator("[data-key]").fill("test-secret-key");
   await page.getByRole("button", { name: "Unlock mock" }).click();
@@ -76,17 +79,17 @@ test("the mock journey preserves one responsive board and compact disclosure sta
   await page.setViewportSize({ width: 1280, height: 650 });
   const shortDesktop = await page.evaluate(() => {
     const rail = document.querySelector("[data-decision-rail]")!;
+    rail.scrollTop = rail.scrollHeight;
+    const railBox = rail.getBoundingClientRect();
     const discard = document.querySelector("[data-discard]")!.getBoundingClientRect();
     return {
-      documentCanScroll: document.documentElement.scrollHeight >= innerHeight,
-      railCanScroll: rail.scrollHeight <= rail.clientHeight
-        || getComputedStyle(rail).overflowY === "auto",
-      discardHasSize: discard.height >= 40 && discard.width > 0,
+      railReachedEnd: rail.scrollHeight <= rail.clientHeight
+        || Math.abs(rail.scrollTop + rail.clientHeight - rail.scrollHeight) <= 1,
+      discardReachable: discard.top >= railBox.top && discard.bottom <= railBox.bottom + 1,
     };
   });
-  expect(shortDesktop.documentCanScroll).toBe(true);
-  expect(shortDesktop.railCanScroll).toBe(true);
-  expect(shortDesktop.discardHasSize).toBe(true);
+  expect(shortDesktop.railReachedEnd).toBe(true);
+  expect(shortDesktop.discardReachable).toBe(true);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("[data-pick-tools-toggle]")).toBeVisible();
@@ -118,4 +121,35 @@ test("the mock journey preserves one responsive board and compact disclosure sta
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("[data-pick-tools-toggle]")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("[data-pick-tools]")).toBeVisible();
+});
+
+test("saved-board recovery replaces the board and leaves only discard enabled", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/mock");
+  await page.locator("[data-key]").fill("test-recovery-key");
+  await page.getByRole("button", { name: "Unlock mock" }).click();
+
+  await expect(page.locator("[data-board-pane]")).toContainText("Saved board unavailable");
+  await expect(page.locator("[data-decision-rail] button:enabled")).toHaveCount(1);
+  await expect(page.locator("[data-discard]")).toBeEnabled();
+  await expect(page.locator("[data-pick-tools-toggle]")).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("[data-board-pane]")).toContainText("Saved board unavailable");
+  await expect(page.locator("[data-decision-rail] button:enabled")).toHaveCount(1);
+  await expect(page.locator("[data-pick-tools-toggle]")).toBeHidden();
+});
+
+test("compact disclosure keeps responding across a persisted page lifecycle", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await unlockAndStart(page);
+  await expect(page.locator("[data-pick-tools]")).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+
+  await expect(page.locator("[data-pick-tools-toggle]")).toBeVisible();
+  await expect(page.locator("[data-pick-tools-toggle]")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("[data-pick-tools]")).toBeHidden();
 });
