@@ -273,6 +273,7 @@ mock mode.
 
 ```sh
 cd tracker
+nvm use                      # .nvmrc pins Node 22.23.1 / npm 10.9.8
 npm ci
 npm test                     # vitest + @cloudflare/vitest-pool-workers (offline)
 npm run typecheck
@@ -282,6 +283,11 @@ npx wrangler d1 migrations apply ffb-tracker --local
 npm run publish:board        # seed local KV from ../exports/board.json
 npm run dev                  # wrangler dev (local KV + D1 via Miniflare)
 ```
+
+Use the pinned tracker toolchain before any dependency or lockfile update.
+`package.json` enforces the same Node/npm pair with `devEngines`, so a mismatched
+package manager fails before it can rewrite `package-lock.json` into a shape CI
+cannot consume.
 
 For local `wrangler dev` you need a key: put `TRACKER_API_KEY=<anything>` in
 `tracker/.dev.vars` (gitignored). Regenerate the board with `uv run ffb season

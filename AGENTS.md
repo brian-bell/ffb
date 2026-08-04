@@ -37,12 +37,18 @@ The tracker has its own Node toolchain:
 
 ```sh
 cd tracker
+nvm use                     # .nvmrc pins Node 22.23.1 / npm 10.9.8
 npm ci
 npm run typecheck
 npm test
 npm run test:browser
 npm run build:client
 ```
+
+`tracker/package.json` enforces that exact development toolchain through
+`devEngines`. Run dependency and lockfile updates only after `nvm use`; npm
+major-version drift can otherwise produce a lockfile that another npm version
+rejects.
 
 Before committing a change that can affect fixture ingestion, CLI board export,
 the `board.json` contract, D1 migrations, KV/D1 behavior, or Worker APIs, run

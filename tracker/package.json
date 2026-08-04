@@ -2,6 +2,19 @@
   "name": "ffb-tracker",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.9.8",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "22.23.1",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "10.9.8",
+      "onFail": "error"
+    }
+  },
   "description": "Draft-tracker web app (Cloudflare Worker) consuming ffb board.json v1",
   "type": "module",
   "scripts": {
