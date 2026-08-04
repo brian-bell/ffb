@@ -10,7 +10,7 @@ export default defineConfig({
     browserName: "chromium",
   },
   webServer: {
-    command: "node test/browser/fixture-server.mjs",
+    command: "exec node test/browser/fixture-server.mjs",
     url: "http://127.0.0.1:4173/mock",
     reuseExistingServer: false,
   },
