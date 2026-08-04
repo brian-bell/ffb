@@ -36,7 +36,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: 22
+          node-version-file: tracker/.nvmrc
           cache: npm
           cache-dependency-path: tracker/package-lock.json
       - name: Install dependencies
@@ -45,6 +45,10 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Responsive browser test
+        run: npm run test:browser
 
   backend-e2e:
     runs-on: ubuntu-latest
@@ -59,7 +63,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7.0.0
         with:
-          node-version: 22
+          node-version-file: tracker/.nvmrc
           cache: npm
           cache-dependency-path: tracker/package-lock.json
       - name: Install tracker dependencies

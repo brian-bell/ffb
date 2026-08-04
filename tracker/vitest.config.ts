@@ -8,7 +8,11 @@ const migrations = await readD1Migrations("./migrations");
 // committed to wrangler.jsonc.
 export default defineWorkersConfig({
   test: {
-    exclude: [...configDefaults.exclude, "test/e2e/**/*.test.ts"],
+    exclude: [
+      ...configDefaults.exclude,
+      "test/browser/**",
+      "test/e2e/**/*.test.ts",
+    ],
     setupFiles: ["./test/apply-migrations.ts"],
     poolOptions: {
       workers: {

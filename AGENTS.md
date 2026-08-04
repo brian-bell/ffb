@@ -37,11 +37,18 @@ The tracker has its own Node toolchain:
 
 ```sh
 cd tracker
+nvm use                     # .nvmrc pins Node 22.23.1 / npm 10.9.8
 npm ci
 npm run typecheck
 npm test
+npm run test:browser
 npm run build:client
 ```
+
+`tracker/package.json` enforces that exact development toolchain through
+`devEngines`. Run dependency and lockfile updates only after `nvm use`; npm
+major-version drift can otherwise produce a lockfile that another npm version
+rejects.
 
 Before committing a change that can affect fixture ingestion, CLI board export,
 the `board.json` contract, D1 migrations, KV/D1 behavior, or Worker APIs, run
@@ -68,8 +75,9 @@ session; first-time secret setup and key rotation remain manual.
 
 CI (`.github/workflows/ci.yml`) runs three independent jobs on every push to
 `main` and every PR. The Python job runs `uv sync --frozen`, `ruff check`, `ruff
-format --check`, and `pytest`; the tracker job runs `npm ci`, `typecheck`, and
-Vitest; the backend E2E job installs both toolchains and runs
+format --check`, and `pytest`; the tracker job runs `npm ci`, `typecheck`,
+Vitest, and the Chromium viewport suite; the backend E2E job installs both
+toolchains and runs
 `make test-backend-e2e`. All three suites are network-free. If Python
 dependencies change, commit the updated `uv.lock` or `--frozen` will fail; if
 tracker dependencies change, commit `tracker/package-lock.json` too.
@@ -186,16 +194,18 @@ time (a file path, **not** a Python import). Nothing in `src/ffb/` knows about i
   every view from the returned full pick snapshot and saved immutable board.
   Mock routes and stores continue to use only `mock_*` tables.
 - **Pure testable core:** `src/{auth,board,board-view,draft,mock-draft,mock-strategy,
-  mock-ui,mock-view,player-identity,player-pool,roster-fit,suggestions,render,selection,setup,state}.ts`
+  mock-ui,mock-view,player-identity,player-pool,responsive-pick-tools,roster-fit,
+  suggestions,render,selection,setup,state}.ts`
   are DOM-free or operate through
   narrow DOM-like interfaces and are unit-tested;
   `types.ts` mirrors the `board.json` v1 contract; `index.ts` is the Worker entry
   (auth-gate + KV board stream + fall through to Static Assets), and
   `draft-api.ts` the API router. `public/app.ts` is thin DOM wiring bundled to
   `public/app.js` (esbuild, gitignored).
-- CI: a **separate** `tracker` job (Node) runs `typecheck` + `vitest`, independent
-  of the Python `uv` job; a third `backend-e2e` job generates a real board with
-  the Python CLI and drives it through the Worker with Miniflare. The provisioned
+- CI: a **separate** `tracker` job (Node) runs `typecheck`, `vitest`, and a real
+  Chromium `/mock` viewport journey, independent of the Python `uv` job; a third
+  `backend-e2e` job generates a real board with the Python CLI and drives it
+  through the Worker with Miniflare. The provisioned
   KV/D1 ids and `ffb.bbell.dev` route in `wrangler.jsonc` are non-secret deployment
   configuration; `TRACKER_API_KEY` remains a Wrangler secret (see README).
 
