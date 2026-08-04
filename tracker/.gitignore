@@ -1,6 +1,8 @@
 node_modules/
 .wrangler/
 dist/
+playwright-report/
+test-results/
 # Built client bundles (generated from public/*.ts by `npm run build:client`).
 public/app.js
 public/app.js.map

@@ -22,15 +22,17 @@
   </div>
 
   <section class="mock-setup" data-mock-setup hidden>
-    <span class="eyebrow">Seeded rehearsal</span>
-    <h1>Start a mock draft</h1>
-    <p>Use the published league shape and an exact board snapshot.</p>
-    <dl class="league-shape">
-      <div><dt>Teams</dt><dd data-team-count>—</dd></div>
-      <div><dt>Rounds</dt><dd data-rounds>—</dd></div>
-      <div><dt>Scoring</dt><dd data-scoring>—</dd></div>
-    </dl>
-    <form data-start-form>
+    <div class="mock-setup-copy">
+      <span class="eyebrow">Seeded rehearsal</span>
+      <h1>Start a mock draft</h1>
+      <p>Use the published league shape and an exact board snapshot. Mock picks stay isolated from the live draft.</p>
+      <dl class="league-shape">
+        <div><dt>Teams</dt><dd data-team-count>—</dd></div>
+        <div><dt>Rounds</dt><dd data-rounds>—</dd></div>
+        <div><dt>Scoring</dt><dd data-scoring>—</dd></div>
+      </dl>
+    </div>
+    <form class="mock-setup-form" data-start-form>
       <label class="field">Draft slot
         <select data-user-slot></select>
       </label>
@@ -59,30 +61,34 @@
       <div><span>Status</span><b data-status-lifecycle>—</b></div>
       <div><span>Revision</span><b data-status-revision>—</b></div>
     </div>
-    <div class="mock-events" data-events></div>
+    <div class="mock-events compact-events" data-events data-events-compact></div>
   </section>
 
-  <div class="viewtabs" aria-label="Board availability" data-view-tabs hidden>
-    <button class="viewtab" type="button" data-view="available" aria-pressed="true">Available</button>
-    <button class="viewtab" type="button" data-view="drafted" aria-pressed="false">Drafted</button>
-    <label class="player-search" for="mock-player-search">
-      <span class="sr-only">Search available players</span>
-      <input id="mock-player-search" data-player-search type="search" autocomplete="off" placeholder="Search players" />
-    </label>
-  </div>
-  <div class="tabs" role="tablist" aria-label="Position filter" data-tabs hidden></div>
-  <div class="colhead" data-colhead hidden aria-hidden="true">
-    <span class="h-rk">#</span>
-    <span class="h-nm">Player</span>
-    <span class="h-vorp">VORP</span>
-    <span class="h-adp">ADP</span>
-    <span class="h-delta">+/&minus;</span>
-  </div>
-  <div class="list" data-list>
-    <div class="notice"><b>Unlock mock mode.</b>Your live draft remains untouched.</div>
-  </div>
+  <section class="mock-workspace" data-mock-workspace>
+    <section class="mock-board-pane" data-board-pane aria-label="Player board">
+      <div class="viewtabs" aria-label="Board availability" data-view-tabs hidden>
+        <button class="viewtab" type="button" data-view="available" aria-pressed="true">Available</button>
+        <button class="viewtab" type="button" data-view="drafted" aria-pressed="false">Drafted</button>
+        <label class="player-search" for="mock-player-search">
+          <span class="sr-only">Search available players</span>
+          <input id="mock-player-search" data-player-search type="search" autocomplete="off" placeholder="Search players" />
+        </label>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Position filter" data-tabs hidden></div>
+      <div class="colhead" data-colhead hidden aria-hidden="true">
+        <span class="h-rk">#</span>
+        <span class="h-nm">Player</span>
+        <span class="h-vorp">VORP</span>
+        <span class="h-adp">ADP</span>
+        <span class="h-delta">+/&minus;</span>
+      </div>
+      <div class="list" data-list>
+        <div class="notice"><b>Unlock mock mode.</b>Your live draft remains untouched.</div>
+      </div>
+    </section>
 
-  <section class="pickdock mock-dock" data-pick-panel hidden>
+  <aside class="pickdock mock-dock" data-pick-panel data-decision-rail aria-label="Current mock decision" hidden>
+    <span class="decision-label">Your decision</span>
     <div class="dock-summary">
       <div class="dock-copy">
         <p class="onclock" data-on-clock></p>
@@ -100,6 +106,11 @@
       <div data-suggestion-list></div>
       <span class="sr-only" data-transition-status aria-live="polite"></span>
     </section>
+    <section class="mock-transition" aria-label="Latest transition">
+      <b class="decision-label">Latest transition</b>
+      <div class="mock-events" data-events data-events-desktop></div>
+    </section>
+    <span class="decision-label lifecycle-label">Mock controls</span>
     <div class="mock-lifecycle-controls" aria-label="Mock draft controls">
       <button class="mock-control" data-lifecycle-toggle type="button">Pause</button>
       <button class="mock-control" data-undo type="button">Undo decision</button>
@@ -107,6 +118,7 @@
       <button class="discard-mock" data-discard type="button">Discard mock</button>
     </div>
     <p class="mock-control-help">Undo rewinds Brian’s latest choice and every CPU pick that followed it.</p>
+  </aside>
   </section>
   <div class="footbar" data-foot>board.json —</div>
 

@@ -14,6 +14,11 @@ import {
 import { buildPlayerPool, type PlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
+import {
+  MOCK_DESKTOP_QUERY,
+  mockPickToolsPresentation,
+  watchResponsiveQuery,
+} from "../src/responsive-pick-tools";
 import { syncSelectedPlayerRow } from "../src/selection";
 import { makeStore } from "../src/state";
 import type { Board, Player } from "../src/types";
@@ -25,6 +30,7 @@ function element<T extends Element>(selector: string): T {
 }
 
 const screen = element<HTMLElement>("[data-screen]");
+const workspace = element<HTMLElement>("[data-mock-workspace]");
 const lock = element<HTMLElement>("[data-lock]");
 const unlockForm = element<HTMLFormElement>("[data-unlock-form]");
 const keyInput = element<HTMLInputElement>("[data-key]");
@@ -58,7 +64,7 @@ const undo = element<HTMLButtonElement>("[data-undo]");
 const reset = element<HTMLButtonElement>("[data-reset]");
 const discard = element<HTMLButtonElement>("[data-discard]");
 const draftError = element<HTMLElement>("[data-draft-error]");
-const events = element<HTMLElement>("[data-events]");
+const eventSummaries = [...document.querySelectorAll<HTMLElement>("[data-events]")];
 const foot = element<HTMLElement>("[data-foot]");
 const teamCount = element<HTMLElement>("[data-team-count]");
 const rounds = element<HTMLElement>("[data-rounds]");
@@ -82,6 +88,7 @@ function localStorageOrNull(): Storage | null {
 const EVENT_LIMIT = 4;
 
 const keyStore = makeStore(localStorageOrNull());
+const desktopQuery = window.matchMedia(MOCK_DESKTOP_QUERY);
 let board: Board | null = null;
 let mock: MockState | null = null;
 let boardView: BoardViewState = initialBoardView;
@@ -205,15 +212,18 @@ function renderTabs(): void {
 function renderEvents(): void {
   const latest = mock?.appended_picks ?? [];
   if (latest.length === 0) {
-    events.innerHTML = "<span>No CPU picks in the latest transition.</span>";
+    for (const summary of eventSummaries) {
+      summary.innerHTML = "<span>No CPU picks in the latest transition.</span>";
+    }
     return;
   }
-  events.innerHTML = `<b>${latest.length} pick${latest.length === 1 ? "" : "s"}</b> `
+  const content = `<b>${latest.length} pick${latest.length === 1 ? "" : "s"}</b> `
     + latest
       .slice(-EVENT_LIMIT)
       .map((pick) => `<span>${pick.source === "user" ? "You" : escaped(pick.team_name)} ` +
         `${pick.round}.${String(pick.round_pick).padStart(2, "0")} ${escaped(pick.player_name)}</span>`)
       .join(" · ");
+  for (const summary of eventSummaries) summary.innerHTML = content;
 }
 
 function renderClock(): void {
@@ -288,9 +298,14 @@ function renderSelection(actionState: ReturnType<typeof actions>): void {
 }
 
 function renderPickTools(): void {
-  pickToolsToggle.setAttribute("aria-expanded", String(boardView.pickToolsExpanded));
+  const presentation = mockPickToolsPresentation(
+    desktopQuery.matches,
+    boardView.pickToolsExpanded,
+  );
+  pickToolsToggle.hidden = presentation.toggleHidden;
+  pickToolsToggle.setAttribute("aria-expanded", String(presentation.toggleExpanded));
   pickToolsToggle.textContent = boardView.pickToolsExpanded ? "Close" : "Pick tools";
-  pickTools.hidden = !boardView.pickToolsExpanded;
+  pickTools.hidden = presentation.toolsHidden;
 }
 
 /** Selection changes touch at most two rows, so the list is never rebuilt. */
@@ -321,6 +336,7 @@ function renderState(resetScroll = true): void {
   if (!board) return;
   const configured = mock?.configured === true && mock.mock !== undefined;
   setupPanel.hidden = configured;
+  workspace.hidden = !configured;
   activePanel.hidden = !configured;
   tabs.hidden = !configured;
   viewTabs.hidden = !configured;
@@ -383,6 +399,7 @@ function renderBoardRecovery(value: MockState): void {
   if (!value.mock) return;
   const next = value.next ?? null;
   setupPanel.hidden = true;
+  workspace.hidden = false;
   activePanel.hidden = false;
   tabs.hidden = true;
   viewTabs.hidden = true;
@@ -402,7 +419,9 @@ function renderBoardRecovery(value: MockState): void {
   const actionState = actions(false);
   statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(value.revision);
-  events.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
+  for (const summary of eventSummaries) {
+    summary.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
+  }
   onClock.textContent = "This mock cannot continue with the current tracker version.";
   selected.textContent = "Discard the mock to return to setup.";
   draftPlayer.disabled = true;
@@ -417,6 +436,7 @@ function renderBoardRecovery(value: MockState): void {
 
 function renderUnavailableSetup(message: string): void {
   setupPanel.hidden = false;
+  workspace.hidden = true;
   activePanel.hidden = true;
   tabs.hidden = true;
   viewTabs.hidden = true;
@@ -627,6 +647,9 @@ pickToolsToggle.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "togglePickTools" });
   renderPickTools();
 });
+
+const stopResponsivePickTools = watchResponsiveQuery(desktopQuery, renderPickTools);
+window.addEventListener("pagehide", stopResponsivePickTools, { once: true });
 
 clearSelection.addEventListener("click", () => {
   boardView = nextBoardView(boardView, { type: "selectionCleared" });
