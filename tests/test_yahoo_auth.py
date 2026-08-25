@@ -4,6 +4,7 @@ Covers refresh grant, expiry handling, on-disk storage and permissions, and
 credential redaction — all offline via httpx.MockTransport.
 """
 
+import base64
 import json
 import stat
 
@@ -104,6 +105,11 @@ def test_expired_token_triggers_refresh_grant_and_persists_rotation(tmp_path):
     body = dict(pair.split("=", 1) for pair in request.content.decode().split("&"))
     assert body["grant_type"] == "refresh_token"
     assert body["refresh_token"] == REFRESH
+    # Yahoo authenticates confidential clients via HTTP Basic, not form fields.
+    expected_basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    assert request.headers["Authorization"] == f"Basic {expected_basic}"
+    assert "client_id" not in body
+    assert "client_secret" not in body
     # Rotated refresh token persisted for the next run.
     saved = store.load()
     assert saved.access_token == NEW_ACCESS

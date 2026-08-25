@@ -174,17 +174,21 @@ class YahooAuth:
         return token.access_token
 
     def _refresh(self, token: YahooToken) -> YahooToken:
+        # Yahoo authenticates confidential clients with HTTP Basic on the
+        # token endpoint; only the refresh-grant fields belong in the body.
         data = {
             "grant_type": "refresh_token",
             "refresh_token": token.refresh_token,
-            "client_id": self.credentials.client_id,
-            "client_secret": self.credentials.client_secret,
             "redirect_uri": self.credentials.redirect_uri,
         }
         log.info("api request provider=yahoo-auth method=POST url=%s", TOKEN_URL)
         with httpx.Client(transport=self.transport) as client:
             response = client.post(
-                TOKEN_URL, data=data, headers={"User-Agent": USER_AGENT}, timeout=30.0
+                TOKEN_URL,
+                data=data,
+                auth=(self.credentials.client_id, self.credentials.client_secret),
+                headers={"User-Agent": USER_AGENT},
+                timeout=30.0,
             )
         log.info("api response provider=yahoo-auth status=%s", response.status_code)
         if not response.is_success:
