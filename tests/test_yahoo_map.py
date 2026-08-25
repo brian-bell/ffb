@@ -181,6 +181,14 @@ def test_malformed_roster_position_rejects_the_settings():
         yahoo.parse_settings(raw)
 
 
+def test_roster_position_without_count_rejects_the_settings():
+    raw = _load("league_settings.json")
+    positions = raw["fantasy_content"]["league"][1]["settings"][0]["roster_positions"]
+    del positions[0]["roster_position"]["count"]
+    with pytest.raises(ValueError, match="roster position"):
+        yahoo.parse_settings(raw)
+
+
 @pytest.mark.parametrize(
     ("fixture", "path", "parser"),
     [

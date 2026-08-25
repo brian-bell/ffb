@@ -196,7 +196,7 @@ def parse_settings(raw: Any) -> dict[str, Any]:
             slots.append(
                 {
                     "position": position,
-                    "count": _int(slot.get("count", 0), "roster_position.count"),
+                    "count": _int(slot["count"], "roster_position.count"),
                     "is_starting": position not in _NON_STARTING_SLOTS,
                 }
             )

@@ -22,6 +22,7 @@ def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path):
 
     shown = runner.invoke(app, ["league", "show", "2024"], env=env)
     assert shown.exit_code == 0, shown.output
+    assert "Mock fixture settings" in shown.output
     for value in ("Mock League", "Passing Yards", "QB", "Brian's Team", "0"):
         assert value in shown.output
 
@@ -53,6 +54,8 @@ def test_league_sync_without_fixture_uses_the_live_yahoo_source(tmp_path, monkey
 
     shown = runner.invoke(app, ["league", "show", "2024"], env=env)
     assert shown.exit_code == 0, shown.output
+    assert "Live Yahoo settings" in shown.output
+    assert "Mock fixture settings" not in shown.output
     assert "Mock League" in shown.output
 
 

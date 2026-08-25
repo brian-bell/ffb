@@ -112,8 +112,9 @@ def league_show(
             f"{season} --fixture PATH[/yellow]"
         )
         raise typer.Exit(code=1)
+    heading = "Live Yahoo settings" if context["source"] == "yahoo" else "Mock fixture settings"
     console.print(
-        f"[yellow]Mock fixture settings[/yellow] — {context['name']} "
+        f"[yellow]{heading}[/yellow] — {context['name']} "
         f"({context['source']} synced {context['synced_at']})"
     )
     console.print(f"Week {context['current_week']} · {context['num_teams']} team(s)")
