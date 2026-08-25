@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -20,7 +21,9 @@ from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
+from ffb.sources import yahoo
 from ffb.store import SchemaMismatchError, Store
+from ffb.yahoo_auth import YahooAuthError
 
 app = typer.Typer(help="Fantasy football pipeline (walking skeleton).", no_args_is_help=True)
 league_app = typer.Typer(help="Sync and inspect stored league state.", no_args_is_help=True)
@@ -58,21 +61,37 @@ def league_sync(  # noqa: B008
     fixture: Path | None = typer.Option(  # noqa: B008
         None, "--fixture", help="Offline LeagueBundle JSON fixture."
     ),
+    refresh: bool = typer.Option(
+        False, "--refresh", help="Refetch live Yahoo data, replacing snapshots."
+    ),
 ) -> None:
-    """Validate and atomically import fixture-backed league state."""
-    if fixture is None:
-        console.print("[yellow]Live Yahoo sync is pending Task 2b; use --fixture PATH.[/yellow]")
-        raise typer.Exit(code=2)
+    """Validate and atomically import live Yahoo or fixture-backed league state."""
+    if fixture is not None:
+        source: object = FixtureLeagueSource(fixture)
+    else:
+        try:
+            source = yahoo.league_source_from_env(SnapshotCache(paths.snapshot_dir()))
+        except YahooAuthError as exc:
+            console.print(f"[red]Live Yahoo sync unavailable:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
+    label = "fixture/mock" if fixture is not None else "live Yahoo"
     try:
-        bundle = FixtureLeagueSource(fixture).fetch(season)
+        bundle = source.fetch(season, refresh=refresh)
     except ValueError as exc:
-        console.print(f"[red]League fixture rejected:[/red] {exc}")
+        noun = "fixture" if fixture is not None else "state"
+        console.print(f"[red]League {noun} rejected:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except YahooAuthError as exc:
+        console.print(f"[red]Yahoo authentication failed:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Yahoo fetch failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store = _open_store()
     result = store.replace_league_state(bundle)
     store.close()
     console.print(
-        f"[green]Synced fixture/mock league state:[/green] {result['teams']} team(s), "
+        f"[green]Synced {label} league state:[/green] {result['teams']} team(s), "
         f"{result['players']} roster player(s), {result['matched']} matched, "
         f"{result['unmatched']} unmatched."
     )

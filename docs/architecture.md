@@ -94,8 +94,12 @@ write. `league_context.py` loads synchronized scoring, roster slots, and team
 count independently, falling back component by component to the confirmed
 10-team Yahoo settings in `config.py`.
 
-Live Yahoo OAuth is not implemented. Fixture import exercises the provider
-boundary and storage model without network access.
+`sources/yahoo.py` implements the live `YahooLeagueSource` peer of
+`FixtureLeagueSource` (httpx fetch, snapshot-cached raw pulls, pure mappers),
+with the OAuth2 refresh-token lifecycle in `yahoo_auth.py`. The one-time
+browser authorization (ffb-1ct.2) has not run yet, so live sync is inert until
+a token exists; fixture import still exercises the provider boundary and
+storage model without network access.
 
 ## Board contract
 

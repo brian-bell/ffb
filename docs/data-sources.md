@@ -42,7 +42,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → one bye week per team | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
-| Yahoo Fantasy | `yfpy` (REST + OAuth2) | OAuth2 | Live league scoring, roster slots, teams, rosters | Planned (Task 2b) |
+| Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
 | Sleeper trending / player status | REST JSON | none | Trending adds/drops, injury status | Planned (slice 11) |
 | ESPN news / RSS | REST / RSS | none | Headlines for LLM digest (never numeric) | Planned (slice 13) |
@@ -346,15 +346,27 @@ team-assigned player.
 Documented for context; see `DESIGN.md` and the slice roadmap. These live sources
 are not ingested today.
 
-- **Yahoo Fantasy API** via `yfpy` (Task 2b) — the live adapter for the league's
-  own state. Fixture-backed current-week league state is already supported through
-  `ffb league sync [SEASON] --fixture`; no credentials or live requests exist in this slice.
-  The live adapter will add exact scoring settings, roster slots, teams, rosters, free agents, matchups,
-  transactions, draft results, and actual weekly points. OAuth2 (token persisted
-  between runs); **read-only** (the pipeline recommends, never sets lineups). The
-  crosswalk already carries `yahoo_id` for the join. Live scoring, roster shape,
-  and team count will use the same stored league-context path the fixture already
-  exercises, with `config` values remaining component-level fallbacks.
+- **Yahoo Fantasy API** (Task 2b, built pre-auth) — the live adapter for the
+  league's own state, implemented in `sources/yahoo.py` + `yahoo_auth.py` with
+  httpx (yfpy was evaluated and rejected; see ffb-1ct's design notes). Fixture
+  mode remains via `ffb league sync [SEASON] --fixture`; omitting `--fixture`
+  uses `YahooLeagueSource`: league metadata, settings, teams, and every
+  current-week roster are fetched with a bearer token, snapshotted under
+  `snapshots/yahoo/`, and mapped by pure parsers (defensive about the
+  `fantasy_content` wrapper, count-keyed collections, and positional
+  dict/list arrays) into the same `LeagueBundle` v1 the fixture path
+  validates. `config.YAHOO_STAT_MAP` translates Yahoo stat ids into our stat
+  keys; unmappable categories are surfaced as `unmapped_scoring_rules`, never
+  dropped. OAuth2 config comes from `FFB_YAHOO_CLIENT_ID` /
+  `FFB_YAHOO_CLIENT_SECRET` / `FFB_YAHOO_LEAGUE_KEY` (plus optional
+  `FFB_YAHOO_REDIRECT_URI`, `FFB_YAHOO_TOKEN_PATH`); the refresh grant and
+  owner-only (0600) token file are handled in `yahoo_auth.py`, and no token or
+  secret ever reaches logs, DuckDB, fixtures, or snapshots. **Read-only** (the
+  pipeline recommends, never sets lineups); the crosswalk's `yahoo_id` resolves
+  roster identities. Blocked on the one-time browser authorization (ffb-1ct.2):
+  raw shapes are modeled from documentation and get a correction pass against
+  real responses, which will also add free agents, matchups, transactions,
+  draft results, and actual weekly points.
 - **nflverse stats / injuries / depth charts** via `nflreadpy` (in-season) —
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Same access pattern as the crosswalk.

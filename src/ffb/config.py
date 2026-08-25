@@ -140,6 +140,59 @@ ESPN_PRO_TEAM_MAP = {
     34: "HOU",
 }
 
+# --- Yahoo league adapter (task 2b) -----------------------------------------
+# OAuth pieces that must match the registered Yahoo developer app exactly. The
+# redirect URI is part of the token-grant contract, so it lives in config (with
+# an FFB_YAHOO_REDIRECT_URI env override) rather than hardcoded in the flow.
+# Client id/secret are env-only (FFB_YAHOO_CLIENT_ID / FFB_YAHOO_CLIENT_SECRET)
+# and never appear in code, logs, or snapshots.
+YAHOO_REDIRECT_URI = "https://ffb.bbell.dev/auth/yahoo/callback"
+YAHOO_TOKEN_PATH = DATA_DIR / "yahoo_token.json"  # gitignored with the rest of data/
+
+# Yahoo stat_id -> our Sleeper-style stat keys, feeding settings.scoring_rules;
+# ids absent here surface in unmapped_scoring_rules instead of being dropped.
+# Static and best-effort from documented NFL stat ids: modeled from
+# documentation, not observed traffic, pending the ffb-1ct.2 correction pass.
+# Multi-key entries fan one Yahoo category out across the split keys our stat
+# lines use (each fanned rule gets a "<id>.<key>" provider_stat_id).
+YAHOO_STAT_MAP: dict[int, tuple[str, ...]] = {
+    4: ("pass_yd",),
+    5: ("pass_td",),
+    6: ("pass_int",),
+    9: ("rush_yd",),
+    10: ("rush_td",),
+    11: ("rec",),
+    12: ("rec_yd",),
+    13: ("rec_td",),
+    # Yahoo scores one "2-Point Conversions" category across pass/rush/rec.
+    16: ("pass_2pt", "rush_2pt", "rec_2pt"),
+    18: ("fum_lost",),
+    57: ("fum_rec_td",),
+    # Kicking: made-FG distance bands + PAT.
+    19: ("fgm_0_19",),
+    20: ("fgm_20_29",),
+    21: ("fgm_30_39",),
+    22: ("fgm_40_49",),
+    23: ("fgm_50p",),
+    29: ("xpm",),
+    # Team defense / special teams.
+    32: ("sack",),
+    33: ("int",),
+    34: ("fum_rec",),
+    # Yahoo's single defensive "Touchdown" spans INT and fumble return TDs.
+    35: ("pass_int_td", "def_fum_td"),
+    36: ("safe",),
+    37: ("blk_kick",),
+    49: ("def_ret_td",),  # combined kickoff + punt return TD on D/ST rows
+    50: ("pts_allow_0",),
+    51: ("pts_allow_1_6",),
+    52: ("pts_allow_7_13",),
+    53: ("pts_allow_14_20",),
+    54: ("pts_allow_21_27",),
+    55: ("pts_allow_28_34",),
+    56: ("pts_allow_35p",),
+}
+
 NFL_TEAM_CODES = frozenset(ESPN_PRO_TEAM_MAP.values())
 # Source/API abbreviations normalized to the MFL-style codes used by the
 # crosswalk and synthetic defense keys.

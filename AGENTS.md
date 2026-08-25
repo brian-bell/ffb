@@ -112,8 +112,12 @@ Tracker:    board.json → KV → Worker/client; draft state → D1
 - Schema changes do not migrate existing DuckDB files. The database is a
   disposable cache: move it aside and replay snapshots with `season sync
   SEASON --offline --rebuild`.
-- Live Yahoo OAuth is not implemented. `league sync --fixture` is the only
-  league-state ingest path; the confirmed 10-team Yahoo config is the fallback.
+- `league sync` without `--fixture` uses the live Yahoo adapter
+  (`sources/yahoo.py` + `yahoo_auth.py`), configured via `FFB_YAHOO_*` env
+  vars; it is inert until the one-time browser authorization (ffb-1ct.2)
+  stores a token. Fixture mode remains, and the confirmed 10-team Yahoo
+  config is the fallback. Tokens and secrets must never reach logs, DuckDB,
+  fixtures, or snapshots.
 - ESPN and FFC endpoints are unofficial. Keep parsers defensive and fixtures
   representative; live drift is checked only through an explicit refresh.
 

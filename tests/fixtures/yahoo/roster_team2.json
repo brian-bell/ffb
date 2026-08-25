@@ -1,0 +1,51 @@
+{
+  "fantasy_content": {
+    "team": [
+      [
+        {"team_key": "461.l.12345.t.2"},
+        {"team_id": "2"},
+        {"name": "Rival Squad"}
+      ],
+      {
+        "roster": {
+          "coverage_type": "week",
+          "week": "2",
+          "is_editable": 1,
+          "0": {
+            "players": {
+              "0": {
+                "player": [
+                  [
+                    {"player_key": "461.p.33399"},
+                    {"player_id": "33399"},
+                    {"name": {"full": "Ja'Marr Chase", "first": "Ja'Marr", "last": "Chase"}},
+                    {"editorial_team_abbr": "Cin"},
+                    {"display_position": "WR"},
+                    {"primary_position": "WR"},
+                    {"eligible_positions": [{"position": "WR"}, {"position": "W/R/T"}]}
+                  ],
+                  {"selected_position": [{"coverage_type": "week", "week": "2"}, {"position": "BN"}]}
+                ]
+              },
+              "1": {
+                "player": [
+                  [
+                    {"player_key": "461.p.40001"},
+                    {"player_id": "40001"},
+                    {"name": {"full": "Practice Squad Guy", "first": "Practice", "last": "Guy"}},
+                    {"editorial_team_abbr": ""},
+                    {"display_position": "TE"},
+                    {"primary_position": "TE"},
+                    {"eligible_positions": [{"position": "TE"}]}
+                  ],
+                  {"selected_position": [{"coverage_type": "week", "week": "2"}, {"position": "BN"}]}
+                ]
+              },
+              "count": 2
+            }
+          }
+        }
+      }
+    ]
+  }
+}

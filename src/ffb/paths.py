@@ -27,3 +27,8 @@ def export_dir() -> Path:
     tests can point at a temp dir and a user can redirect the board contract.
     """
     return Path(os.environ.get("FFB_EXPORT_DIR", config.REPO_ROOT / "exports"))
+
+
+def yahoo_token_path() -> Path:
+    """On-disk Yahoo OAuth token location; ``FFB_YAHOO_TOKEN_PATH`` overrides."""
+    return Path(os.environ.get("FFB_YAHOO_TOKEN_PATH", config.YAHOO_TOKEN_PATH))
