@@ -1,0 +1,25 @@
+{
+  "fantasy_content": {
+    "xml:lang": "en-US",
+    "yahoo:uri": "/fantasy/v2/league/461.l.12345",
+    "league": [
+      {
+        "league_key": "461.l.12345",
+        "league_id": "12345",
+        "name": "Test League",
+        "url": "https://football.fantasysports.yahoo.com/f1/12345",
+        "logo_url": false,
+        "draft_status": "postdraft",
+        "num_teams": 2,
+        "scoring_type": "head",
+        "league_type": "private",
+        "current_week": "2",
+        "start_week": "1",
+        "end_week": "17",
+        "season": "2026",
+        "is_finished": 0
+      }
+    ],
+    "time": "31.415ms"
+  }
+}

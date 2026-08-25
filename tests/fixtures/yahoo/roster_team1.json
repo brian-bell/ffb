@@ -1,0 +1,60 @@
+{
+  "fantasy_content": {
+    "team": [
+      [
+        {"team_key": "461.l.12345.t.1"},
+        {"team_id": "1"},
+        {"name": "Brian's Best"}
+      ],
+      {
+        "roster": {
+          "coverage_type": "week",
+          "week": "2",
+          "is_editable": 1,
+          "0": {
+            "players": {
+              "0": {
+                "player": [
+                  [
+                    {"player_key": "461.p.29279"},
+                    {"player_id": "29279"},
+                    {"name": {"full": "Derrick Henry", "first": "Derrick", "last": "Henry", "ascii_first": "Derrick", "ascii_last": "Henry"}},
+                    [],
+                    {"editorial_player_key": "nfl.p.29279"},
+                    {"editorial_team_key": "nfl.t.33"},
+                    {"editorial_team_full_name": "Baltimore Ravens"},
+                    {"editorial_team_abbr": "Bal"},
+                    {"bye_weeks": {"week": "14"}},
+                    {"uniform_number": "22"},
+                    {"display_position": "RB"},
+                    {"headshot": {"url": "https://example.invalid/29279.png", "size": "small"}},
+                    {"is_undroppable": "0"},
+                    {"position_type": "O"},
+                    {"primary_position": "RB"},
+                    {"eligible_positions": [{"position": "RB"}, {"position": "W/R/T"}]}
+                  ],
+                  {"selected_position": [{"coverage_type": "week", "week": "2"}, {"position": "RB"}]}
+                ]
+              },
+              "1": {
+                "player": [
+                  [
+                    {"player_key": "461.p.100008"},
+                    {"player_id": "100008"},
+                    {"name": {"full": "Baltimore", "first": "Baltimore", "last": ""}},
+                    {"editorial_team_abbr": "Bal"},
+                    {"display_position": "DEF"},
+                    {"primary_position": "DEF"},
+                    {"eligible_positions": [{"position": "DEF"}]}
+                  ],
+                  {"selected_position": [{"coverage_type": "week", "week": "2"}, {"position": "DEF"}]}
+                ]
+              },
+              "count": 2
+            }
+          }
+        }
+      }
+    ]
+  }
+}

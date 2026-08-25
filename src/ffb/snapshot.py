@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -53,6 +54,42 @@ class SnapshotCache:
             datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat().replace("+00:00", "Z")
         )
         return SnapshotMetadata(key=key, modified_at=modified, sha256=sha256(content).hexdigest())
+
+    def put_json(self, key: str, data: Any, *, mode: int | None = None) -> None:
+        """Persist an externally validated payload for ``key`` without fetching.
+
+        For callers that stage multi-resource pulls and commit only after the
+        whole set validates, so a failed refresh cannot leave a partially
+        updated snapshot family. ``mode`` optionally restricts file
+        permissions (e.g. ``0o600`` for responses fetched under the user's
+        OAuth grant).
+        """
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data, indent=0, ensure_ascii=False)
+        # Write-then-rename so an interrupted write can never truncate the
+        # known-good snapshot it replaces. A private payload is owner-only
+        # from creation (os.open applies mode before any byte lands), and a
+        # failed write cleans up its temp file rather than leaving one behind.
+        tmp_path = path.with_name(path.name + ".tmp")
+        # Exclusive create (after clearing any stale temp from a crashed run)
+        # so a pre-placed file or symlink cannot capture or redirect the write.
+        tmp_path.unlink(missing_ok=True)
+        fd = os.open(
+            tmp_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o644 if mode is None else mode,
+        )
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(payload)
+            if mode is not None:
+                os.chmod(tmp_path, mode)  # os.open's mode is umask-filtered
+            os.replace(tmp_path, path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        log.info("snapshot saved key=%s path=%s", key, path)
 
     def get_json(
         self,
