@@ -34,7 +34,7 @@ queries, and transaction boundaries. The main stored domains are:
 | Domain | Tables | Purpose |
 | --- | --- | --- |
 | Identity | `crosswalk`, `players` | Canonical and fallback player identities |
-| Source data | `projections`, `adp`, `team_byes` | Normalized raw values used at read time |
+| Source data | `projections`, `adp`, `team_byes`, `injuries` | Normalized raw values used at read time |
 | Source health | `season_source_state` | Attempts, successes, counts, snapshots, and errors |
 | League context | `league_settings`, `league_teams`, `league_rosters` | Validated fixture-backed league state |
 
@@ -47,6 +47,7 @@ cross-version schema migration is deliberately unsupported.
 DuckDB projections ──→ scoring ──→ consensus ──┐
 DuckDB ADP ────────────────────────────────────┤
 DuckDB team byes ──────────────────────────────┤
+DuckDB injuries ───────────────────────────────┤
 stored/fallback league context ────────────────┘
                                                 ↓
                                   player-pool selection
@@ -108,7 +109,12 @@ storage model without network access.
 - `version`, `season`, `generated_at`, and scoring provenance;
 - league `num_teams` and `roster_slots`;
 - ordered players with identity, position/team/bye, points, source count, VORP,
-  tier, board/position/ADP ranks, and ADP range fields.
+  tier, board/position/ADP ranks, ADP range fields, and an optional canonical
+  injury indicator carrying the source snapshot fetch time.
+
+The optional injury field is additive within version 1: old exports and saved
+mock boards without it remain valid. The board left-joins it by canonical
+player key, so unmatched Sleeper records never receive an indicator.
 
 The tracker validates the version and player shape. The Python package owns the
 contract; any breaking envelope or player-field change requires a version bump

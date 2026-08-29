@@ -177,7 +177,9 @@ def _verbose_sync_logging(enabled: bool) -> Iterator[None]:
 def season_sync(  # noqa: B008
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
     source: list[str] | None = typer.Option(  # noqa: B008
-        None, "--source", help="all, projections, adp, sleeper, espn, or ffc; repeatable."
+        None,
+        "--source",
+        help="all, projections, adp, sleeper, espn, ffc, schedule, or injuries; repeatable.",
     ),
     missing_only: bool = typer.Option(
         False, "--missing-only", help="Fetch only missing snapshots."
@@ -268,7 +270,9 @@ def season_status(
 @season_app.command("unmatched")
 def season_unmatched(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
-    source: str | None = typer.Option(None, "--source", help="Filter to sleeper, espn, or ffc."),
+    source: str | None = typer.Option(
+        None, "--source", help="Filter to sleeper, espn, ffc, or injuries."
+    ),
 ) -> None:
     """List current rows that did not resolve to canonical identities."""
     store = _open_store()
@@ -372,6 +376,7 @@ def _load_board(season: int, player_pool: str = "draftable") -> tuple[list[dict]
     )
     adp = store.adp_rows(season)
     byes = store.team_bye_rows(season)
+    injuries = store.injury_rows(season)
     store.close()
     _report_player_pool(
         board_mod.pool_counts(consensus, adp, roster_slots=league.roster_slots), player_pool
@@ -381,6 +386,7 @@ def _load_board(season: int, player_pool: str = "draftable") -> tuple[list[dict]
             consensus,
             adp,
             byes=byes,
+            injuries=injuries,
             roster_slots=league.roster_slots,
             num_teams=league.num_teams,
             player_pool=player_pool,
@@ -493,7 +499,7 @@ def _warn_source_states(status: dict, *, include_adp: bool) -> None:
     wanted = {"crosswalk", "sleeper", "espn"}
     if include_adp:
         # The board consumes ADP and schedule byes; warn when either is off.
-        wanted.update(("ffc", "schedule"))
+        wanted.update(("ffc", "schedule", "injuries"))
     for source in status["sources"]:
         if source["name"] not in wanted:
             continue
@@ -502,6 +508,11 @@ def _warn_source_states(status: dict, *, include_adp: bool) -> None:
                 console.print(
                     "[yellow]Warning: ffc ADP was synced for a different league size; "
                     f"run `ffb season sync {status['season']} --source ffc`.[/yellow]"
+                )
+            elif source["name"] == "injuries":
+                console.print(
+                    f"[yellow]Warning: injuries has stale identity resolution; run "
+                    f"`ffb season sync {status['season']} --source injuries`.[/yellow]"
                 )
             else:
                 console.print(

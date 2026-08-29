@@ -333,6 +333,18 @@ body {
   color: var(--dr-accent);
   font-weight: 780;
 }
+.injury-badge {
+  display: inline-flex;
+  padding: 2px 4px;
+  border: 1px solid #9b4d4d;
+  border-radius: 4px;
+  background: #2a1719;
+  color: #ffb4b4;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.injury-questionable { border-color: #8a6c2b; background: #28200f; color: #f4cf72; }
+.injury-unknown { border-color: #536171; background: #1b222a; color: #b8c2cd; }
 .num {
   font: 600 12.5px/1 var(--mono);
   text-align: right;

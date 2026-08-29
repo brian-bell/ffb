@@ -51,4 +51,11 @@ describe("isValidBoard", () => {
     expect(isValidBoard({ ...fixture, players: [{ ...fixture.players[0], vorp: Number.POSITIVE_INFINITY }] })).toBe(false);
     expect(isValidBoard({ ...fixture, players: [{ ...fixture.players[0], adp: null, tier: null }] })).toBe(true);
   });
+
+  it("accepts an optional canonical injury object and rejects unknown contract values", () => {
+    const player = fixture.players[0];
+    expect(isValidBoard({ ...fixture, players: [{ ...player, injury: { status: "IR", fetched_at: "2026-08-29T14:30:00Z" } }] })).toBe(true);
+    expect(isValidBoard({ ...fixture, players: [{ ...player, injury: { status: "ACTIVE", fetched_at: "2026-08-29T14:30:00Z" } }] })).toBe(false);
+    expect(isValidBoard({ ...fixture, players: [{ ...player, injury: { status: "IR", fetched_at: null } }] })).toBe(false);
+  });
 });

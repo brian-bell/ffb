@@ -35,6 +35,31 @@ describe("renderBoard — ALL view", () => {
   });
 });
 
+describe("renderBoard — injury indicators", () => {
+  it.each([
+    ["QUESTIONABLE", "Q", "Questionable injury status"],
+    ["DOUBTFUL", "D", "Doubtful injury status"],
+    ["OUT", "OUT", "Out injury status"],
+    ["IR", "IR", "Injured reserve"],
+    ["PUP", "PUP", "Physically unable to perform"],
+    ["NFI", "NFI", "Non-football injury list"],
+    ["UNKNOWN", "Status", "Player availability status unknown"],
+  ] as const)("renders %s as visible text with a full accessible label", (status, visible, label) => {
+    const player = { ...board.players[0]!, injury: { status, fetched_at: "2026-08-29T14:30:00Z" } };
+    const html = renderBoard({ ...board, players: [player] }, "ALL");
+
+    expect(html).toContain(`class="injury-badge injury-${status.toLowerCase()}"`);
+    expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain(`>${visible}</span>`);
+  });
+
+  it("renders old board players with no injury field without a badge", () => {
+    const { injury: _injury, ...oldPlayer } = board.players[0]!;
+    const oldBoard = { ...board, players: [oldPlayer] };
+    expect(rowFor(renderBoard(oldBoard, "ALL"), "Christian McCaffrey")).not.toContain("injury-badge");
+  });
+});
+
 describe("renderBoard — position view groups by tier", () => {
   const picked = new Map<string, { overall_pick: number; round: number; round_pick: number; team_name: string }>();
   const html = renderBoard(board, "RB", { picked });

@@ -32,7 +32,11 @@
       "adp_high": 1,
       "adp_low": 5,
       "adp_stdev": 0.7,
-      "matched": true
+      "matched": true,
+      "injury": {
+        "status": "QUESTIONABLE",
+        "fetched_at": "2026-08-29T14:30:00Z"
+      }
     },
     {
       "key": "k1",

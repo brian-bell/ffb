@@ -17,6 +17,7 @@ async function unlockAndStart(page: Page): Promise<void> {
 test("the mock journey preserves one responsive board and compact disclosure state", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await unlockAndStart(page);
+  await expect(page.locator('.injury-badge[aria-label="Questionable injury status"]').first()).toBeVisible();
 
   const minimumDesktop = await page.evaluate(() => {
     const board = document.querySelector("[data-board-pane]")!.getBoundingClientRect();
@@ -92,6 +93,7 @@ test("the mock journey preserves one responsive board and compact disclosure sta
   expect(shortDesktop.discardReachable).toBe(true);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.injury-badge[aria-label="Questionable injury status"]').first()).toBeVisible();
   await expect(page.locator("[data-pick-tools-toggle]")).toBeVisible();
   const compact = await page.evaluate(() => {
     const board = document.querySelector("[data-board-pane]")!.getBoundingClientRect();

@@ -34,6 +34,15 @@ function nullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
 
+const INJURY_STATUSES = new Set(["QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "PUP", "NFI", "UNKNOWN"]);
+
+function validOptionalInjury(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const injury = value as Record<string, unknown>;
+  return typeof injury.status === "string" && INJURY_STATUSES.has(injury.status) && typeof injury.fetched_at === "string";
+}
+
 /** Strict v1 input guard for the fields the client and pick API consume. */
 export function isValidBoard(value: unknown): value is Board {
   if (!value || typeof value !== "object") return false;
@@ -43,6 +52,6 @@ export function isValidBoard(value: unknown): value is Board {
   return board.players.every((raw) => {
     if (!raw || typeof raw !== "object") return false;
     const player = raw as Record<string, unknown>;
-    return typeof player.key === "string" && typeof player.name === "string" && nullableString(player.pos) && nullableString(player.team) && nullableFinite(player.bye) && nullableFinite(player.points) && finite(player.n_sources) && nullableFinite(player.vorp) && nullableFinite(player.tier) && finite(player.rank) && finite(player.pos_rank) && nullableFinite(player.adp) && nullableFinite(player.adp_rank) && nullableFinite(player.adp_high) && nullableFinite(player.adp_low) && nullableFinite(player.adp_stdev) && typeof player.matched === "boolean";
+    return typeof player.key === "string" && typeof player.name === "string" && nullableString(player.pos) && nullableString(player.team) && nullableFinite(player.bye) && nullableFinite(player.points) && finite(player.n_sources) && nullableFinite(player.vorp) && nullableFinite(player.tier) && finite(player.rank) && finite(player.pos_rank) && nullableFinite(player.adp) && nullableFinite(player.adp_rank) && nullableFinite(player.adp_high) && nullableFinite(player.adp_low) && nullableFinite(player.adp_stdev) && typeof player.matched === "boolean" && validOptionalInjury(player.injury);
   });
 }

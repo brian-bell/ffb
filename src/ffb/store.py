@@ -82,6 +82,22 @@ CREATE TABLE IF NOT EXISTS team_byes (
     PRIMARY KEY (season, source, team)
 );
 
+CREATE TABLE IF NOT EXISTS injuries (
+    player_key VARCHAR,
+    season INTEGER,
+    source VARCHAR,
+    native_id VARCHAR,
+    full_name VARCHAR,
+    position VARCHAR,
+    team VARCHAR,
+    raw_injury_status VARCHAR,
+    raw_roster_status VARCHAR,
+    status VARCHAR,
+    fetched_at VARCHAR,
+    matched BOOLEAN,
+    PRIMARY KEY (player_key, season, source)
+);
+
 CREATE TABLE IF NOT EXISTS season_source_state (
     season INTEGER,
     source VARCHAR,
@@ -381,6 +397,41 @@ class Store:
             [season, source, scope],
         )
 
+    def replace_injuries(self, rows: list[dict[str, Any]], season: int) -> None:
+        """Atomically mirror one season's normalized Sleeper status snapshot."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute(
+                "DELETE FROM injuries WHERE season = ? AND source = 'sleeper'", [season]
+            )
+            for row in rows:
+                self.conn.execute(
+                    """
+                    INSERT INTO injuries
+                        (player_key, season, source, native_id, full_name, position,
+                         team, raw_injury_status, raw_roster_status, status,
+                         fetched_at, matched)
+                    VALUES (?, ?, 'sleeper', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        row["player_key"],
+                        season,
+                        row["native_id"],
+                        row["full_name"],
+                        row.get("position"),
+                        row.get("team"),
+                        row.get("raw_injury_status"),
+                        row.get("raw_roster_status"),
+                        row.get("status"),
+                        row["fetched_at"],
+                        row["matched"],
+                    ],
+                )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def replace_projections(
         self, rows: list[dict[str, Any]], season: int, source: str, scope: str = "season"
     ) -> None:
@@ -529,6 +580,15 @@ class Store:
             result = self.conn.execute("SELECT COUNT(*) FROM crosswalk").fetchone()
             count = int(result[0]) if result else 0
             return count, count
+        if source == "injuries":
+            result = self.conn.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(CASE WHEN matched THEN 1 ELSE 0 END), 0)
+                FROM injuries WHERE season = ? AND source = 'sleeper'
+                """,
+                [season],
+            ).fetchone()
+            return (int(result[0]), int(result[1])) if result else (0, 0)
         if source == "schedule":
             # Bye rows are canonical by construction (unknown/ambiguous teams
             # are dropped at parse time), so every stored row counts as matched.
@@ -584,6 +644,20 @@ class Store:
             adp_columns = [column[0] for column in adp_cursor.description]
             rows.extend(
                 dict(zip(adp_columns, values, strict=True)) for values in adp_cursor.fetchall()
+            )
+        if source is None or source == "injuries":
+            injury_cursor = self.conn.execute(
+                """
+                SELECT 'injuries' AS source, native_id, player_key, full_name,
+                       position, team
+                FROM injuries WHERE season = ? AND NOT matched
+                """,
+                [season],
+            )
+            injury_columns = [column[0] for column in injury_cursor.description]
+            rows.extend(
+                dict(zip(injury_columns, values, strict=True))
+                for values in injury_cursor.fetchall()
             )
         return sorted(rows, key=lambda row: (row["source"], row["full_name"], row["native_id"]))
 
@@ -730,6 +804,20 @@ class Store:
         cols = [c[0] for c in cursor.description]
         return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
 
+    def injury_rows(self, season: int) -> list[dict[str, Any]]:
+        """Return the dedicated Sleeper injury/status slice as plain dicts."""
+        cursor = self.conn.execute(
+            """
+            SELECT player_key, season, source, native_id, raw_injury_status,
+                   raw_roster_status, status, fetched_at, matched
+            FROM injuries WHERE season = ? AND source = 'sleeper'
+            ORDER BY player_key
+            """,
+            [season],
+        )
+        cols = [column[0] for column in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
     def crosswalk_rows(self) -> list[dict[str, Any]]:
         """Read the crosswalk spine (for name-based ADP resolution).
 
@@ -800,6 +888,22 @@ class Store:
             if stored_key != expected_key:
                 return True
         return False
+
+    def has_stale_injury_resolution(self, season: int) -> bool:
+        """True when a stored Sleeper status no longer matches the crosswalk."""
+        rows = self.conn.execute(
+            """
+            SELECT i.player_key, i.native_id, c.player_key
+            FROM injuries i
+            LEFT JOIN crosswalk c ON c.sleeper_id = i.native_id
+            WHERE i.season = ? AND i.source = 'sleeper'
+            """,
+            [season],
+        ).fetchall()
+        return any(
+            stored_key != (crosswalk_key or f"sleeper:{native_id}")
+            for stored_key, native_id, crosswalk_key in rows
+        )
 
     def has_legacy_defense_return_td_stats(self, season: int, source: str) -> bool:
         """True when a stored D/ST row predates return-TD normalization.

@@ -1,0 +1,57 @@
+{
+  "3198": {
+    "player_id": "3198",
+    "first_name": "Derrick",
+    "last_name": "Henry",
+    "position": "RB",
+    "team": "BAL",
+    "injury_status": "Questionable",
+    "status": "Active"
+  },
+  "7564": {
+    "player_id": "7564",
+    "first_name": "Ja'Marr",
+    "last_name": "Chase",
+    "position": "WR",
+    "team": "CIN",
+    "injury_status": null,
+    "status": "Injured Reserve"
+  },
+  "1264": {
+    "player_id": "1264",
+    "first_name": "Justin",
+    "last_name": "Tucker",
+    "position": "K",
+    "team": "BAL",
+    "injury_status": "Sus",
+    "status": "Physically Unable to Perform"
+  },
+  "1516": {
+    "player_id": "1516",
+    "first_name": "Sam",
+    "last_name": "Martin",
+    "position": "P",
+    "team": "CAR",
+    "injury_status": "",
+    "status": "Non Football Injury"
+  },
+  "4960": {
+    "player_id": "4960",
+    "first_name": "Roquan",
+    "last_name": "Smith",
+    "position": "LB",
+    "team": "BAL",
+    "injury_status": null,
+    "status": "Active"
+  },
+  "9999": {
+    "player_id": "9999",
+    "first_name": "No",
+    "last_name": "Canonical Key",
+    "position": "TE",
+    "team": null,
+    "injury_status": "Out",
+    "status": "Inactive"
+  },
+  "malformed": "not an object"
+}

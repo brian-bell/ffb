@@ -41,10 +41,11 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → one bye week per team | **Live** |
+| **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
-| nflverse stats/injuries/depth | `nflreadpy` | none | Usage (snaps/targets), injury designations, depth charts | Planned (in-season) |
-| Sleeper trending / player status | REST JSON | none | Trending adds/drops, injury status | Planned (slice 11) |
+| nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
+| Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
 | ESPN news / RSS | REST / RSS | none | Headlines for LLM digest (never numeric) | Planned (slice 13) |
 
 ---
@@ -101,7 +102,49 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
     Sleeper's own `pts_ppr` for QB/RB/WR/TE only, under `DEFAULT_PPR`.)
   - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands).
 
-### 2. ESPN — season projections
+### 2. Sleeper — player injury/status map
+
+`src/ffb/sources/sleeper_players.py`. The draft board's injury authority.
+
+- **Endpoint** — `GET https://api.sleeper.app/v1/players/nfl`, unauthenticated.
+  Sleeper permits the full map at most once per day. Missing-only and offline
+  syncs replay `snapshots/sleeper/players_nfl.json`. A healthy accepted snapshot
+  younger than 24 hours also satisfies an explicit refresh. A corrupt or
+  undercoverage snapshot may trigger one recovery attempt when no provider call
+  occurred in the prior 24 hours.
+- **Response and identity** — an object keyed by Sleeper `player_id`. Each usable
+  record preserves raw `injury_status` and roster `status`, then resolves
+  `player_id` through the crosswalk's `sleeper_id`. Unmatched records stay in
+  the dedicated `injuries` table but cannot reach the board.
+- **Mapping** — direct `Questionable`, `Doubtful`, `Out`, `IR`, and `PUP` tokens
+  map to their uppercase canonical values. A blank direct token falls back only
+  to `Injured Reserve` → `IR`, `Physically Unable to Perform` → `PUP`, or
+  `Non Football Injury` → `NFI`. Other nonblank signals become neutral
+  `UNKNOWN`; `Active` or no signal produces no indicator. A direct nonblank
+  token always wins over the roster fallback.
+- **Freshness** — `fetched_at` is the snapshot filesystem timestamp. It is not
+  Sleeper's `news_updated` field and does not claim a per-player event time.
+  Existing snapshot conventions do not retain response `ETag` or `Date`
+  headers. The board contract retains `fetched_at`; a visible age cue is a
+  follow-up rather than part of the compact badge.
+- **Attempt throttle** — `snapshots/sleeper/players_nfl.attempt.json` records the
+  global endpoint's last call time before the call runs. Network errors,
+  malformed JSON, and rejected coverage all start the same 24-hour throttle.
+  A process-safe claim serializes eligibility checks and marker replacement
+  across concurrent local syncs, then releases before the network call. The
+  marker applies across seasons and process restarts. If the marker is ahead of
+  the current sync clock by 24 hours or less, the cache treats it as plausible
+  clock rollback, throttles the call, and leaves the marker unchanged. Only a
+  marker more than 24 hours ahead is treated as corrupt. One claimant repairs
+  that marker to the current attempt time and proceeds, while later claimants
+  remain throttled. The marker never changes the accepted snapshot's
+  `fetched_at` or promotes rejected data.
+- **Access terms** — Sleeper documents no authentication, free non-commercial
+  use, a request rate below 1,000 calls/minute, and commercial licensing by
+  contact. This personal repository uses the non-commercial path; deployment
+  for commercial use must stop for a licensing decision.
+
+### 3. ESPN — season projections
 
 `src/ffb/sources/espn.py`. Second projection source, combined with persisted
 Sleeper data to form a consensus. **Unofficial, undocumented endpoint** — no
@@ -145,7 +188,7 @@ auth, may drift.
     crosswalk; defenses join through `def:<canonical team>`.
   - `appliedTotal == 0` here — never trust it as a point total.
 
-### 3. nflverse `ff_playerids` — the identity crosswalk
+### 4. nflverse `ff_playerids` — the identity crosswalk
 
 `src/ffb/sources/crosswalk.py`. Not a projection source — the **join spine** that
 lets consensus align the same player across Sleeper and ESPN, plus fixture-backed
@@ -177,7 +220,7 @@ Yahoo roster identities.
     use the synthetic `def:<canonical MFL team code>` identity; unknown team codes
     remain source fallbacks rather than risking a wrong merge.
 
-### 4. Fantasy Football Calculator — ADP
+### 5. Fantasy Football Calculator — ADP
 
 `src/ffb/sources/ffc.py`. Not a projection source — **average draft position**,
 the market's cost-of-acquisition, joined onto the consensus so the board can
@@ -236,7 +279,7 @@ show value (`ffb board show`). Free, no auth, informal (no SLA, undocumented).
     loads the corresponding snapshot. The configured fallback format is
     `half-ppr`.
 
-### 5. nflverse schedules — team bye weeks
+### 6. nflverse schedules — team bye weeks
 
 `src/ffb/sources/schedule.py`. Not a projection source — the **complete season
 schedule**, from which one bye week per team is derived so the board never

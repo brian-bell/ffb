@@ -14,17 +14,21 @@ cache when present.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ffb import config, identity, names
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
+
+_MIN_FULL_MAP_COVERAGE = 0.9
 
 
 @dataclass
@@ -225,6 +229,101 @@ def ensure_ingested(
         raise ValueError(f"Sleeper projections for {season} returned no usable rows")
     log.info("processing source=sleeper step=parse usable_rows=%s", len(rows))
     return _finalize(store, rows, season, "sleeper")
+
+
+def ensure_injuries_ingested(
+    store: Store,
+    cache: SnapshotCache,
+    season: int,
+    *,
+    refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    fetched_at: str | None = None,
+    now: datetime | None = None,
+    fetch: Callable[[], dict[str, Any]] | None = None,
+) -> Reconciliation:
+    """Replay or fetch Sleeper's player map, resolve it, and mirror statuses."""
+    selected_policy = (
+        SnapshotPolicy(policy)
+        if policy is not None
+        else (SnapshotPolicy.REFRESH if refresh else SnapshotPolicy.MISSING_ONLY)
+    )
+    snapshot_key = sleeper_players.snapshot_key()
+    metadata_before = cache.metadata(snapshot_key)
+    cached_rows: list[dict[str, Any]] = []
+    stored_ids = {row["native_id"] for row in store.injury_rows(season)}
+    cache_is_valid = metadata_before is None
+    if metadata_before is not None:
+        try:
+            cached_rows = sleeper_players.parse_players(cache.read_json(snapshot_key))
+            cached_ids = {row["native_id"] for row in cached_rows}
+            cache_is_valid = bool(cached_ids) and (
+                not stored_ids
+                or len(stored_ids & cached_ids) / len(stored_ids) >= _MIN_FULL_MAP_COVERAGE
+            )
+        except json.JSONDecodeError:
+            log.warning(
+                "processing source=injuries step=cache reason=corrupt-json; "
+                "authorized refresh will recover"
+            )
+    baseline_ids = stored_ids or {row["native_id"] for row in cached_rows}
+
+    def valid_candidate(data: Any) -> bool:
+        candidate_rows = sleeper_players.parse_players(data)
+        if not candidate_rows:
+            return False
+        if not baseline_ids:
+            return True
+        candidate_ids = {row["native_id"] for row in candidate_rows}
+        return len(baseline_ids & candidate_ids) / len(baseline_ids) >= _MIN_FULL_MAP_COVERAGE
+
+    if selected_policy is SnapshotPolicy.REFRESH and metadata_before is not None and cache_is_valid:
+        snapshot_time = datetime.fromisoformat(metadata_before.modified_at.replace("Z", "+00:00"))
+        age = (now or datetime.now(UTC)) - snapshot_time
+        if timedelta(0) <= age < timedelta(days=1):
+            selected_policy = SnapshotPolicy.MISSING_ONLY
+            log.info("processing source=injuries step=cache reason=daily-fetch-limit")
+    raw = cache.get_json(
+        snapshot_key,
+        fetch or sleeper_players.fetch_players,
+        refresh=refresh,
+        policy=selected_policy,
+        is_valid=valid_candidate,
+        attempt_interval=timedelta(days=1),
+        now=now,
+    )
+    rows = sleeper_players.parse_players(raw)
+    if not rows:
+        raise ValueError("Sleeper player map returned no usable rows")
+    if not valid_candidate(raw):
+        overlap = len({row["native_id"] for row in rows} & baseline_ids)
+        raise ValueError(
+            "Sleeper player map coverage rejected: "
+            f"candidate retained {overlap} of {len(baseline_ids)} known player ids; "
+            f"minimum is {_MIN_FULL_MAP_COVERAGE:.0%}"
+        )
+    metadata = cache.metadata(snapshot_key)
+    snapshot_time = fetched_at or (metadata.modified_at if metadata else None)
+    if snapshot_time is None:
+        raise ValueError("Sleeper player snapshot has no fetched timestamp")
+    lookup = store.resolve_batch("sleeper", [row["native_id"] for row in rows])
+    resolved = []
+    recon = Reconciliation(source="injuries", n_rows=len(rows))
+    for row in rows:
+        hit = lookup.get(row["native_id"])
+        matched = hit is not None
+        recon.matched += int(matched)
+        recon.unmatched += int(not matched)
+        resolved.append(
+            {
+                **row,
+                "player_key": hit["player_key"] if hit else f"sleeper:{row['native_id']}",
+                "matched": matched,
+                "fetched_at": snapshot_time,
+            }
+        )
+    store.replace_injuries(resolved, season)
+    return recon
 
 
 def ensure_espn_ingested(
