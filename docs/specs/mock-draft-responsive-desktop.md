@@ -64,8 +64,8 @@ not reinterpret them.
   deployment.
 - Changes to `board.json` v1, D1 tables, Worker API routes, opponent strategy,
   or live-draft data.
-- Detailed completed-draft rosters and outcome analysis. That belongs to
-  `ffb-w0y.5`.
+- Persisted mock history. Review (delivered by `ffb-w0y.5`, see “Completed-mock
+  review”) covers only the most recent completed mock.
 - Persisted CPU decision rationale. The current public mock state does not
   expose it.
 - New keyboard shortcuts. Keyboard-first drafting is tracked separately by
@@ -248,15 +248,33 @@ be removable and must work with both modern `change` events and the test seam.
 | Active, Brian on clock | Available rows selectable | Selection, suggestions, pick and lifecycle controls | Draft, clear, pause, undo if allowed, restart, discard |
 | Write pending | Existing rows remain visible with `aria-busy=true` | All mutations disabled; submitted selection remains legible | Await one transition only |
 | Paused | Board remains browsable but rows are not selectable | Resume is primary; suggestions say “Resume to see suggestions” | Resume, undo if allowed, restart, discard |
-| Complete | Board remains available for Available/Drafted review but is not selectable | “Draft complete”; Pause disabled; no suggestions | Undo if allowed, restart, discard |
+| Complete | Board remains available for Available/Drafted review but is not selectable; board view lands on Drafted (the ordered pick log) on entry | Review surface replaces selection, pick tools, suggestions, and latest transition; Pause disabled | Replay this mock, start another mock, return to live draft, undo if allowed |
 | Stale `409` | Reload authoritative mock, clear an invalid selection, preserve valid view state when possible | Show returned conflict message after reconciliation | Retry only from refreshed revision |
 | Saved board unreadable | Replace board pane with a specific recovery notice | Only Discard remains enabled | Discard and return to setup |
 | Published board unavailable, no mock | Setup remains visible with league values unavailable | Not rendered | Start disabled until reload succeeds |
 | Authentication failure | Locked overlay; underlying data is inert and obscured | Inert | Re-authenticate |
 
-Completed-draft roster analysis is not added here. A completed mock keeps its
-current board/history review and lifecycle escape hatches until `ffb-w0y.5`
-defines the results experience.
+### Completed-mock review (`ffb-w0y.5`)
+
+When the authoritative state reports `lifecycle: "complete"` with a usable
+board, the decision rail becomes a review surface, derived purely from the
+returned `MockState` (`src/mock-review.ts`):
+
+- An outcome summary records the reproduction config verbatim: seed, variance,
+  slot, rounds, strategy version, and board fingerprint.
+- One roster accordion entry per team, grouped by draft slot in pick order with
+  a position-count line. The user roster is listed first, open, and marked with
+  a “YOU” chip; user-sourced picks are marked in every roster.
+- The board view switches to Drafted once on entering completion (including a
+  fresh load of a completed mock), so the ordered pick log is front and center;
+  the user may switch back freely.
+- Actions reuse the existing lifecycle endpoints and stale-revision guards:
+  **Replay this mock** (reset from the saved seed), **Start another mock**
+  (discard, returning to setup), and a prominent **Return to live draft** link.
+  Undo still exits review back to the active workspace.
+
+Review survives refresh because `GET /api/mocks/current` keeps returning the
+most recent completed mock. Saved-board recovery always wins over review.
 
 ## Interaction details
 

@@ -93,6 +93,39 @@ function pickSnapshot(player, overallPick, teamIndex, source) {
   };
 }
 
+function completedState() {
+  const rounds = Object.values(board.roster_slots).reduce((sum, count) => sum + count, 0);
+  const total = board.num_teams * rounds;
+  const picks = Array.from({ length: total }, (_, index) => {
+    const round = Math.floor(index / board.num_teams) + 1;
+    const roundPick = (index % board.num_teams) + 1;
+    const slot = round % 2 === 1 ? roundPick - 1 : board.num_teams - roundPick;
+    const team = teams[slot];
+    const player = board.players[index];
+    return {
+      overall_pick: index + 1,
+      round,
+      round_pick: roundPick,
+      draft_slot: team.draft_slot,
+      team_name: team.name,
+      player_key: player.key,
+      player_name: player.name,
+      player_pos: player.pos,
+      player_team: player.team,
+      source: team.is_user ? "user" : "simulated",
+    };
+  });
+  return configuredState(currentInput(), {
+    picks,
+    next: null,
+    complete: true,
+    lifecycle: "complete",
+    can_undo: true,
+    revision: total,
+    appended_picks: [],
+  });
+}
+
 async function requestBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
@@ -131,10 +164,19 @@ const server = createServer(async (request, response) => {
         sendJson(response, 200, configuredState(currentInput(), {
           board: undefined,
           board_error: "Saved board snapshot is unreadable.",
+          next: null,
+          complete: true,
+          lifecycle: "complete",
+          can_undo: true,
         }));
         return;
       }
       sendJson(response, 200, state ?? unconfiguredState());
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/test/complete") {
+      state = completedState();
+      sendJson(response, 200, state);
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/mocks") {
