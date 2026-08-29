@@ -20,7 +20,10 @@ mkdir -p "$HOME/.local/bin"
 # and /exec-daemon's Node 22. Pin shims there so later agent shells see uv/Node 24.
 link_tool() {
   local src="$1" name="$2"
-  ln -sfn "$src" "$HOME/.local/bin/$name"
+  local local_dest="$HOME/.local/bin/$name"
+  if [[ "$src" != "$local_dest" ]]; then
+    ln -sfn "$src" "$local_dest"
+  fi
   if [[ -d /usr/local/cargo/bin && -w /usr/local/cargo/bin ]]; then
     ln -sfn "$src" "/usr/local/cargo/bin/$name"
   fi
