@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   mockClockState,
   mockActionState,
+  mockDiscardConfirmMessage,
+  mockResetConfirmMessage,
   mockSuggestions,
   readMockSetupControls,
   renderMockError,
@@ -104,7 +106,29 @@ describe("mock UI controller", () => {
         undo_enabled: undoEnabled,
         reset_enabled: resetEnabled,
         discard_enabled: !writing,
+        reset_label: lifecycle === "complete" ? "Replay this mock" : "Restart from seed",
+        discard_label: lifecycle === "complete" ? "Start another mock" : "Discard mock",
       });
     },
   );
+
+  it("keeps the existing confirm copy for in-progress mocks", () => {
+    expect(mockResetConfirmMessage("active")).toBe(
+      "Restart this mock from its saved seed? The board snapshot and configuration stay the same, and the seeded opening will be replayed.",
+    );
+    expect(mockResetConfirmMessage("paused")).toBe(mockResetConfirmMessage("active"));
+    expect(mockDiscardConfirmMessage("active")).toBe(
+      "Discard this mock draft and return to setup? Its saved session will be removed; your live draft will not be changed.",
+    );
+    expect(mockDiscardConfirmMessage("paused")).toBe(mockDiscardConfirmMessage("active"));
+  });
+
+  it("uses review confirm copy for a completed mock", () => {
+    expect(mockResetConfirmMessage("complete")).toBe(
+      "Replay this mock from its saved seed? The board snapshot and configuration stay the same, and the seeded opening will be replayed.",
+    );
+    expect(mockDiscardConfirmMessage("complete")).toBe(
+      "Start another mock? This completed mock's log and rosters will be removed and you'll return to setup; your live draft will not be changed.",
+    );
+  });
 });

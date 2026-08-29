@@ -447,6 +447,7 @@ body {
 .pickdock button:disabled { cursor: not-allowed; opacity: .48; }
 .mock-suggestions { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 0 12px 12px; }
 .mock-suggestions[hidden] { display: none; }
+.mock-transition[hidden] { display: none !important; }
 .mock-suggestions > b { color: var(--dr-accent); font: 700 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .mock-suggestions [data-suggestion-list] { display: flex; gap: 6px; min-width: 0; color: var(--dr-muted); font-size: 12px; }
 .mock-suggestion { display: grid; min-width: 0; padding: 7px 9px; text-align: left; }
@@ -831,6 +832,97 @@ body {
 }
 .mock-error { min-height: 18px; margin: 5px 0 10px; color: #ff9393; font-size: 12px; }
 .mock-error:empty { visibility: hidden; }
+.mock-review { display: grid; gap: 10px; padding: 0 12px 10px; }
+.mock-review[hidden] { display: none !important; }
+.mock-review-summary {
+  padding: 12px;
+  border: 1px solid #263041;
+  border-radius: 9px;
+  background: #121921;
+}
+.mock-review .review-eyebrow {
+  display: block;
+  color: var(--good);
+  font: 750 10px/1.2 var(--mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.review-headline { margin: 7px 0 0; font: 700 13px/1.35 var(--sans); }
+.review-user { margin: 4px 0 0; color: var(--dr-muted); font: 500 11px/1.4 var(--sans); }
+.review-config {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+.review-config div { min-width: 0; }
+.review-config dt {
+  color: var(--dr-muted);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.review-config dd {
+  margin: 4px 0 0;
+  overflow: hidden;
+  font: 700 12px/1.2 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mock-review-live-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid #344253;
+  border-radius: 8px;
+  background: #17202a;
+  color: var(--dr-ink);
+  font: 700 12px/1 var(--sans);
+  text-decoration: none;
+}
+.mock-review-rosters { display: grid; gap: 7px; }
+.review-team { border: 1px solid #263041; border-radius: 9px; background: #121921; }
+.review-team.user { border-color: #246943; background: #102d20; }
+.review-team summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.review-team-name { font: 700 12px/1.2 var(--sans); }
+.you-chip {
+  flex: none;
+  padding: 3px 6px;
+  border: 1px solid #246943;
+  border-radius: 999px;
+  background: #102d20;
+  color: var(--good);
+  font: 800 8px/1 var(--mono);
+  letter-spacing: .08em;
+}
+.review-counts {
+  margin-left: auto;
+  color: var(--dr-muted);
+  font: 600 10px/1.3 var(--mono);
+  text-align: right;
+}
+.review-picks { display: grid; gap: 4px; margin: 0; padding: 0 12px 10px; list-style: none; }
+.review-pick { display: flex; align-items: baseline; gap: 8px; font: 500 11px/1.4 var(--sans); }
+.review-pick .you-chip { margin-left: auto; }
+.review-pick.you-pick .review-player { color: var(--good); }
+.review-slotno { flex: none; color: var(--dr-muted); font: 700 10px/1.4 var(--mono); }
+.review-player { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-meta { flex: none; color: var(--dr-muted); font: 600 10px/1.4 var(--mono); }
+/* The review rail is taller than a phone viewport, so compact review trades the
+   fixed-height shell for a capped pick log and a scrolling screen. */
+@media (max-width: 1023px) {
+  .mock-screen.review-mode { overflow-y: auto; }
+  .mock-screen.review-mode .mock-workspace { flex: none; }
+  .mock-screen.review-mode .list { flex: 0 0 auto; max-height: min(42dvh, 280px); }
+}
 .mock-screen.locked .mock-setup,
 .mock-screen.locked .mock-active,
 .mock-screen.locked .mock-workspace { filter: blur(7px); pointer-events: none; }
@@ -944,6 +1036,11 @@ body {
     display: block;
     margin-top: 16px;
     padding-top: 16px;
+    border-top: 1px solid var(--dr-line);
+  }
+  .mock-review {
+    margin-top: 16px;
+    padding: 16px 0 0;
     border-top: 1px solid var(--dr-line);
   }
   .mock-transition .mock-events {

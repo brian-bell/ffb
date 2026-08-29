@@ -5,12 +5,21 @@ import { reconcileMockBoardView } from "../src/mock-view";
 import {
   mockClockState,
   mockActionState,
+  mockDiscardConfirmMessage,
   mockErrorMessage,
+  mockResetConfirmMessage,
   mockSuggestions,
   readMockSetupControls,
   renderMockError,
   renderVariancePreset,
 } from "../src/mock-ui";
+import {
+  entersReview,
+  mockReviewModel,
+  renderMockReviewRosters,
+  renderMockReviewSummary,
+  type ReviewEntry,
+} from "../src/mock-review";
 import { buildPlayerPool, type PlayerPool } from "../src/player-pool";
 import { renderBoard } from "../src/render";
 import { requestJson } from "../src/request-json";
@@ -59,6 +68,10 @@ const pickTools = element<HTMLElement>("[data-pick-tools]");
 const suggestions = element<HTMLElement>("[data-suggestions]");
 const suggestionList = element<HTMLElement>("[data-suggestion-list]");
 const transitionStatus = element<HTMLElement>("[data-transition-status]");
+const transitionSection = element<HTMLElement>("[data-transition-section]");
+const reviewSection = element<HTMLElement>("[data-mock-review]");
+const reviewSummary = element<HTMLElement>("[data-review-summary]");
+const reviewRosters = element<HTMLElement>("[data-review-rosters]");
 const lifecycleToggle = element<HTMLButtonElement>("[data-lifecycle-toggle]");
 const undo = element<HTMLButtonElement>("[data-undo]");
 const reset = element<HTMLButtonElement>("[data-reset]");
@@ -98,6 +111,7 @@ let pooledPlayers: Board["players"] | null = null;
 let pooledPicks: MockState["picks"] | null = null;
 let suggestedFor: { mock: MockState; pool: PlayerPool } | null = null;
 let suggested: Player[] = [];
+let reviewRenderedFor: MockState | null = null;
 
 function authHeaders(json = false): HeadersInit {
   return {
@@ -182,6 +196,16 @@ function selectedPlayer(): Player | null {
   return (
     currentPlayerPool().available.find((player) => player.key === boardView.selectedKey) ?? null
   );
+}
+
+function lifecycleOf(state: MockState | null): MockLifecycleStatus | null {
+  if (!state?.mock) return null;
+  return state.lifecycle ?? (state.complete ? "complete" : "active");
+}
+
+function reviewEntryOf(state: MockState | null): ReviewEntry | null {
+  const lifecycle = lifecycleOf(state);
+  return lifecycle === null ? null : { lifecycle, mock_id: state!.mock!.id };
 }
 
 function actions(boardAvailable = true) {
@@ -298,7 +322,7 @@ function renderSelection(actionState: ReturnType<typeof actions>): void {
 }
 
 function renderPickTools(): void {
-  if (mock?.board_error) {
+  if (mock?.board_error || lifecycleOf(mock) === "complete") {
     pickToolsToggle.hidden = true;
     pickToolsToggle.disabled = true;
     pickTools.hidden = true;
@@ -352,6 +376,9 @@ function renderState(resetScroll = true): void {
   pickPanel.hidden = !configured;
   clock.hidden = !configured;
   suggestions.hidden = !configured;
+  reviewSection.hidden = true;
+  transitionSection.hidden = false;
+  selected.hidden = false;
 
   teamCount.textContent = String(board.num_teams);
   rounds.textContent = String(boardRounds(board));
@@ -359,6 +386,8 @@ function renderState(resetScroll = true): void {
   foot.textContent = `board.json v${board.version} · ${board.generated_at}`;
   if (!configured || !mock?.mock) {
     clock.hidden = true;
+    screen.classList.remove("review-mode");
+    reviewRenderedFor = null;
     list.innerHTML =
       '<div class="notice"><b>Ready for an isolated rehearsal.</b>Choose a slot and seed to begin.</div>';
     return;
@@ -376,10 +405,29 @@ function renderState(resetScroll = true): void {
   renderClock();
   renderSelection(actionState);
   renderPickTools();
+  const review = mockReviewModel(mock);
+  screen.classList.toggle("review-mode", review !== null);
+  if (review) {
+    reviewSection.hidden = false;
+    transitionSection.hidden = true;
+    selected.hidden = true;
+    suggestions.hidden = true;
+    /* Rebuilding the accordion would collapse rosters the user opened, so the
+       review DOM is rebuilt only when the authoritative state changes. */
+    if (reviewRenderedFor !== mock) {
+      reviewSummary.innerHTML = renderMockReviewSummary(review);
+      reviewRosters.innerHTML = renderMockReviewRosters(review);
+      reviewRenderedFor = mock;
+    }
+  } else {
+    reviewRenderedFor = null;
+  }
   lifecycleToggle.textContent = actionState.lifecycle_label;
   lifecycleToggle.disabled = !actionState.lifecycle_enabled;
   undo.disabled = !actionState.undo_enabled;
+  reset.textContent = actionState.reset_label;
   reset.disabled = !actionState.reset_enabled;
+  discard.textContent = actionState.discard_label;
   discard.disabled = !actionState.discard_enabled;
   renderEvents();
   renderTabs();
@@ -426,6 +474,11 @@ function renderBoardRecovery(value: MockState): void {
   const actionState = actions(false);
   statusLifecycle.textContent = actionState.status_label;
   statusRevision.textContent = String(value.revision);
+  reviewSection.hidden = true;
+  transitionSection.hidden = false;
+  selected.hidden = false;
+  screen.classList.remove("review-mode");
+  reviewRenderedFor = null;
   for (const summary of eventSummaries) {
     summary.innerHTML = "<b>Saved board unavailable.</b> Discard this mock to start over.";
   }
@@ -444,7 +497,9 @@ function renderBoardRecovery(value: MockState): void {
   lifecycleToggle.textContent = actionState.lifecycle_label;
   lifecycleToggle.disabled = true;
   undo.disabled = true;
+  reset.textContent = "Restart from seed";
   reset.disabled = true;
+  discard.textContent = "Discard mock";
   discard.disabled = !actionState.discard_enabled;
   draftError.textContent = value.board_error ?? "The saved board is unavailable.";
   foot.textContent = "Saved board snapshot unavailable";
@@ -490,6 +545,7 @@ function setupBoard(value: Board): void {
 
 function applyMockState(value: MockState): void {
   const previousMockId = mock?.mock?.id ?? null;
+  const previousEntry = reviewEntryOf(mock);
   mock = value;
   playerPool = null;
   pooledPlayers = null;
@@ -502,6 +558,9 @@ function applyMockState(value: MockState): void {
       value.mock?.id ?? null,
       currentPlayerPool().available,
     );
+    if (entersReview(previousEntry, reviewEntryOf(mock))) {
+      boardView = nextBoardView(boardView, { type: "selectMode", mode: "drafted" });
+    }
   } else {
     boardView = initialBoardView;
   }
@@ -757,17 +816,13 @@ undo.addEventListener("click", async () => {
 });
 
 reset.addEventListener("click", async () => {
-  if (!confirm(
-    "Restart this mock from its saved seed? The board snapshot and configuration stay the same, and the seeded opening will be replayed.",
-  )) return;
+  if (!confirm(mockResetConfirmMessage(lifecycleOf(mock) ?? "active"))) return;
   await lifecycleRequest("/api/mocks/current/reset", "POST", true);
 });
 
 discard.addEventListener("click", async () => {
   if (!mock?.mock) return;
-  if (!confirm(
-    "Discard this mock draft and return to setup? Its saved session will be removed; your live draft will not be changed.",
-  )) return;
+  if (!confirm(mockDiscardConfirmMessage(lifecycleOf(mock) ?? "active"))) return;
   writing = true;
   renderCurrentState();
   const result = await api<MockState>("/api/mocks/current", {
