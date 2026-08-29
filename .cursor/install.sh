@@ -92,4 +92,10 @@ uv sync --frozen
 echo "cloud-agent-install: npm ci --prefix tracker"
 npm ci --prefix tracker
 
+echo "cloud-agent-install: npx playwright install --with-deps chromium"
+(
+  cd tracker
+  npx playwright install --with-deps chromium
+)
+
 echo "cloud-agent-install: python=$(uv run python --version 2>&1) node=$(node --version) npm=$(npm --version)"
