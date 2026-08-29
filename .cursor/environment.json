@@ -1,0 +1,4 @@
+{
+  "name": "ffb",
+  "install": "bash .cursor/install.sh"
+}
