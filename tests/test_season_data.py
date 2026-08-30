@@ -1,7 +1,7 @@
 """Season-data application service behavior."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ffb.season_data import SeasonDataService
@@ -55,14 +55,18 @@ def _fixture_fetchers():
         "espn": lambda: json.loads((FIXTURES / "espn_projections_sample.json").read_text()),
         "ffc": lambda: json.loads((FIXTURES / "ffc_adp_sample.json").read_text()),
         "schedule": lambda: json.loads((FIXTURES / "schedule_sample.json").read_text()),
+        "injuries": lambda: json.loads(
+            (FIXTURES / "sleeper_players_injury_sample.json").read_text()
+        ),
     }
 
 
 def test_expand_sources_includes_schedule():
     from ffb.season_data import expand_sources
 
-    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule"]
+    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries"]
     assert expand_sources(["schedule"]) == ["schedule"]
+    assert expand_sources(["injuries"]) == ["injuries"]
 
 
 def test_sync_schedule_records_ready_state(tmp_path):
@@ -110,3 +114,47 @@ def test_status_incomplete_while_schedule_missing(tmp_path):
     tracked = next(s for s in status["sources"] if s["name"] == "schedule")
     assert tracked["state"] == "missing"
     assert status["complete"] is False
+
+
+def test_injury_attempt_throttle_is_global_across_services_and_seasons(tmp_path):
+    root = tmp_path / "snapshots"
+    store = Store(tmp_path / "ffb.duckdb")
+    store.init_schema()
+    full_players = json.loads((FIXTURES / "sleeper_players_injury_sample.json").read_text())
+    injury_calls = 0
+
+    def injuries_fetch():
+        nonlocal injury_calls
+        injury_calls += 1
+        return full_players if injury_calls == 1 else {"3198": full_players["3198"]}
+
+    fetchers = {
+        "crosswalk": lambda: json.loads((FIXTURES / "ff_playerids_sample.json").read_text()),
+        "injuries": injuries_fetch,
+    }
+    initial = datetime(2030, 8, 27, 14, 30, tzinfo=UTC)
+    recovery = datetime(2030, 8, 29, 14, 30, tzinfo=UTC)
+
+    first = SeasonDataService(store, SnapshotCache(root), fetchers=fetchers, clock=lambda: initial)
+    assert first.sync(2026, selectors=["injuries"])[-1].state == "ready"
+
+    second = SeasonDataService(
+        store, SnapshotCache(root), fetchers=fetchers, clock=lambda: recovery
+    )
+    failed = second.sync(2026, selectors=["injuries"], policy=SnapshotPolicy.REFRESH)[-1]
+    assert failed.state == "failed"
+    assert "coverage" in (failed.error or "")
+
+    (root / "sleeper" / "players_nfl.json").write_text("{corrupt")
+    third = SeasonDataService(
+        store,
+        SnapshotCache(root),
+        fetchers=fetchers,
+        clock=lambda: recovery + timedelta(hours=1),
+    )
+    throttled = third.sync(2027, selectors=["injuries"], policy=SnapshotPolicy.REFRESH)[-1]
+    store.close()
+
+    assert throttled.state == "failed"
+    assert "throttled" in (throttled.error or "")
+    assert injury_calls == 2

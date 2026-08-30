@@ -1,6 +1,14 @@
 // The slice-5 board.json v1 contract, consumed read-only. Field names mirror
 // ffb.board._BOARD_FIELDS and the envelope in ffb.board.to_board_json.
 
+export type InjuryStatus = "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "IR" | "PUP" | "NFI" | "UNKNOWN";
+
+export interface InjuryIndicator {
+  status: InjuryStatus;
+  /** Timestamp of the full Sleeper player-map snapshot, not a player event. */
+  fetched_at: string;
+}
+
 export interface Player {
   key: string;
   name: string;
@@ -19,6 +27,7 @@ export interface Player {
   adp_low: number | null;
   adp_stdev: number | null;
   matched: boolean;
+  injury?: InjuryIndicator;
 }
 
 export interface Board {

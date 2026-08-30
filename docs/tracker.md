@@ -15,6 +15,12 @@ The browser saves the key in `localStorage` with an in-memory fallback. Board
 version drift or malformed data produces an explicit recovery message instead
 of attempting to render an unknown contract.
 
+Player rows may carry an additive injury object with a canonical status and the
+Sleeper snapshot's `fetched_at`. The shared live/mock renderer displays a short
+text badge plus a full accessible label on every viewport. `UNKNOWN` is rendered
+as neutral “Status”; old published and saved mock boards without the optional
+object remain valid.
+
 ## Live draft
 
 First use configures 2–20 ordered teams, exactly one user team, and 1–30 rounds.

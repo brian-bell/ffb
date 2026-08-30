@@ -13,16 +13,17 @@ from ffb.ingest import (
     ensure_crosswalk,
     ensure_espn_ingested,
     ensure_ingested,
+    ensure_injuries_ingested,
     ensure_schedule_ingested,
 )
 from ffb.league_context import load_league_context
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule")
+DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries")
 ALL_SOURCES = ("crosswalk", *DEFAULT_SOURCES)
 SOURCE_KIND = {
     "crosswalk": "identity",
@@ -30,6 +31,7 @@ SOURCE_KIND = {
     "espn": "projections",
     "ffc": "adp",
     "schedule": "schedule",
+    "injuries": "injuries",
 }
 
 
@@ -54,6 +56,7 @@ def expand_sources(selectors: list[str] | None) -> list[str]:
         "espn": ("espn",),
         "ffc": ("ffc",),
         "schedule": ("schedule",),
+        "injuries": ("injuries",),
     }
     output: list[str] = []
     for selector in selected:
@@ -115,6 +118,7 @@ class SeasonDataService:
             "espn": espn.snapshot_key(season),
             "ffc": ffc.snapshot_key(season, teams=league.num_teams),
             "schedule": schedule.snapshot_key(season),
+            "injuries": sleeper_players.snapshot_key(),
         }[source]
         force_rebuild = rebuild or not self.cache.has(snapshot_key)
         log.info(
@@ -162,6 +166,16 @@ class SeasonDataService:
                     refresh=refresh,
                     policy=policy,
                     rebuild=force_rebuild,
+                    fetch=self.fetchers.get(source),
+                )
+            elif source == "injuries":
+                ensure_injuries_ingested(
+                    self.store,
+                    self.cache,
+                    season,
+                    refresh=refresh,
+                    policy=policy,
+                    now=self.clock().astimezone(UTC),
                     fetch=self.fetchers.get(source),
                 )
             else:
@@ -249,14 +263,22 @@ class SeasonDataService:
                 row["latest_attempt_status"] if row else ("untracked" if row_count else "missing")
             )
             stale = (
-                source in ("sleeper", "espn")
-                and bool(row_count)
-                and self.store.has_stale_resolution(season, source)
-            ) or (
-                source == "ffc"
-                and bool(row_count)
-                and bool(row)
-                and row.get("snapshot_key") != ffc.snapshot_key(season, teams=league.num_teams)
+                (
+                    source in ("sleeper", "espn")
+                    and bool(row_count)
+                    and self.store.has_stale_resolution(season, source)
+                )
+                or (
+                    source == "ffc"
+                    and bool(row_count)
+                    and bool(row)
+                    and row.get("snapshot_key") != ffc.snapshot_key(season, teams=league.num_teams)
+                )
+                or (
+                    source == "injuries"
+                    and bool(row_count)
+                    and self.store.has_stale_injury_resolution(season)
+                )
             )
             sources.append(
                 {

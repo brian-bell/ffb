@@ -89,6 +89,9 @@ assert all(player.get("matched") is True for player in board["players"]), \
 byes = {player["key"]: player.get("bye") for player in board["players"]}
 assert byes.get("12626") == 4, "Henry bye must come from the schedule (4), not FFC (14)"
 assert byes.get("def:SFO") == 2, "D/ST bye must come from the schedule (2), not FFC (9)"
+henry = next(player for player in board["players"] if player["key"] == "12626")
+assert henry.get("injury", {}).get("status") == "QUESTIONABLE", \
+    "matched Sleeper injury status must reach board.json"
 print("board version: {}; player count: {}".format(board["version"], len(keys)))
 ' "$board_path" || exit $?
 

@@ -80,6 +80,22 @@ function tierChip(p: Player): string {
   return `<span class="tier-chip">${esc(label)}</span>`;
 }
 
+const INJURY_LABELS = {
+  QUESTIONABLE: ["Q", "Questionable injury status"],
+  DOUBTFUL: ["D", "Doubtful injury status"],
+  OUT: ["OUT", "Out injury status"],
+  IR: ["IR", "Injured reserve"],
+  PUP: ["PUP", "Physically unable to perform"],
+  NFI: ["NFI", "Non-football injury list"],
+  UNKNOWN: ["Status", "Player availability status unknown"],
+} as const;
+
+function injuryBadge(p: Player): string {
+  if (!p.injury) return "";
+  const [visible, label] = INJURY_LABELS[p.injury.status];
+  return `<span class="injury-badge injury-${p.injury.status.toLowerCase()}" aria-label="${label}">${visible}</span>`;
+}
+
 function tierKey(tier: number | null): string {
   return tier == null ? "adp" : String(tier);
 }
@@ -103,7 +119,7 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
     open +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
-    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${esc(metaLine(p))}</i></span>` +
+    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i></span>` +
     vorpCell(p, maxVorp) +
     `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
     deltaChip(p) +
@@ -153,6 +169,7 @@ function playerFromPick(players: readonly Player[], pick: DraftPickSnapshot): Pl
     adp_low: boardPlayer?.adp_low ?? null,
     adp_stdev: boardPlayer?.adp_stdev ?? null,
     matched: boardPlayer?.matched ?? false,
+    injury: boardPlayer?.injury,
   };
 }
 

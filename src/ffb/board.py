@@ -58,6 +58,7 @@ def board_rows(
     adp: list[dict[str, Any]],
     *,
     byes: list[dict[str, Any]] = (),
+    injuries: list[dict[str, Any]] = (),
     roster_slots: dict[str, int],
     num_teams: int,
     tier_count: dict[str, int] = config.TIER_COUNT,
@@ -81,9 +82,18 @@ def board_rows(
 
     bye_by_team = {b["team"]: b["bye"] for b in byes}
     working = _select_pool(_merged_working(consensus, adp, roster_slots), player_pool)
+    injury_by_key = {
+        row["player_key"]: row
+        for row in injuries
+        if row.get("matched") and row.get("status") is not None
+    }
     for w in working:
         schedule_bye = bye_by_team.get(identity.canonical_team(w["team"]))
         w["bye"] = schedule_bye if schedule_bye is not None else w["bye"]
+        injury = injury_by_key.get(w["player_key"])
+        w["injury"] = (
+            {"status": injury["status"], "fetched_at": injury["fetched_at"]} if injury else None
+        )
 
     # VORP over rows with points; ADP-only rows get vorp=None.
     scored = [w for w in working if w["points"] is not None]
@@ -241,7 +251,7 @@ def _stamp_ranks(ordered: list[dict[str, Any]]) -> None:
 
 
 def _to_contract(w: dict[str, Any]) -> dict[str, Any]:
-    return {
+    row = {
         "key": w["player_key"],
         "name": w["name"],
         "pos": w["position"],
@@ -260,6 +270,9 @@ def _to_contract(w: dict[str, Any]) -> dict[str, Any]:
         "adp_stdev": w["adp_stdev"],
         "matched": w["matched"],
     }
+    if w.get("injury") is not None:
+        row["injury"] = w["injury"]
+    return row
 
 
 def to_board_json(

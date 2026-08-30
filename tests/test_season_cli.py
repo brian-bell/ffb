@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper
+from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -25,6 +25,7 @@ def _env(tmp_path):
         espn.snapshot_key(2024): "espn_projections_sample.json",
         ffc.snapshot_key(2024): "ffc_adp_sample.json",
         schedule.snapshot_key(2024): "schedule_sample.json",
+        sleeper_players.snapshot_key(): "sleeper_players_injury_sample.json",
     }
     for key, filename in fixtures.items():
         payload = json.loads((FIXTURES / filename).read_text())
@@ -203,7 +204,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     result = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
 
     assert result.exit_code == 1
-    assert result.output.lower().count("failed") == 5
+    assert result.output.lower().count("failed") == 6
     assert "offline snapshot missing" in result.output
 
 
@@ -330,6 +331,23 @@ def test_unmatched_reports_current_source_identity_details(tmp_path):
     assert "sleeper:" in result.output
     assert "RB" in result.output
     assert "def:SFO" not in result.output
+
+
+def test_unmatched_reports_injury_identity_for_filtered_and_all_sources(tmp_path):
+    env = _env(tmp_path)
+    synced = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    filtered = runner.invoke(app, ["season", "unmatched", "2024", "--source", "injuries"], env=env)
+    combined = runner.invoke(app, ["season", "unmatched", "2024"], env=env)
+
+    for result in (filtered, combined):
+        assert result.exit_code == 0, result.output
+        assert "injuries" in result.output
+        assert "9999" in result.output
+        assert "sleeper:9999" in result.output
+        assert "No Canonical Key" in result.output
+        assert "TE" in result.output
 
 
 def test_rankings_is_read_only_and_leaves_sync_status_unchanged(tmp_path, monkeypatch):

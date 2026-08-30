@@ -27,6 +27,7 @@ uv run ffb season sync 2026 --offline --rebuild
 uv run ffb season sync 2026 --source projections
 uv run ffb season sync 2026 --source ffc
 uv run ffb season sync 2026 --source schedule
+uv run ffb season sync 2026 --source injuries
 uv run ffb season status 2026 --json
 ```
 
@@ -36,7 +37,20 @@ slice. `--verbose` logs cache decisions, safe request summaries, and processing
 progress to stderr without headers or response bodies.
 
 Read commands use persisted data only. Run an explicit refresh before export
-when fresh projection, ADP, or schedule data is required.
+when fresh projection, ADP, schedule, or injury data is required. Sleeper's
+full player map is capped at one provider attempt per 24 hours. A healthy young
+snapshot is replayed under `--refresh`. A corrupt or truncated cache can make
+one guarded recovery attempt, but an accepted or rejected attempt suppresses
+another call until the global 24-hour window expires. The attempt is claimed
+under a process-safe local lock before the network call, so concurrent sync
+processes share the same limit. The lock is released after the durable claim;
+a crashed process cannot retain it. If the marker is up to 24 hours ahead of
+the sync clock, the cache treats the difference as clock rollback, throttles
+the call, and does not move the marker backward. A marker more than 24 hours
+ahead is treated as corrupt. One claimant repairs it to the current attempt
+time and proceeds while concurrent or subsequent claimants are throttled. This
+provider-call marker is separate from accepted-snapshot freshness and never
+makes rejected data current.
 
 ## Rebuilding DuckDB
 
