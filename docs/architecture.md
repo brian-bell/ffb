@@ -75,7 +75,9 @@ defenses are absent from that dataset and use `def:<canonical-team>`.
 
 Unresolved source rows remain stored under source-specific fallback keys and
 are exposed through `season unmatched`. They are excluded from rankings and the
-board until a later crosswalk refresh lets cached snapshots self-heal.
+board until a later crosswalk refresh lets cached snapshots self-heal. A native
+id that maps to more than one `player_key` stays unmatched the same way;
+guessing either key makes identity look stale forever.
 
 FFC ADP is the exception to id resolution because `ff_playerids` has no FFC id.
 It matches by normalized name and position, drops free-agent candidates while

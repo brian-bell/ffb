@@ -115,7 +115,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 - **Response and identity** — an object keyed by Sleeper `player_id`. Each usable
   record preserves raw `injury_status` and roster `status`, then resolves
   `player_id` through the crosswalk's `sleeper_id`. Unmatched records stay in
-  the dedicated `injuries` table but cannot reach the board.
+  the dedicated `injuries` table but cannot reach the board. A `sleeper_id`
+  that nflverse assigned to two `mfl_id`s stays unmatched rather than guessed.
 - **Mapping** — direct `Questionable`, `Doubtful`, `Out`, `IR`, and `PUP` tokens
   map to their uppercase canonical values. A blank direct token falls back only
   to `Injured Reserve` → `IR`, `Physically Unable to Perform` → `PUP`, or
@@ -209,8 +210,9 @@ Yahoo roster identities.
   kickers). Rows without an `mfl_id` are skipped.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
   `store.resolve` / `resolve_batch` map a source's native id (`sleeper_id`,
-  `espn_id`, or `yahoo_id`) to `player_key`. Fixture roster misses remain stored
-  as `yahoo:<id>` fallbacks.
+  `espn_id`, or `yahoo_id`) to `player_key`. A native id that maps to more than
+  one `player_key` is a miss. Fixture roster misses remain stored as
+  `yahoo:<id>` fallbacks.
 - **Snapshot key** — `nflverse/ff_playerids`.
 - **Gotchas**
   - A refresh sync **mirrors** the source (replace, not union) so ids removed or
@@ -219,6 +221,9 @@ Yahoo roster identities.
   - **Team defenses are not in `ff_playerids`.** Valid DEF/DST rows bypass it and
     use the synthetic `def:<canonical MFL team code>` identity; unknown team codes
     remain source fallbacks rather than risking a wrong merge.
+  - A source id on two `mfl_id` rows (nflverse data collisions such as one
+    Sleeper id for Kevin Smith and Fred Williams) stays unmatched. Guessing
+    either key makes `has_stale_*_resolution` disagree with ingest forever.
 
 ### 5. Fantasy Football Calculator — ADP
 

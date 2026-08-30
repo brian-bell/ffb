@@ -155,6 +155,15 @@ _ADP_COLUMNS = (
 # Which crosswalk column holds each source's native player id.
 _SOURCE_ID_COLUMN = {"sleeper": "sleeper_id", "espn": "espn_id", "yahoo": "yahoo_id"}
 
+
+def _unique_or_fallback(source: str, native_id: str, crosswalk_keys: list[str] | None) -> str:
+    """Expected identity: the unique crosswalk key, else the unmatched fallback."""
+    keys = {key for key in (crosswalk_keys or []) if key is not None}
+    if len(keys) == 1:
+        return next(iter(keys))
+    return f"{source}:{native_id}"
+
+
 _COLUMN_QUERY = """
     SELECT table_name, column_name
     FROM duckdb_columns()
@@ -303,20 +312,28 @@ class Store:
     def resolve(self, source: str, native_id: str) -> str | None:
         """Map a source's native player id to the canonical ``player_key``.
 
-        Returns ``None`` on a crosswalk miss (caller decides the fallback).
+        Returns ``None`` on a miss or when the id maps to more than one key.
+        Ambiguity stays unmatched rather than guessing.
         """
         column = self._source_column(source)
-        result = self.conn.execute(
-            f"SELECT player_key FROM crosswalk WHERE {column} = ? LIMIT 1",
-            [native_id],
-        ).fetchone()
-        return result[0] if result else None
+        keys = {
+            row[0]
+            for row in self.conn.execute(
+                f"SELECT DISTINCT player_key FROM crosswalk WHERE {column} = ?",
+                [native_id],
+            ).fetchall()
+            if row[0] is not None
+        }
+        if len(keys) != 1:
+            return None
+        return next(iter(keys))
 
     def resolve_batch(self, source: str, native_ids: list[str]) -> dict[str, dict[str, Any]]:
         """Resolve many native ids at once to ``{native_id: crosswalk row}``.
 
-        Returns canonical ``player_key`` + identity for the matches only; misses
-        are simply absent. One query so ingest doesn't fan out per player.
+        Returns canonical ``player_key`` + identity for unique matches only;
+        misses and collisions are absent. One query so ingest doesn't fan out
+        per player.
         """
         column = self._source_column(source)
         ids = [i for i in native_ids if i is not None]
@@ -332,11 +349,15 @@ class Store:
             ids,
         )
         cols = [c[0] for c in cursor.description]
-        out: dict[str, dict[str, Any]] = {}
+        grouped: dict[str, list[dict[str, Any]]] = {}
         for values in cursor.fetchall():
             row = dict(zip(cols, values, strict=True))
-            out[str(row["native_id"])] = row
-        return out
+            grouped.setdefault(str(row["native_id"]), []).append(row)
+        return {
+            native_id: matches[0]
+            for native_id, matches in grouped.items()
+            if len({row["player_key"] for row in matches}) == 1
+        }
 
     def upsert_projections(self, rows: list[dict[str, Any]]) -> None:
         """Insert-or-replace player identity and their projections.
@@ -857,7 +878,9 @@ class Store:
         - a late crosswalk now resolves a fallback row to a canonical key;
         - a native id was reassigned to a different canonical key upstream;
         - a native id **disappeared** from a refreshed crosswalk, so a row still
-          stored under its old canonical key must fall back to unmatched.
+          stored under its old canonical key must fall back to unmatched;
+        - a native id maps to more than one canonical key, so a guessed match
+          must fall back to unmatched.
 
         A ``LEFT JOIN`` (not inner) is required so the disappeared case is seen;
         an inner join drops exactly the rows whose id is gone. Legitimately
@@ -871,38 +894,47 @@ class Store:
         column = self._source_column(source)
         rows = self.conn.execute(
             f"""
-            SELECT p.player_key, p.native_id, c.player_key,
+            SELECT p.player_key, p.native_id, LIST(DISTINCT c.player_key),
                    pl.position, pl.team
             FROM projections p
             JOIN players pl ON pl.player_key = p.player_key
             LEFT JOIN crosswalk c ON c.{column} = p.native_id
             WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
+            GROUP BY p.player_key, p.native_id, pl.position, pl.team
             """,
             [season, source],
         ).fetchall()
-        for stored_key, native_id, crosswalk_key, position, team in rows:
+        for stored_key, native_id, crosswalk_keys, position, team in rows:
             defense = identity.canonical_defense_key(position, team)
             expected_key = (
-                defense[0] if defense is not None else crosswalk_key or f"{source}:{native_id}"
+                defense[0]
+                if defense is not None
+                else _unique_or_fallback(source, native_id, crosswalk_keys)
             )
             if stored_key != expected_key:
                 return True
         return False
 
     def has_stale_injury_resolution(self, season: int) -> bool:
-        """True when a stored Sleeper status no longer matches the crosswalk."""
+        """True when a stored Sleeper status no longer matches the crosswalk.
+
+        A native id that maps to more than one ``player_key`` is treated as
+        unmatched, same as ``resolve`` / ``resolve_batch``. A JOIN that fans
+        out those collisions would otherwise mark a guessed key stale forever.
+        """
         rows = self.conn.execute(
             """
-            SELECT i.player_key, i.native_id, c.player_key
+            SELECT i.player_key, i.native_id, LIST(DISTINCT c.player_key)
             FROM injuries i
             LEFT JOIN crosswalk c ON c.sleeper_id = i.native_id
             WHERE i.season = ? AND i.source = 'sleeper'
+            GROUP BY i.player_key, i.native_id
             """,
             [season],
         ).fetchall()
         return any(
-            stored_key != (crosswalk_key or f"sleeper:{native_id}")
-            for stored_key, native_id, crosswalk_key in rows
+            stored_key != _unique_or_fallback("sleeper", native_id, crosswalk_keys)
+            for stored_key, native_id, crosswalk_keys in rows
         )
 
     def has_legacy_defense_return_td_stats(self, season: int, source: str) -> bool:
