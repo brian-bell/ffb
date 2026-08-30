@@ -13,6 +13,35 @@ def test_resolve_returns_none_on_miss(store, crosswalk_rows):
     assert store.resolve("sleeper", "does-not-exist") is None
 
 
+def test_resolve_skips_ambiguous_native_id(store):
+    store.replace_crosswalk(
+        [
+            {
+                "player_key": "12571",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Kevin Smith",
+                "position": "WR",
+                "team": "SEA",
+            },
+            {
+                "player_key": "12459",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Fred Williams",
+                "position": "WR",
+                "team": "KCC",
+            },
+        ]
+    )
+    assert store.resolve("sleeper", "2295") is None
+    assert store.resolve_batch("sleeper", ["2295"]) == {}
+
+
 def test_resolve_on_empty_crosswalk_returns_none(store):
     assert store.resolve("sleeper", "3198") is None
 

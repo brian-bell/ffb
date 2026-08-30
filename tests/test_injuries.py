@@ -385,3 +385,124 @@ def test_crosswalk_change_marks_persisted_injury_identity_stale(store, crosswalk
     store.replace_crosswalk([row for row in crosswalk_rows if row["sleeper_id"] != "3198"])
 
     assert store.has_stale_injury_resolution(2026) is True
+
+
+def test_ambiguous_sleeper_id_stays_unmatched_and_is_not_stale(store, tmp_path):
+    # nflverse sometimes assigns one Sleeper id to two mfl_ids. Guessing either
+    # key would make the JOIN-based stale check disagree with last-write-wins
+    # ingest forever; leave the collision unmatched instead.
+    store.replace_crosswalk(
+        [
+            {
+                "player_key": "12571",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Kevin Smith",
+                "position": "WR",
+                "team": "SEA",
+            },
+            {
+                "player_key": "12459",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Fred Williams",
+                "position": "WR",
+                "team": "KCC",
+            },
+        ]
+    )
+    raw = {
+        "2295": {
+            "player_id": "2295",
+            "first_name": "Kevin",
+            "last_name": "Smith",
+            "position": "WR",
+            "team": "SEA",
+            "injury_status": "Questionable",
+            "status": "Active",
+        }
+    }
+
+    ensure_injuries_ingested(
+        store,
+        SnapshotCache(tmp_path / "snapshots"),
+        2026,
+        fetched_at=FETCHED_AT,
+        fetch=lambda: raw,
+    )
+
+    stored = {row["native_id"]: row for row in store.injury_rows(2026)}
+    assert stored["2295"]["player_key"] == "sleeper:2295"
+    assert stored["2295"]["matched"] is False
+    assert store.has_stale_injury_resolution(2026) is False
+
+
+def test_guessed_ambiguous_injury_is_stale_until_re_ingest(store, tmp_path):
+    store.replace_crosswalk(
+        [
+            {
+                "player_key": "12571",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Kevin Smith",
+                "position": "WR",
+                "team": "SEA",
+            },
+            {
+                "player_key": "12459",
+                "sleeper_id": "2295",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Fred Williams",
+                "position": "WR",
+                "team": "KCC",
+            },
+        ]
+    )
+    store.replace_injuries(
+        [
+            {
+                "player_key": "12571",
+                "native_id": "2295",
+                "full_name": "Kevin Smith",
+                "position": "WR",
+                "team": "SEA",
+                "raw_injury_status": "Questionable",
+                "raw_roster_status": "Active",
+                "status": "QUESTIONABLE",
+                "fetched_at": FETCHED_AT,
+                "matched": True,
+            }
+        ],
+        2026,
+    )
+    assert store.has_stale_injury_resolution(2026) is True
+
+    ensure_injuries_ingested(
+        store,
+        SnapshotCache(tmp_path / "snapshots"),
+        2026,
+        fetched_at=FETCHED_AT,
+        fetch=lambda: {
+            "2295": {
+                "player_id": "2295",
+                "first_name": "Kevin",
+                "last_name": "Smith",
+                "position": "WR",
+                "team": "SEA",
+                "injury_status": "Questionable",
+                "status": "Active",
+            }
+        },
+    )
+
+    stored = {row["native_id"]: row for row in store.injury_rows(2026)}
+    assert stored["2295"]["player_key"] == "sleeper:2295"
+    assert store.has_stale_injury_resolution(2026) is False
