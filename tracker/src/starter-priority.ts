@@ -36,6 +36,10 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board): St
     remaining.get(pos)! > 0
     || (targetsMet && !receiverFlexFilled && (pos === "WR" || pos === "TE"))
     || (targetsMet && !flexFilled && FLEX_POSITIONS.includes(pos))));
+  // Finished targets must not revert to raw ranks and promote a third DEF/QB.
+  if (targetsMet && receiverFlexFilled && flexFilled) {
+    for (const pos of FLEX_POSITIONS) positions.add(pos);
+  }
   const needOrder = targetsMet ? ["WR/TE", "FLEX"] : Object.keys(DRAFT_TARGETS);
   const needs = needOrder.flatMap(pos => {
     const count = pos === "WR/TE" ? Number(!receiverFlexFilled)

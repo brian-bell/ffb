@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderBoard } from "../src/render";
 import { liveStarterPriority } from "../src/starter-priority";
 import type { Board } from "../src/types";
 import fixture from "./fixtures/board.json";
@@ -42,7 +43,22 @@ describe("live roster priority", () => {
     expect([...result.positions]).toEqual(["RB", "WR", "TE"]);
     expect(result.summary).toBe("Need: WR/TE 1 · FLEX 1");
     expect(liveStarterPriority(state([...targets, "TE"]))!.summary).toBe("Need: FLEX 1");
-    expect(liveStarterPriority(state([...targets, "TE", "RB"]))!.positions.size).toBe(0);
+    expect([...liveStarterPriority(state([...targets, "TE", "RB"]))!.positions]).toEqual(["RB", "WR", "TE"]);
+  });
+
+  it("keeps offensive depth ahead of highly ranked third defenses and quarterbacks", () => {
+    const draft = state([...targets, "TE", "RB"]);
+    const board = { ...fixture, players: [
+      { ...fixture.players[0]!, key: "extra-def", name: "Third defense", pos: "DEF", rank: 1 },
+      { ...fixture.players[0]!, key: "extra-qb", name: "Third quarterback", pos: "QB", rank: 2 },
+      { ...fixture.players[0]!, key: "depth-wr", name: "Depth receiver", pos: "WR", rank: 100 },
+    ] } as unknown as Board;
+    const priority = liveStarterPriority(draft, board)!;
+    const html = renderBoard(board, "ALL", { starterPositions: priority.positions, byeConflicts: priority.byeConflicts });
+    expect(priority.summary).toBe("Draft targets filled · Building depth");
+    expect(html.indexOf("Depth receiver")).toBeLessThan(html.indexOf("Third defense"));
+    expect(html.indexOf("Depth receiver")).toBeLessThan(html.indexOf("Third quarterback"));
+    expect(html).toContain("Third defense");
   });
 
   it("reserves WR/TE before broad flex without counting surplus players twice", () => {

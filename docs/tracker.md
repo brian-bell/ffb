@@ -54,7 +54,8 @@ Only Brian’s picks count toward these needs. Players below the active targets 
 five-rank-place penalty per overlap within each priority group. Positional views
 keep tier groups intact. Unknown byes have no penalty. A “Bye clash” badge
 explains overlaps; original board ranks and VORP remain visible. Once all targets
-are filled, the board orders depth by rank with the same modest bye penalty.
+are filled, RB/WR/TE depth stays ahead of extra QB/DEF picks, ordered by rank with
+the same modest bye penalty.
 Search relevance and newest-first Drafted history are unchanged. A “Need”
 summary updates after picks and undo. Mock drafts retain their saved league shape.
 
