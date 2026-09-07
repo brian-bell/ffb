@@ -1079,3 +1079,30 @@ body {
   .mock-board-pane .list { flex: 1 1 auto; max-height: none; }
   .mock-dock { max-height: 520px; }
 }
+
+/* On-demand draft audio, shared by the live and mock headers. */
+.jingle-control { position: relative; flex: none; }
+.jingle-status:not(:empty) {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  z-index: 20;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid var(--dr-line);
+  border-radius: 8px;
+  background: var(--dr-chrome);
+  color: #fff;
+  font-size: 12px;
+}
+@media (max-width: 420px) {
+  .appbar .jingle-control { order: 2; margin-left: auto; }
+}
+
+.starter-needs { flex: none; margin: 0; padding: 0 14px 9px; background: var(--dr-chrome); color: var(--dr-accent); font: 11px/1.5 var(--mono); }
+.bye-clash { display: inline-block; margin-top: 3px; white-space: nowrap; padding: 1px 3px; border: 1px solid #a87a25; border-radius: 3px; color: #f2c66d; font-size: 9px; font-style: normal; }
+
+.viewtabs:has([data-view="my-team"]) { flex-wrap: wrap; }
+.player-search[hidden] { display: none; }
+
+.list[data-mode="my-team"] .rowA.drafted { opacity: 1; text-decoration: none; }

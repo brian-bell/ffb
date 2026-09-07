@@ -15,7 +15,7 @@ test("a completed mock reviews the drafted log, rosters, and config across refre
   await unlockCompletedMock(page);
 
   await expect(page.locator('[data-view="drafted"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-list] .picknote").first()).toBeVisible();
+  await expect(page.locator("[data-list] .picknote").first()).toContainText("15.12");
 
   const summary = page.locator("[data-review-summary]");
   await expect(summary).toContainText("Mock complete · 180 picks · 15 rounds · 12 teams");

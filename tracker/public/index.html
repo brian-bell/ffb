@@ -8,12 +8,18 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+<audio data-draft-jingle-audio src="/audio/espn-draft-chime.mp3" preload="none"></audio>
 <div class="screen" data-screen>
   <div class="appbar">
     <div class="row1">
       <span class="brand">DRAFT<b>ROOM</b></span>
       <span class="right">
-        <a class="mode-link" href="/mock">Mock draft</a>
+      <span class="jingle-control">
+        <button class="gear" data-draft-jingle type="button" aria-label="Play ESPN draft jingle" title="Play ESPN draft jingle">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m11 5-6 4H2v6h3l6 4z"/><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></svg>
+        </button>
+        <span class="jingle-status" data-jingle-status role="status"></span>
+      </span>
         <button class="setupdraft" data-setup-draft type="button">Set up draft</button>
         <span class="clock" data-clock hidden></span>
         <button class="gear" data-gear aria-label="Board settings and API key">
@@ -27,11 +33,13 @@
   <div class="viewtabs" aria-label="Board availability" data-view-tabs>
     <button class="viewtab" data-view="available" aria-pressed="true">Available</button>
     <button class="viewtab" data-view="drafted" aria-pressed="false">Drafted</button>
+    <button class="viewtab" data-view="my-team" aria-pressed="false">My team</button>
     <label class="player-search" for="player-search">
       <span class="sr-only">Search available players</span>
       <input id="player-search" data-player-search type="search" autocomplete="off" placeholder="Search players" disabled />
     </label>
   </div>
+  <p class="starter-needs" data-starter-needs aria-live="polite" hidden></p>
   <div class="colhead" aria-hidden="true">
     <span class="h-rk">#</span>
     <span class="h-nm">Player</span>
@@ -79,6 +87,7 @@
       <p class="err" data-err hidden></p>
       <button class="save" data-save>Unlock board</button>
       <button class="forget" data-forget hidden>Forget key on this device</button>
+      <p class="desc" data-mock-navigation hidden><a class="mode-link" href="/mock">Mock draft</a></p>
       <button class="reset-draft-setting" data-reset-draft type="button" hidden>Reset draft…</button>
     </div>
   </div>

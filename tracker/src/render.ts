@@ -1,7 +1,7 @@
 // Pure board renderer (slice-6 §3c). DOM-free: takes the v1 board + a position
 // filter, returns an HTML string the client drops into the list mount. The
-// tracker never re-ranks — the board is pre-sorted by VORP; this only groups and
-// formats. Kept a pure function so it unit-tests without a DOM round-trip.
+// board is pre-sorted by VORP; optional starter priority groups available rows
+// while preserving their board ranks. Kept a pure function so it unit-tests without a DOM round-trip.
 
 import type { Board, Player } from "./types";
 import { indexPlayerIdentities, normalizedPosition } from "./player-identity";
@@ -22,11 +22,14 @@ export interface DraftPickSnapshot extends PickAnnotation {
 
 export interface RenderOptions {
   picked?: ReadonlyMap<string, PickAnnotation>;
-  mode?: "available" | "drafted";
+  mode?: "available" | "drafted" | "my-team";
   draftPicks?: readonly DraftPickSnapshot[];
   selectable?: boolean;
   selectedKey?: string | null;
   searchResults?: readonly Player[];
+  /** Positions currently below the user’s draft targets. */
+  starterPositions?: ReadonlySet<string>;
+  byeConflicts?: ReadonlyMap<string, number>;
   /** Progressive loading: render only the first `limit` rows. */
   window?: { limit: number };
 }
@@ -106,7 +109,7 @@ function metaLine(p: Player): string {
   return `${posLabel(p)} · ${team} · BYE ${bye}`;
 }
 
-function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null): string {
+function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null, byeConflicts = 0): string {
   const adpNa = p.adp == null ? " na" : "";
   const selected = selectable && p.key === selectedKey;
   const annotation = pick
@@ -119,7 +122,7 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
     open +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
-    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i></span>` +
+    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}</span>` +
     vorpCell(p, maxVorp) +
     `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
     deltaChip(p) +
@@ -183,12 +186,12 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const maxVorp = players.reduce((m, p) => (p.vorp != null && p.vorp > m ? p.vorp : m), 0);
   const picked = options.picked ?? new Map<string, PickAnnotation>();
   const searching = options.searchResults !== undefined;
-  const history = !searching && options.mode === "drafted";
+  const history = !searching && (options.mode === "drafted" || options.mode === "my-team");
 
   if (history && options.draftPicks) {
     const picks = [...options.draftPicks]
       .filter((pick) => filter === "ALL" || normalizedPosition(pick.player_pos) === filter)
-      .sort((a, b) => a.overall_pick - b.overall_pick);
+      .sort((a, b) => b.overall_pick - a.overall_pick);
     const limit = options.window?.limit ?? picks.length;
     let html = picks
       .slice(0, limit)
@@ -205,19 +208,34 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   if (searching && rows.length === 0) {
     return '<div class="notice"><b>No matching available players.</b>Try another name, team, or position.</div>';
   }
-  if (history) rows = [...rows].sort((a, b) => picked.get(a.key)!.overall_pick - picked.get(b.key)!.overall_pick);
+  if (history) rows = [...rows].sort((a, b) => picked.get(b.key)!.overall_pick - picked.get(a.key)!.overall_pick);
+  const prioritizing = !history && !searching && (options.starterPositions?.size ?? 0) > 0;
+  const fillsStarter = (p: Player): boolean => options.starterPositions?.has(normalizedPosition(p.pos) ?? "") ?? false;
+  if (!history && !searching && (options.byeConflicts?.size ?? 0) > 0) {
+    // Five board-rank places per overlap is a soft preference, never an exclusion.
+    // Positional filters keep tier groups intact.
+    const tiers = new Map([...new Set(rows.map(p => p.tier))].map((tier, i) => [tier, i]));
+    const score = (p: Player): number => p.rank + 5 * (options.byeConflicts?.get(p.key) ?? 0);
+    rows = [...rows].sort((a, b) => (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0) || score(a) - score(b));
+  }
+  if (prioritizing) rows = [...rows.filter(fillsStarter), ...rows.filter(p => !fillsStarter(p))];
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
 
   const limit = options.window?.limit ?? rows.length;
   let html = "";
   let curTier: number | null | undefined = undefined;
+  let previousPriority: boolean | undefined;
   for (const p of rows.slice(0, limit)) {
+    if (prioritizing && all && fillsStarter(p) !== previousPriority) {
+      previousPriority = fillsStarter(p);
+      html += `<div class="trule">${previousPriority ? "Roster priority" : "Other available players"}</div>`;
+    }
     if (grouped && p.tier !== curTier) {
       curTier = p.tier;
       html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
-    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey);
+    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey, history ? 0 : options.byeConflicts?.get(p.key));
   }
   if (rows.length > limit) html += loadMoreSentinel(rows.length - limit);
   return html;

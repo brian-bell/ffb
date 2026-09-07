@@ -24,6 +24,9 @@ object remain valid.
 ## Live draft
 
 First use configures 2–20 ordered teams, exactly one user team, and 1–30 rounds.
+The My team view lists only that user team’s saved picks, newest first, with
+position filters and the same read-only snapshots as Drafted. It includes picks
+missing from the current board and explains empty or unconfigured rosters.
 The Worker derives snake order rather than persisting a pick schedule. Each pick
 write includes the expected overall pick so a stale tab cannot silently advance
 the draft.
@@ -40,6 +43,21 @@ Pick rows snapshot player name, position, and team as well as the board key, so
 history remains legible after a board republish. The write API retains a
 validated `manual_player` path for a Yahoo pick missing from the board; the
 current UI intentionally uses board-row selection.
+
+The live Available board first targets 2 QB, 2 RB, 4 WR, 2 TE, and 2 DEF for
+Brian’s drafted roster. While any target is unmet, only positions below those
+counts receive priority; extra RB/WR/TE are not promoted for flex eligibility.
+After all twelve required picks are covered, priority shifts to one WR/TE and
+one RB/WR/TE FLEX beyond those counts. Surplus WR/TE fills the narrower slot
+first, and no player counts twice. These are draft targets, not starting slots.
+Only Brian’s picks count toward these needs. Players below the active targets precede other available players. Sharing a known bye with a drafted player at the same position adds a
+five-rank-place penalty per overlap within each priority group. Positional views
+keep tier groups intact. Unknown byes have no penalty. A “Bye clash” badge
+explains overlaps; original board ranks and VORP remain visible. Once all targets
+are filled, RB/WR/TE depth stays ahead of extra QB/DEF picks, ordered by rank with
+the same modest bye penalty.
+Search relevance and newest-first Drafted history are unchanged. A “Need”
+summary updates after picks and undo. Mock drafts retain their saved league shape.
 
 ## Mock draft
 
@@ -96,7 +114,7 @@ availability, rendering, selection, progressive loading, and snake-clock
 presentation.
 
 - Available and Drafted modes are independent from position filters.
-- Available positional views use tier dividers; Drafted remains chronological.
+- Available positional views use tier dividers; Drafted shows the most recent pick first.
 - Lists render in 50-row windows and re-render a larger prefix on “load more.”
   Tier survivor counts always describe the full remaining tier.
 - Pick recording preserves the grown list limit so DOM fast paths and state do
@@ -111,6 +129,12 @@ the same state and controls use a single-column layout with a remembered Pick
 tools disclosure. Viewport changes never mutate board state or send a request.
 The detailed implemented specification remains in
 [specs/mock-draft-responsive-desktop.md](specs/mock-draft-responsive-desktop.md).
+
+The speaker button in both headers plays the ESPN draft chime on demand.
+Repeated clicks restart the same clip; playback never starts automatically.
+The bundled `public/audio/espn-draft-chime.mp3` comes from the
+[NFL Draft Chime download](https://instantsbutton.com/sound/nfl-draft-chime)
+(retrieved September 6, 2026). Playback failures show a retry message.
 
 ## Local validation
 
