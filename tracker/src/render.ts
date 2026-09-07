@@ -27,7 +27,7 @@ export interface RenderOptions {
   selectable?: boolean;
   selectedKey?: string | null;
   searchResults?: readonly Player[];
-  /** Positions that fill an unfilled starter slot on the user’s team. */
+  /** Positions currently below the user’s draft targets. */
   starterPositions?: ReadonlySet<string>;
   byeConflicts?: ReadonlyMap<string, number>;
   /** Progressive loading: render only the first `limit` rows. */
@@ -229,7 +229,7 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   for (const p of rows.slice(0, limit)) {
     if (prioritizing && all && fillsStarter(p) !== previousPriority) {
       previousPriority = fillsStarter(p);
-      html += `<div class="trule">${previousPriority ? "Starter priority" : "Bench depth"}</div>`;
+      html += `<div class="trule">${previousPriority ? "Roster priority" : "Other available players"}</div>`;
     }
     if (grouped && p.tier !== curTier) {
       curTier = p.tier;

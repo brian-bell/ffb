@@ -438,11 +438,11 @@ describe("renderBoard — starter priority", () => {
     const html = renderBoard(board, "ALL", { starterPositions: new Set(["QB"]), window: { limit: 2 } });
     expect(html).toContain("Josh Allen");
     expect(html).not.toContain("Christian McCaffrey");
-    expect(html).toContain("Starter priority");
+    expect(html).toContain("Roster priority");
     const full = renderBoard(board, "ALL", { starterPositions: new Set(["QB"]) });
     expect(full.indexOf("Josh Allen")).toBeLessThan(full.indexOf("Christian McCaffrey"));
     expect(full.indexOf("Christian McCaffrey")).toBeLessThan(full.indexOf("Ja'Marr Chase"));
-    expect(full).toContain("Bench depth");
+    expect(full).toContain("Other available players");
   });
 
   it("preserves search relevance and drafted history ordering", () => {

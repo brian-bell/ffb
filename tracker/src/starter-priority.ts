@@ -2,8 +2,8 @@ import type { DraftState } from "./draft-store";
 import type { Board } from "./types";
 import { distinctPlayerIdentities, indexPlayerIdentities, normalizedPosition } from "./player-identity";
 
-// Brian's requested live-draft lineup. Independent of saved mock league shapes.
-const STARTERS = { QB: 1, RB: 2, WR: 1, TE: 1, DEF: 1 } as const;
+// Required draft counts, not starting lineup slots. Fill all before flex priority.
+const DRAFT_TARGETS = { QB: 2, RB: 2, WR: 4, TE: 2, DEF: 2 } as const;
 const FLEX_POSITIONS = ["RB", "WR", "TE"];
 
 export interface StarterPriority {
@@ -23,19 +23,21 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board): St
     const pos = normalizedPosition(player.pos);
     if (pos) counts.set(pos, (counts.get(pos) ?? 0) + 1);
   }
-  const remaining = new Map(Object.entries(STARTERS)
+  const remaining = new Map(Object.entries(DRAFT_TARGETS)
     .map(([pos, slots]) => [pos, Math.max(0, slots - (counts.get(pos) ?? 0))] as const));
   // Reserve surplus WR/TE for the narrower slot before filling the broad FLEX.
-  const surplus = new Map(Object.entries(STARTERS)
+  const surplus = new Map(Object.entries(DRAFT_TARGETS)
     .map(([pos, slots]) => [pos, Math.max(0, (counts.get(pos) ?? 0) - slots)] as const));
   const receiverSurplus = surplus.get("WR")! + surplus.get("TE")!;
   const receiverFlexFilled = receiverSurplus > 0;
   const flexFilled = surplus.get("RB")! + receiverSurplus - Number(receiverFlexFilled) > 0;
-  const positions = new Set(Object.keys(STARTERS).filter(pos =>
+  const targetsMet = [...remaining.values()].every(count => count === 0);
+  const positions = new Set(Object.keys(DRAFT_TARGETS).filter(pos =>
     remaining.get(pos)! > 0
-    || (!receiverFlexFilled && (pos === "WR" || pos === "TE"))
-    || (!flexFilled && FLEX_POSITIONS.includes(pos))));
-  const needs = ["QB", "RB", "WR", "TE", "WR/TE", "FLEX", "DEF"].flatMap(pos => {
+    || (targetsMet && !receiverFlexFilled && (pos === "WR" || pos === "TE"))
+    || (targetsMet && !flexFilled && FLEX_POSITIONS.includes(pos))));
+  const needOrder = targetsMet ? ["WR/TE", "FLEX"] : Object.keys(DRAFT_TARGETS);
+  const needs = needOrder.flatMap(pos => {
     const count = pos === "WR/TE" ? Number(!receiverFlexFilled)
       : pos === "FLEX" ? Number(!flexFilled) : remaining.get(pos)!;
     return count > 0 ? [`${pos} ${count}`] : [];
@@ -60,6 +62,6 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board): St
   return {
     positions,
     byeConflicts,
-    summary: needs.length ? `Need: ${needs.join(" · ")}` : "Starters filled · Building depth",
+    summary: needs.length ? `Need: ${needs.join(" · ")}` : "Draft targets filled · Building depth",
   };
 }

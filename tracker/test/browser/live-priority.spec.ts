@@ -23,8 +23,8 @@ test("own picks and undo update starter priority and bye warnings immediately", 
       { id: 1, name: "Brian", draft_slot: 0, is_user: true },
       { id: 2, name: "Other", draft_slot: 1, is_user: false },
     ],
-    picks: [initialPick],
-    next: { overall_pick: 2, round: 1, round_pick: 2, team_id: 1, team_name: "Brian", is_user: true, direction: "forward" },
+    picks: [initialPick, { ...initialPick, overall_pick: 2, player_key: "owned-qb", player_name: "Owned QB", player_pos: "QB" }],
+    next: { overall_pick: 3, round: 1, round_pick: 2, team_id: 1, team_name: "Brian", is_user: true, direction: "forward" },
   };
   let state = initial;
   await page.route("**/api/board", route => route.fulfill({ json: { ...fixture, players } }));
@@ -33,8 +33,8 @@ test("own picks and undo update starter priority and bye warnings immediately", 
     expect(route.request().postDataJSON().player_key).toBe("qb-a");
     state = {
       ...initial, revision: 2,
-      picks: [...initial.picks, { ...initialPick, overall_pick: 2, round_pick: 2, player_key: "qb-a", player_name: "First QB", player_pos: "QB" }],
-      next: { ...initial.next!, overall_pick: 3, team_id: 2, team_name: "Other", is_user: false },
+      picks: [...initial.picks, { ...initialPick, overall_pick: 3, round_pick: 2, player_key: "qb-a", player_name: "First QB", player_pos: "QB" }],
+      next: { ...initial.next!, overall_pick: 4, team_id: 2, team_name: "Other", is_user: false },
     };
     return route.fulfill({ json: state });
   });
@@ -47,7 +47,7 @@ test("own picks and undo update starter priority and bye warnings immediately", 
   const needs = page.locator("[data-starter-needs]");
   await expect(rows.first()).toContainText("First QB");
   await expect(needs).toContainText("QB 1");
-  await expect(needs).toContainText("WR 1 · TE 1 · WR/TE 1 · FLEX 1");
+  await expect(needs).toContainText("WR 4 · TE 2 · DEF 2");
   await expect(page.locator('[data-player-key="rb-clash"]')).toContainText("Bye clash");
   await page.locator('[data-player-key="qb-a"]').click();
   await page.locator("[data-record-pick]").click();

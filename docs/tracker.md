@@ -44,14 +44,16 @@ history remains legible after a board republish. The write API retains a
 validated `manual_player` path for a Yahoo pick missing from the board; the
 current UI intentionally uses board-row selection.
 
-The live Available board prioritizes Brian’s unfilled starters: 1 QB, 2 RB,
-1 WR, 1 TE, 1 WR/TE, 1 RB/WR/TE FLEX, and 1 DEF. Dedicated slots fill
-first, then WR/TE, then the broader FLEX; no player fills two slots.
-Only Brian’s picks count toward these needs. Starter candidates precede bench
-depth. Sharing a known bye with a drafted player at the same position adds a
+The live Available board first targets 2 QB, 2 RB, 4 WR, 2 TE, and 2 DEF for
+Brian’s drafted roster. While any target is unmet, only positions below those
+counts receive priority; extra RB/WR/TE are not promoted for flex eligibility.
+After all twelve required picks are covered, priority shifts to one WR/TE and
+one RB/WR/TE FLEX beyond those counts. Surplus WR/TE fills the narrower slot
+first, and no player counts twice. These are draft targets, not starting slots.
+Only Brian’s picks count toward these needs. Players below the active targets precede other available players. Sharing a known bye with a drafted player at the same position adds a
 five-rank-place penalty per overlap within each priority group. Positional views
 keep tier groups intact. Unknown byes have no penalty. A “Bye clash” badge
-explains overlaps; original board ranks and VORP remain visible. Once starters
+explains overlaps; original board ranks and VORP remain visible. Once all targets
 are filled, the board orders depth by rank with the same modest bye penalty.
 Search relevance and newest-first Drafted history are unchanged. A “Need”
 summary updates after picks and undo. Mock drafts retain their saved league shape.

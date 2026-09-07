@@ -18,47 +18,53 @@ function state(positions: (string | null)[]): DraftState {
   };
 }
 
-describe("live starter priority", () => {
-  it("uses the requested eight starter slots and no kicker", () => {
+const targets = ["QB", "QB", "RB", "RB", "WR", "WR", "WR", "WR", "TE", "TE", "DEF", "DEF"];
+
+describe("live roster priority", () => {
+  it("requires all twelve positional picks before either flex slot", () => {
     const result = liveStarterPriority(state([]))!;
     expect([...result.positions]).toEqual(["QB", "RB", "WR", "TE", "DEF"]);
-    expect(result.summary).toBe("Need: QB 1 · RB 2 · WR 1 · TE 1 · WR/TE 1 · FLEX 1 · DEF 1");
+    expect(result.summary).toBe("Need: QB 2 · RB 2 · WR 4 · TE 2 · DEF 2");
   });
 
-  it("fills dedicated slots before flex and still prioritizes a missing tight end", () => {
-    const result = liveStarterPriority(state(["QB", "RB", "RB", "RB", "WR", "WR", "DST"]))!;
-    expect([...result.positions]).toEqual(["TE"]);
-    expect(result.summary).toBe("Need: TE 1");
+  it("does not prioritize extra RB/WR/TE while any required position is short", () => {
+    for (const pos of ["QB", "RB", "WR", "TE", "DEF"]) {
+      const picks = [...targets];
+      picks.splice(picks.indexOf(pos), 1);
+      const result = liveStarterPriority(state(picks))!;
+      expect([...result.positions]).toEqual([pos]);
+      expect(result.summary).toBe(`Need: ${pos} 1`);
+    }
   });
 
-  it("accepts surplus tight ends at flex but never surplus QBs or defenses", () => {
-    const result = liveStarterPriority(state(["QB", "QB", "DEF", "DEF", "RB", "RB", "WR", "WR", "TE"]))!;
+  it("opens flex priority once all positional targets are met", () => {
+    const result = liveStarterPriority(state(targets))!;
     expect([...result.positions]).toEqual(["RB", "WR", "TE"]);
-    expect(result.summary).toBe("Need: FLEX 1");
-    expect(liveStarterPriority(state(["QB", "RB", "RB", "WR", "WR", "TE", "TE", "DEF"]))!.positions.size).toBe(0);
+    expect(result.summary).toBe("Need: WR/TE 1 · FLEX 1");
+    expect(liveStarterPriority(state([...targets, "TE"]))!.summary).toBe("Need: FLEX 1");
+    expect(liveStarterPriority(state([...targets, "TE", "RB"]))!.positions.size).toBe(0);
   });
 
-  it("allows a second tight end to fill WR/TE and reserves the broader flex for an RB", () => {
-    const result = liveStarterPriority(state(["QB", "RB", "RB", "RB", "WR", "TE", "TE", "DEF"]))!;
-    expect(result.positions.size).toBe(0);
-    expect(result.summary).toBe("Starters filled · Building depth");
+  it("reserves WR/TE before broad flex without counting surplus players twice", () => {
+    const result = liveStarterPriority(state([...targets, "RB"]))!;
+    expect([...result.positions]).toEqual(["WR", "TE"]);
+    expect(result.summary).toBe("Need: WR/TE 1");
+    expect(liveStarterPriority(state([...targets, "QB", "DEF"]))!.summary).toBe("Need: WR/TE 1 · FLEX 1");
   });
 
-  it("does not let an RB fill WR/TE or count one surplus receiver twice", () => {
-    const onlyRestricted = liveStarterPriority(state(["QB", "RB", "RB", "RB", "WR", "TE", "DEF"]))!;
-    expect([...onlyRestricted.positions]).toEqual(["WR", "TE"]);
-    expect(onlyRestricted.summary).toBe("Need: WR/TE 1");
-    const onlyBroad = liveStarterPriority(state(["QB", "RB", "RB", "WR", "TE", "TE", "DEF"]))!;
-    expect([...onlyBroad.positions]).toEqual(["RB", "WR", "TE"]);
-    expect(onlyBroad.summary).toBe("Need: FLEX 1");
+  it("keeps missing required slots first even when surplus flex players are already drafted", () => {
+    const picks = [...targets, "RB", "TE"];
+    picks.splice(picks.indexOf("QB"), 1);
+    expect(liveStarterPriority(state(picks))!.summary).toBe("Need: QB 1");
+    expect([...liveStarterPriority(state(picks))!.positions]).toEqual(["QB"]);
   });
 
-  it("uses only the user team and ignores unknown positions and duplicate players", () => {
-    const draft = state(["QB", null, "RB"]);
+  it("counts only unique user picks, normalizes DST, and does not mutate state", () => {
+    const draft = state(["QB", null, "RB", "DST"]);
     draft.picks[0]!.team_id = 2;
-    draft.picks.push({ ...draft.picks[2]!, overall_pick: 4 });
+    draft.picks.push({ ...draft.picks[2]!, overall_pick: 5 });
     const original = JSON.stringify(draft);
-    expect(liveStarterPriority(draft)!.summary).toBe("Need: QB 1 · RB 1 · WR 1 · TE 1 · WR/TE 1 · FLEX 1 · DEF 1");
+    expect(liveStarterPriority(draft)!.summary).toBe("Need: QB 2 · RB 1 · WR 4 · TE 2 · DEF 1");
     expect(JSON.stringify(draft)).toBe(original);
   });
 
@@ -70,7 +76,6 @@ describe("live starter priority", () => {
     expect(liveStarterPriority(draft)).toBeNull();
   });
 });
-
 
 describe("bye conflicts", () => {
   it("counts own same-position overlaps, using board byes and conservative identities", () => {
