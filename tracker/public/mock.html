@@ -8,12 +8,19 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+<audio data-draft-jingle-audio src="/audio/espn-draft-chime.mp3" preload="none"></audio>
 <div class="screen mock-screen locked" data-screen>
   <div class="appbar mock-appbar">
     <div class="row1">
       <span class="brand" aria-label="DRAFTMOCK">DRAFT<b>MOCK</b></span>
       <span class="clock" data-clock hidden></span>
       <span class="right">
+      <span class="jingle-control">
+        <button class="gear" data-draft-jingle type="button" aria-label="Play ESPN draft jingle" title="Play ESPN draft jingle">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m11 5-6 4H2v6h3l6 4z"/><path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></svg>
+        </button>
+        <span class="jingle-status" data-jingle-status role="status"></span>
+      </span>
         <span class="mode-badge">ISOLATED MODE</span>
         <a class="mode-link" href="/">Return to live draft</a>
       </span>

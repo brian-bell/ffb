@@ -1,3 +1,5 @@
+import { liveStarterPriority } from "../src/starter-priority";
+import { wireDraftJingle } from "../src/draft-jingle";
 // Client boot: reads the key from the store, gates the board behind the key
 // modal, fetches /api/board, and renders by position → tier. The testable core
 // (the reducer, the store, the renderer) lives in ../src; this file is the thin
@@ -50,8 +52,10 @@ const errEl = $<HTMLElement>("[data-err]");
 const saveEl = $<HTMLButtonElement>("[data-save]");
 const forgetEl = $<HTMLButtonElement>("[data-forget]");
 const closeEl = $<HTMLButtonElement>("[data-close]");
+const mockNavigationEl = $<HTMLElement>("[data-mock-navigation]");
 const gearEl = $<HTMLButtonElement>("[data-gear]");
 const tabsEl = $<HTMLElement>("[data-tabs]");
+const starterNeedsEl = $<HTMLElement>("[data-starter-needs]");
 const listEl = $<HTMLElement>("[data-list]");
 const footEl = $<HTMLElement>("[data-foot]");
 const clockEl = $<HTMLElement>("[data-clock]");
@@ -109,6 +113,7 @@ function dispatch(event: UiEvent): void {
 function applyUi(): void {
   screenEl.classList.toggle("locked", ui.locked);
   const settings = ui.modal === "settings";
+  mockNavigationEl.hidden = !settings;
   if (ui.modal === "hidden") {
     lockEl.hidden = true;
   } else {
@@ -139,24 +144,42 @@ function currentPlayerPool(): PlayerPool {
 }
 
 function renderList(resetScroll = true): void {
+  listEl.dataset.mode = boardView.mode;
   if (!board) {
+    starterNeedsEl.hidden = true;
     listEl.innerHTML = boardNoticeHtml(boardDriftVersion, boardMalformed);
     return;
   }
+  const priority = liveStarterPriority(draft, board);
+  starterNeedsEl.hidden = !priority || boardView.mode !== "available";
+  starterNeedsEl.textContent = priority?.summary ?? "";
   const pool = currentPlayerPool();
-  const searching = boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
+  const searching = boardView.mode !== "my-team" && boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
   const searchResults = searching
     ? pool.search(boardView.searchQuery)
     : undefined;
+  const myTeam = boardView.mode === "my-team";
+  const userTeam = draft?.teams?.find(team => team.is_user);
+  const historyPicks = myTeam
+    ? (draft?.picks ?? []).filter(pick => pick.team_id === userTeam?.id)
+    : draft?.picks;
   listEl.innerHTML = renderBoard(board, boardView.position, {
     picked: pool.picked,
     mode: boardView.mode,
-    draftPicks: draft?.picks,
+    draftPicks: historyPicks,
+    starterPositions: priority?.positions,
+    byeConflicts: priority?.byeConflicts,
     selectable: Boolean(draft?.next) && !writing,
     selectedKey: boardView.selectedKey,
     searchResults,
     window: { limit: boardView.visibleLimit },
   });
+  if (myTeam && !listEl.innerHTML) {
+    const message = !draft?.configured || !userTeam ? "Set up your draft to see your team."
+      : boardView.position === "ALL" ? "You haven’t drafted any players yet."
+      : `No ${boardView.position} players on your team yet.`;
+    listEl.innerHTML = `<div class="notice">${escapeHtml(message)}</div>`;
+  }
   if (resetScroll) listEl.scrollTop = 0;
   observeLoadMore();
 }
@@ -359,7 +382,7 @@ function renderViewControls(): void {
       (position) => `<button class="tab" role="tab" data-pos="${position}">${position}</button>`,
     ).join("");
   }
-  const searching = boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
+  const searching = boardView.mode !== "my-team" && boardView.searchQuery.trim().length > 0 && Boolean(draft?.next);
   tabsEl.querySelectorAll<HTMLButtonElement>("[data-pos]").forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.pos === boardView.position));
     tab.disabled = searching;
@@ -369,6 +392,7 @@ function renderViewControls(): void {
     tab.setAttribute("aria-pressed", String(tab.dataset.view === presentedMode));
     tab.disabled = searching;
   });
+  playerSearchEl.closest<HTMLElement>(".player-search")!.hidden = boardView.mode === "my-team";
   playerSearchEl.value = boardView.searchQuery;
 }
 
@@ -445,6 +469,7 @@ async function loadDraft(renderListContent = true): Promise<LoadResult> {
 async function writeDraft(path: string, method: string, payload?: unknown): Promise<boolean> {
   if (writing) return false;
   const wasConfigured = draft?.configured === true;
+  const wasUserTurn = draft?.next?.is_user === true;
   const selectedKeyBeforeWrite = boardView.selectedKey;
   const selectedPlayerBeforeWrite = playerByKey(selectedKeyBeforeWrite);
   const searchingBeforeWrite = boardView.searchQuery.trim().length > 0;
@@ -488,7 +513,7 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
       renderListOnSettle = true;
     } else if (path === "/api/picks" && method === "POST") {
       boardView = nextBoardView(boardView, { type: "pickRecorded" });
-      if (selectedPlayerBeforeWrite && !searchingBeforeWrite && draft.next) {
+      if (selectedPlayerBeforeWrite && !searchingBeforeWrite && !wasUserTurn && draft.next) {
         recordedPlayer = selectedPlayerBeforeWrite;
       } else {
         renderListOnSettle = true;
@@ -586,8 +611,12 @@ viewTabsEl.addEventListener("click", (e) => {
   if (!button || button.disabled) return;
   boardView = nextBoardView(boardView, {
     type: "selectMode",
-    mode: button.dataset.view === "drafted" ? "drafted" : "available",
+    mode: button.dataset.view === "my-team" ? "my-team" : button.dataset.view === "drafted" ? "drafted" : "available",
   });
+  if (boardView.mode === "my-team") {
+    boardView = nextBoardView(boardView, { type: "selectionCleared" });
+    renderSelection();
+  }
   renderViewControls();
   renderList();
 });
@@ -748,3 +777,5 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+wireDraftJingle();

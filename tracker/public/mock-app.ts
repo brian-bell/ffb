@@ -1,3 +1,4 @@
+import { wireDraftJingle } from "../src/draft-jingle";
 import { isValidBoard } from "../src/board";
 import type { MockLifecycleStatus, MockState } from "../src/mock-draft";
 import { initialBoardView, nextBoardView, type BoardPosition, type BoardViewState } from "../src/board-view";
@@ -865,3 +866,5 @@ if (keyStore.get()) {
 } else {
   setLocked(true);
 }
+
+wireDraftJingle();

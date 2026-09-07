@@ -195,18 +195,18 @@ describe("renderBoard — draft availability", () => {
     expect(history).not.toContain("<button");
   });
 
-  it("renders Drafted + ALL in chronological pick order with inline tiers", () => {
+  it("renders Drafted + ALL in reverse draft order with inline tiers", () => {
     const picked = new Map([
       ["k3", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }],
       ["k0", { overall_pick: 2, round: 1, round_pick: 2, team_name: "Opponent" }],
     ]);
     const history = renderBoard(board, "ALL", { picked, mode: "drafted" });
 
-    expect(history.indexOf("Bijan Robinson")).toBeLessThan(history.indexOf("Christian McCaffrey"));
+    expect(history.indexOf("Christian McCaffrey")).toBeLessThan(history.indexOf("Bijan Robinson"));
     expect(history.match(/class="tier-chip">T1/g)).toHaveLength(2);
   });
 
-  it("filters Drafted by position without changing chronological pick order", () => {
+  it("filters Drafted by position with the most recent pick first", () => {
     const picked = new Map([
       ["k8", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }],
       ["k1", { overall_pick: 2, round: 1, round_pick: 2, team_name: "Opponent" }],
@@ -215,7 +215,7 @@ describe("renderBoard — draft availability", () => {
     const history = renderBoard(board, "RB", { picked, mode: "drafted" });
 
     expect(history).not.toContain("Ja'Marr Chase");
-    expect(history.indexOf("Jonathan Taylor")).toBeLessThan(history.indexOf("Christian McCaffrey"));
+    expect(history.indexOf("Christian McCaffrey")).toBeLessThan(history.indexOf("Jonathan Taylor"));
   });
 
   it("never inserts tier dividers into filtered Drafted history", () => {
@@ -227,8 +227,8 @@ describe("renderBoard — draft availability", () => {
     const history = renderBoard(board, "RB", { picked, mode: "drafted" });
 
     expect(history).not.toContain('class="trule"');
-    expect(history.indexOf("Christian McCaffrey")).toBeLessThan(history.indexOf("Saquon Barkley"));
-    expect(history.indexOf("Saquon Barkley")).toBeLessThan(history.indexOf("Bijan Robinson"));
+    expect(history.indexOf("Saquon Barkley")).toBeLessThan(history.indexOf("Christian McCaffrey"));
+    expect(history.indexOf("Bijan Robinson")).toBeLessThan(history.indexOf("Saquon Barkley"));
   });
 
   it("keeps an unlisted persisted pick in the complete Drafted history", () => {
@@ -380,7 +380,7 @@ describe("renderBoard — windowed rendering", () => {
     expect(empty).not.toContain("data-load-more");
   });
 
-  it("windows the persisted drafted history, earliest picks first", () => {
+  it("windows the persisted drafted history, most recent picks first", () => {
     const draftPicks = board.players.slice(0, 3).map((player, i) => ({
       overall_pick: i + 1,
       round: 1,
@@ -393,10 +393,22 @@ describe("renderBoard — windowed rendering", () => {
     }));
     const html = renderBoard(board, "ALL", { mode: "drafted", draftPicks, window: { limit: 2 } });
 
-    expect(html).toContain("Christian McCaffrey");
+    expect(html).not.toContain("Christian McCaffrey");
+    expect(html.indexOf("CeeDee Lamb")).toBeLessThan(html.indexOf("Ja'Marr Chase"));
     expect(html).toContain("Ja'Marr Chase");
-    expect(html).not.toContain("CeeDee Lamb");
+    expect(html).toContain("CeeDee Lamb");
     expect(html).toContain('data-remaining="1"');
+
+    const expanded = renderBoard(board, "ALL", { mode: "drafted", draftPicks, window: { limit: 3 } });
+    expect(expanded.indexOf("CeeDee Lamb")).toBeLessThan(expanded.indexOf("Ja'Marr Chase"));
+    expect(expanded.indexOf("Ja'Marr Chase")).toBeLessThan(expanded.indexOf("Christian McCaffrey"));
+    expect(expanded).not.toContain("data-load-more");
+
+    const filtered = renderBoard(board, "WR", { mode: "drafted", draftPicks, window: { limit: 1 } });
+    expect(filtered).toContain("CeeDee Lamb");
+    expect(filtered).not.toContain("Ja'Marr Chase");
+    expect(filtered).toContain('data-remaining="1"');
+    expect(draftPicks.map(pick => pick.overall_pick)).toEqual([1, 2, 3]);
   });
 });
 
@@ -418,5 +430,48 @@ describe("renderBoard — search replacement", () => {
     expect(html).toContain('<div class="notice"><b>No matching available players.</b>');
     expect(html).toContain("No matching available players.");
     expect(html).not.toContain('class="rowA');
+  });
+});
+
+describe("renderBoard — starter priority", () => {
+  it("puts starter needs before depth before applying the display window", () => {
+    const html = renderBoard(board, "ALL", { starterPositions: new Set(["QB"]), window: { limit: 2 } });
+    expect(html).toContain("Josh Allen");
+    expect(html).not.toContain("Christian McCaffrey");
+    expect(html).toContain("Starter priority");
+    const full = renderBoard(board, "ALL", { starterPositions: new Set(["QB"]) });
+    expect(full.indexOf("Josh Allen")).toBeLessThan(full.indexOf("Christian McCaffrey"));
+    expect(full.indexOf("Christian McCaffrey")).toBeLessThan(full.indexOf("Ja'Marr Chase"));
+    expect(full).toContain("Bench depth");
+  });
+
+  it("preserves search relevance and drafted history ordering", () => {
+    const priority = { starterPositions: new Set(["QB"]) };
+    const searchResults = [board.players[0]!, board.players[2]!];
+    expect(renderBoard(board, "ALL", { ...priority, searchResults }))
+      .toBe(renderBoard(board, "ALL", { searchResults }));
+    const picked = new Map([
+      ["k0", { overall_pick: 2, round: 1, round_pick: 2, team_name: "Brian" }],
+      ["k2", { overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian" }],
+    ]);
+    expect(renderBoard(board, "ALL", { ...priority, picked, mode: "drafted" }))
+      .toBe(renderBoard(board, "ALL", { picked, mode: "drafted" }));
+    expect(renderBoard(board, "ALL", { starterPositions: new Set() })).toBe(renderBoard(board, "ALL"));
+  });
+});
+
+
+describe("renderBoard — bye considerations", () => {
+  it("applies a modest bye penalty without overriding starter priority or hiding players", () => {
+    const conflicts = new Map([[board.players[0]!.key, 1]]);
+    const html = renderBoard(board, "ALL", { byeConflicts: conflicts });
+    expect(html.indexOf("Ja'Marr Chase")).toBeLessThan(html.indexOf("Christian McCaffrey"));
+    expect(html).toContain("Bye clash");
+    expect(html).toContain("same-position player on your roster");
+    const starters = renderBoard(board, "ALL", { byeConflicts: conflicts, starterPositions: new Set(["RB"]) });
+    expect(starters.indexOf("Christian McCaffrey")).toBeLessThan(starters.indexOf("Ja'Marr Chase"));
+    const searchResults = [board.players[0]!, board.players[1]!];
+    const search = renderBoard(board, "ALL", { byeConflicts: conflicts, searchResults });
+    expect(search.indexOf("Christian McCaffrey")).toBeLessThan(search.indexOf("Ja'Marr Chase"));
   });
 });

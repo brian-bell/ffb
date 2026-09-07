@@ -233,13 +233,14 @@ const server = createServer(async (request, response) => {
 
   const asset = url.pathname === "/mock" || url.pathname === "/mock/"
     ? "mock.html"
-    : url.pathname.slice(1);
-  if (!asset || asset.includes("..") || !["mock.html", "mock-app.js", "styles.css"].includes(asset)) {
+    : url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  if (!asset || asset.includes("..") || !["index.html", "app.js", "mock.html", "mock-app.js", "styles.css", "audio/espn-draft-chime.mp3"].includes(asset)) {
     response.writeHead(404);
     response.end("Not found");
     return;
   }
   const contentTypes = {
+    ".mp3": "audio/mpeg",
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",

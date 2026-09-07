@@ -1,7 +1,7 @@
 import { BOARD_VERSION } from "./board";
 
 export type BoardPosition = "ALL" | "QB" | "RB" | "WR" | "TE" | "K" | "DEF";
-export type BoardMode = "available" | "drafted";
+export type BoardMode = "available" | "drafted" | "my-team";
 
 export interface BoardViewState {
   position: BoardPosition;
