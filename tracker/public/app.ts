@@ -167,7 +167,7 @@ function renderList(resetScroll = true): void {
     picked: pool.picked,
     mode: boardView.mode,
     draftPicks: historyPicks,
-    starterPositions: priority?.positions,
+    lineupPriority: priority?.candidates,
     byeConflicts: priority?.byeConflicts,
     selectable: Boolean(draft?.next) && !writing,
     selectedKey: boardView.selectedKey,
