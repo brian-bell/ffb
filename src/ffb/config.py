@@ -35,6 +35,21 @@ FANTASY_POSITIONS = ("QB", "RB", "WR", "TE", "K", "DEF")
 
 SLEEPER_POSITIONS = FANTASY_POSITIONS  # fetch-side position[] filter
 
+
+def projection_scope(week: int | None = None) -> str:
+    """Return the stored projection scope for season totals or one week.
+
+    Weekly rows use ``week{{N}}`` (for example ``week1``) so multiple weeks stay
+    additive under the ``(player_key, season, source, scope)`` key. Parsers emit
+    this value; the season read path keeps requesting ``season``.
+    """
+    if week is None:
+        return "season"
+    if not isinstance(week, int) or isinstance(week, bool) or week < 1:
+        raise ValueError("week must be a positive integer")
+    return f"week{week}"
+
+
 # --- ESPN projections (spike-verified 2026-07-21) ---------------------------
 # The /players endpoint reports stats as {numeric statId: value}. This maps the
 # ids we score to the same stat keys Sleeper uses, so ppr_points scores both

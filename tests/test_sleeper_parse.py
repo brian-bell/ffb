@@ -3,12 +3,14 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from ffb.config import FANTASY_POSITIONS
-from ffb.sources.sleeper import parse_projections
+from ffb.sources.sleeper import fetch_projections, parse_projections, snapshot_key
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sleeper_projections_sample.json"
+WEEK_FIXTURE = Path(__file__).parent / "fixtures" / "sleeper_projections_week1_sample.json"
 
 
 @pytest.fixture
@@ -160,3 +162,54 @@ def test_row_count(raw):
 def test_positions_present(raw):
     positions = {r["position"] for r in parse_projections(raw)}
     assert positions == {"RB", "QB", "WR", "K", "DEF"}
+
+
+def test_snapshot_key_encodes_season_and_optional_week():
+    assert snapshot_key(2026) == "sleeper/projections_nfl_2026_regular"
+    assert snapshot_key(2026, week=1) == "sleeper/projections_nfl_2026_regular_week1"
+
+
+def test_weekly_parse_emits_week_scope_and_keeps_company_filter():
+    raw = json.loads(WEEK_FIXTURE.read_text())
+    rows = parse_projections(raw, week=1)
+    henry = next(r for r in rows if r["native_id"] == "3198")
+    assert henry["scope"] == "week1"
+    assert henry["season"] == 2024
+    assert henry["stats"]["rush_yd"] == 80.0
+    assert henry["src_pts_ppr"] == 15.8
+    assert all(r["scope"] == "week1" for r in rows)
+    assert all(r["native_id"] != "4960" for r in rows)
+    assert len([r for r in rows if r["native_id"] == "3198"]) == 1
+
+
+def test_season_parse_stays_season_even_when_raw_rows_carry_a_week(raw):
+    raw[0]["week"] = 1
+    assert parse_projections(raw)[0]["scope"] == "season"
+
+
+def test_fetch_weekly_uses_season_week_path(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured["url"] = url
+        captured["params"] = list(params)
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        return httpx.Response(200, json=[], request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    fetch_projections(2026, week=1)
+    assert captured["url"] == "https://api.sleeper.com/projections/nfl/2026/1"
+    assert ("season_type", "regular") in captured["params"]
+
+
+def test_fetch_season_omits_week_path(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured["url"] = url
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        return httpx.Response(200, json=[], request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    fetch_projections(2026)
+    assert captured["url"] == "https://api.sleeper.com/projections/nfl/2026"

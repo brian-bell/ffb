@@ -745,3 +745,55 @@ def test_season_sync_reports_schedule_source(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "schedule" in result.output
+
+
+def _prime_weekly(env):
+    cache = SnapshotCache(Path(env["FFB_SNAPSHOT_DIR"]))
+    cache.get_json(
+        sleeper.snapshot_key(2024, week=1),
+        lambda: json.loads((FIXTURES / "sleeper_projections_week1_sample.json").read_text()),
+    )
+    cache.get_json(
+        espn.snapshot_key(2024, week=1),
+        lambda: json.loads((FIXTURES / "espn_projections_week1_sample.json").read_text()),
+    )
+
+
+def test_week_flag_ingests_weekly_projections_and_leaves_season_rankings(tmp_path):
+    env = _env(tmp_path)
+    _prime_weekly(env)
+    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+
+    weekly = runner.invoke(
+        app,
+        ["season", "sync", "2024", "--offline", "--week", "1", "--source", "projections"],
+        env=env,
+    )
+    assert weekly.exit_code == 0, weekly.output
+    assert "sleeper week 1" in weekly.output
+    assert "espn week 1" in weekly.output
+
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    sleeper_week = store.projection_rows(2024, source="sleeper", scope="week1")
+    assert any(
+        row["native_id"] == "3198" and row["stats"]["rush_yd"] == 80.0 for row in sleeper_week
+    )
+    season_henry = next(
+        row
+        for row in store.projection_rows(2024, source="sleeper", position="RB")
+        if row["native_id"] == "3198"
+    )
+    assert season_henry["stats"]["rush_yd"] == 1575.0
+    store.close()
+
+    rankings = runner.invoke(app, ["rankings", "2024", "--position", "RB"], env=env)
+    assert rankings.exit_code == 0, rankings.output
+    assert "Henry" in rankings.output
+
+
+def test_week_flag_rejects_non_positive_week(tmp_path):
+    env = _env(tmp_path)
+    result = runner.invoke(app, ["season", "sync", "2024", "--week", "0"], env=env)
+    assert result.exit_code != 0
+    assert "week" in result.output.lower()

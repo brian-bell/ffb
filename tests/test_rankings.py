@@ -92,3 +92,20 @@ def test_no_position_returns_all_positions(ranked_store):
 
 def test_empty_season_returns_empty(ranked_store):
     assert ranked(ranked_store, season=1999) == []
+
+
+def test_ranked_ignores_weekly_scope_rows(store):
+    store.upsert_projections(
+        [
+            _projection("1", "qb:1", "Josh Allen", matched=True),
+            {
+                **_projection("2", "qb:2", "Weekly Monster", matched=True),
+                "scope": "week1",
+                "stats": {"pass_yd": 99999.0},
+            },
+        ]
+    )
+
+    rows = ranked(store, season=2024, position="QB")
+
+    assert [row["full_name"] for row in rows] == ["Josh Allen"]

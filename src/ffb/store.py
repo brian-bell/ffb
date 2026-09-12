@@ -596,7 +596,7 @@ class Store:
             [row.get(column) for column in columns],
         )
 
-    def source_counts(self, season: int, source: str) -> tuple[int, int]:
+    def source_counts(self, season: int, source: str, scope: str = "season") -> tuple[int, int]:
         if source == "crosswalk":
             result = self.conn.execute("SELECT COUNT(*) FROM crosswalk").fetchone()
             count = int(result[0]) if result else 0
@@ -632,9 +632,9 @@ class Store:
                 """
                 SELECT COUNT(*), COALESCE(SUM(CASE WHEN pl.matched THEN 1 ELSE 0 END), 0)
                 FROM projections p JOIN players pl USING (player_key)
-                WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
+                WHERE p.season = ? AND p.source = ? AND p.scope = ?
                 """,
-                [season, source],
+                [season, source, scope],
             ).fetchone()
         return (int(result[0]), int(result[1])) if result else (0, 0)
 
@@ -866,9 +866,9 @@ class Store:
         result = self.conn.execute("SELECT COUNT(*) FROM crosswalk").fetchone()
         return bool(result and result[0] > 0)
 
-    def has_stale_resolution(self, season: int, source: str) -> bool:
-        """True if any stored ``(season, source)`` row no longer matches how it
-        would resolve against the current crosswalk.
+    def has_stale_resolution(self, season: int, source: str, scope: str = "season") -> bool:
+        """True if any stored ``(season, source, scope)`` row no longer matches how
+        it would resolve against the current crosswalk.
 
         For each row the expected key is a valid synthetic defense key, then the
         crosswalk match if present, else the ``source:native_id`` fallback. A row
@@ -887,9 +887,8 @@ class Store:
         unmatched players already sit on their fallback key, so they equal the
         expected key and don't trigger a needless re-ingest.
 
-        Scoped to ``season`` because that's the only slice ``_finalize`` re-ingests
-        to heal a stale row; flagging a weekly-scope row (slice 9) would loop the
-        seasonal re-ingest forever without ever fixing it.
+        Defaults to the season slice so weekly stale rows cannot loop seasonal
+        re-ingest. Weekly ingest passes its own ``week{{N}}`` scope.
         """
         column = self._source_column(source)
         rows = self.conn.execute(
@@ -899,10 +898,10 @@ class Store:
             FROM projections p
             JOIN players pl ON pl.player_key = p.player_key
             LEFT JOIN crosswalk c ON c.{column} = p.native_id
-            WHERE p.season = ? AND p.source = ? AND p.scope = 'season'
+            WHERE p.season = ? AND p.source = ? AND p.scope = ?
             GROUP BY p.player_key, p.native_id, pl.position, pl.team
             """,
-            [season, source],
+            [season, source, scope],
         ).fetchall()
         for stored_key, native_id, crosswalk_keys, position, team in rows:
             defense = identity.canonical_defense_key(position, team)
@@ -937,7 +936,9 @@ class Store:
             for stored_key, native_id, crosswalk_keys in rows
         )
 
-    def has_legacy_defense_return_td_stats(self, season: int, source: str) -> bool:
+    def has_legacy_defense_return_td_stats(
+        self, season: int, source: str, scope: str = "season"
+    ) -> bool:
         """True when a stored D/ST row predates return-TD normalization.
 
         ``def_kr_td`` and ``pr_td`` were renamed to ``def_ret_td`` for D/ST
@@ -946,7 +947,7 @@ class Store:
         """
         return any(
             row["position"] == "DEF" and {"def_kr_td", "pr_td"}.intersection(row["stats"])
-            for row in self.projection_rows(season, source=source)
+            for row in self.projection_rows(season, source=source, scope=scope)
         )
 
     def projection_rows(

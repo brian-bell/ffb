@@ -57,11 +57,13 @@ stored/fallback league context ────────────────�
                               terminal / Markdown / CSV / JSON
 ```
 
-Projection stat lines are stored, but fantasy points are not. `scoring.py`
-applies the active league rules when data is read. `consensus.py` scores each
-requested source independently and averages per player. `board.py` merges
-consensus, ADP, and byes, selects the requested player pool, then derives VORP,
-tiers, and ranks.
+Projection stat lines are stored, but fantasy points are not. Season and weekly
+slices share the projections table and are keyed by `scope` (`season` or
+`week{N}`). `scoring.py` applies the active league rules when data is read.
+`consensus.py` scores each requested source independently and averages per
+player; rankings and the board keep requesting the season slice. `board.py`
+merges consensus, ADP, and byes, selects the requested player pool, then derives
+VORP, tiers, and ranks.
 
 This ordering matters: the default draftable filter runs before all derived
 values, so replacement baselines and ranks describe the board that the user

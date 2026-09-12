@@ -103,8 +103,7 @@ def test_stale_resolution_only_considers_season_scope(store, crosswalk_rows):
     # A weekly-scope row stored under a canonical key it can no longer resolve to
     # (its native id isn't in the crosswalk). Seasonal re-ingest never touches the
     # weekly scope, so flagging it stale would make ensure_ingested replay the
-    # season snapshot forever. Weekly ingest is slice 9; until then this scope is
-    # invisible to stale detection.
+    # season snapshot forever. Weekly ingest checks its own scope separately.
     store.upsert_projections(
         [
             {
@@ -123,6 +122,7 @@ def test_stale_resolution_only_considers_season_scope(store, crosswalk_rows):
         ]
     )
     assert store.has_stale_resolution(2024, "sleeper") is False
+    assert store.has_stale_resolution(2024, "sleeper", scope="week1") is True
 
 
 def test_only_store_module_imports_duckdb():

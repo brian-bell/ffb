@@ -16,6 +16,8 @@ from ffb.store import Store
 FIXTURE = Path(__file__).parent / "fixtures" / "sleeper_projections_sample.json"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 ESPN = Path(__file__).parent / "fixtures" / "espn_projections_sample.json"
+SLEEPER_WEEK = Path(__file__).parent / "fixtures" / "sleeper_projections_week1_sample.json"
+ESPN_WEEK = Path(__file__).parent / "fixtures" / "espn_projections_week1_sample.json"
 
 
 def _prime_snapshot(snap_dir: Path):
@@ -202,7 +204,7 @@ def test_season_ingest_not_skipped_when_only_weekly_rows_exist(store, tmp_path):
     # A weekly-scope row exists for sleeper/2024 but the season slice does not.
     # has_season counts every scope, so the skip gate must scope to the season
     # slice or it would treat the source as present and never ingest the season
-    # snapshot. Weekly ingest is slice 9; this guards the season path meanwhile.
+    # snapshot. Weekly ingest writes a different scope and must not trip this gate.
     store.upsert_projections(
         [
             {
@@ -412,3 +414,105 @@ def test_legacy_defense_fallback_self_heals_to_canonical_key(store, tmp_path):
     )
     assert defense["player_key"] == "def:SFO"
     assert defense["matched"] is True
+
+
+def _prime_weekly_snapshots(snap_dir: Path):
+    cache = SnapshotCache(snap_dir)
+    cache.get_json(snapshot_key(2024, week=1), lambda: json.loads(SLEEPER_WEEK.read_text()))
+    cache.get_json(espn_key(2024, week=1), lambda: json.loads(ESPN_WEEK.read_text()))
+    return cache
+
+
+def test_weekly_ingest_is_additive_to_the_season_slice(store, tmp_path, crosswalk_rows):
+    store.upsert_crosswalk(crosswalk_rows)
+    season_cache = _prime_snapshot(tmp_path / "snap")
+    ensure_ingested(store, season_cache, season=2024, fetch=_no_network)
+    season_rbs = store.projection_rows(2024, position="RB", source="sleeper")
+    assert len(season_rbs) == 3
+
+    weekly_cache = _prime_weekly_snapshots(tmp_path / "snap")
+    recon = ensure_ingested(store, weekly_cache, season=2024, week=1, fetch=_no_network)
+    assert recon.n_rows == 3
+    assert recon.matched == 2  # Henry + SFO; Taylor is unmatched in the sample crosswalk
+    weekly = store.projection_rows(2024, source="sleeper", scope="week1")
+    henry = next(r for r in weekly if r["native_id"] == "3198")
+    assert henry["player_key"] == "12626"
+    assert henry["stats"]["rush_yd"] == 80.0
+    assert len(store.projection_rows(2024, position="RB", source="sleeper")) == 3
+    assert store.has_season(2024, source="sleeper", scope="season")
+    assert store.has_season(2024, source="sleeper", scope="week1")
+
+
+def test_weekly_ingest_does_not_replace_a_different_week(store, tmp_path):
+    cache = _prime_weekly_snapshots(tmp_path / "snap")
+    store.upsert_projections(
+        [
+            {
+                "player_key": "sleeper:week-ghost",
+                "season": 2024,
+                "source": "sleeper",
+                "scope": "week2",
+                "native_id": "week-ghost",
+                "full_name": "Week Two Ghost",
+                "position": "RB",
+                "team": "FA",
+                "matched": False,
+                "stats": {"rush_yd": 1.0},
+                "src_pts_ppr": None,
+            }
+        ]
+    )
+    ensure_ingested(store, cache, season=2024, week=1, fetch=_no_network)
+    assert store.has_season(2024, source="sleeper", scope="week2")
+    assert store.projection_rows(2024, source="sleeper", scope="week2")[0]["native_id"] == (
+        "week-ghost"
+    )
+
+
+def test_weekly_ingest_is_idempotent_and_self_heals(store, tmp_path, crosswalk_rows):
+    cache = _prime_weekly_snapshots(tmp_path / "snap")
+    ensure_ingested(store, cache, season=2024, week=1, fetch=_no_network)
+    henry = next(
+        r
+        for r in store.projection_rows(2024, source="sleeper", scope="week1")
+        if r["native_id"] == "3198"
+    )
+    assert henry["player_key"] == "sleeper:3198"
+    assert henry["matched"] is False
+
+    assert ensure_ingested(store, cache, season=2024, week=1, fetch=_no_network).n_rows == 0
+
+    store.upsert_crosswalk(crosswalk_rows)
+    recon = ensure_ingested(store, cache, season=2024, week=1, fetch=_no_network)
+    assert recon.n_rows > 0
+    henry = next(
+        r
+        for r in store.projection_rows(2024, source="sleeper", scope="week1")
+        if r["native_id"] == "3198"
+    )
+    assert henry["player_key"] == "12626"
+    assert henry["matched"] is True
+
+
+def test_espn_weekly_ingest_coexists_with_sleeper_week_and_season(store, tmp_path, crosswalk_rows):
+    store.upsert_crosswalk(crosswalk_rows)
+    season_cache = _prime_snapshot(tmp_path / "snap")
+    season_cache.get_json(espn_key(2024), lambda: json.loads(ESPN.read_text()))
+    ensure_ingested(store, season_cache, season=2024, fetch=_no_network)
+    ensure_espn_ingested(store, season_cache, season=2024, fetch=_no_network)
+
+    weekly_cache = _prime_weekly_snapshots(tmp_path / "snap")
+    ensure_ingested(store, weekly_cache, season=2024, week=1, fetch=_no_network)
+    recon = ensure_espn_ingested(store, weekly_cache, season=2024, week=1, fetch=_no_network)
+    assert recon.matched == 2  # Henry + SFO
+    espn_week = store.projection_rows(2024, source="espn", scope="week1")
+    henry = next(r for r in espn_week if r["native_id"] == "3043078")
+    assert henry["player_key"] == "12626"
+    assert henry["stats"]["rush_yd"] == 72.0
+
+    weekly = consensus_rows(store, 2024, week=1, sources=["sleeper", "espn"])
+    henry_c = next(r for r in weekly if r["player_key"] == "12626")
+    assert henry_c["n"] == 2
+    season = consensus_rows(store, 2024, sources=["sleeper", "espn"])
+    season_henry = next(r for r in season if r["player_key"] == "12626")
+    assert season_henry["consensus"] != henry_c["consensus"]
