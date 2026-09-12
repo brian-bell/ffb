@@ -1,3 +1,4 @@
+import { mockWaitingCost } from "../src/wait-cost";
 import { wireDraftJingle } from "../src/draft-jingle";
 import { isValidBoard } from "../src/board";
 import type { MockLifecycleStatus, MockState } from "../src/mock-draft";
@@ -318,6 +319,18 @@ function renderSelection(actionState: ReturnType<typeof actions>): void {
   selected.innerHTML = player
     ? `<b>${escaped(player.name)}</b> · ${escaped(player.pos ?? "—")} · ${escaped(player.team ?? "FA")}`
     : "No Player Selected.";
+  const advice = player ? mockWaitingCost(mock, board, player.key) : null;
+  if (advice) {
+    const detail = document.createElement("details");
+    detail.dataset.waitAdvice = "";
+    const summary = document.createElement("summary");
+    summary.textContent = "Take now or wait?";
+    const explanation = document.createElement("p");
+    explanation.textContent = advice.text;
+    detail.appendChild(summary);
+    detail.appendChild(explanation);
+    selected.appendChild(detail);
+  }
   draftPlayer.disabled = !player || !actionState.can_pick;
   clearSelection.disabled = !player || !actionState.can_pick;
 }
