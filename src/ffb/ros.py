@@ -151,17 +151,28 @@ def _is_starter(selected: str | None) -> bool:
     return bool(selected) and selected not in NON_STARTING_SLOTS
 
 
+def remaining_weeks(weeks: tuple[int, ...], current_week: int | None) -> tuple[int, ...]:
+    """Drop weeks that have already completed relative to ``current_week``."""
+    if current_week is None:
+        return weeks
+    return tuple(week for week in weeks if week >= current_week)
+
+
 def bye_plan(
     roster: list[dict[str, Any]],
     byes: list[dict[str, Any]],
+    *,
+    current_week: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Group a roster by bye week and flag two-plus starters at one position."""
+    """Group a roster by remaining bye week and flag two-plus starters at one position."""
     bye_lookup = _bye_by_team(byes)
     grouped: dict[int, list[dict[str, Any]]] = {}
     for row in roster:
         team = _player_team(row)
         bye = bye_lookup.get(team) if team else None
         if bye is None:
+            continue
+        if current_week is not None and bye < current_week:
             continue
         name = row.get("full_name") or row.get("name") or ""
         position = row.get("primary_position") or row.get("position")
@@ -195,10 +206,12 @@ def ros_report(
     def_points: dict[str, float] | None = None,
     roster: list[dict[str, Any]] | None = None,
     position: str | None = None,
+    current_week: int | None = None,
 ) -> dict[str, Any]:
     """Build the ROS strategy report from already-loaded season inputs."""
+    remaining = remaining_weeks(playoff_weeks, current_week)
     opp_def = defense_points(consensus) if def_points is None else def_points
-    slate = playoff_slate(games, weeks=playoff_weeks, byes=byes)
+    slate = playoff_slate(games, weeks=remaining, byes=byes)
     strength = playoff_strength(slate, opp_def)
     bye_lookup = _bye_by_team(byes)
     wanted = None if position is None else position.upper()
@@ -237,9 +250,9 @@ def ros_report(
         ),
     )
     return {
-        "playoff_weeks": playoff_weeks,
+        "playoff_weeks": remaining,
         "players": players,
         "teams": teams,
-        "bye_plan": bye_plan(roster, byes) if roster else [],
+        "bye_plan": bye_plan(roster, byes, current_week=current_week) if roster else [],
         "usage_available": False,
     }

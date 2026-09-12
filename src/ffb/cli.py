@@ -459,6 +459,7 @@ def ros(
         playoff_weeks=weeks,
         roster=roster or None,
         position=pos,
+        current_week=None if context is None else context["current_week"],
     )
     if not report["players"]:
         scope = f"position {pos}" if pos else "any position"
@@ -741,16 +742,22 @@ def _render_ros(report: dict, *, season: int, pos: str | None, limit: int) -> No
     if report["bye_plan"]:
         console.print("[yellow]Bye-week plan[/yellow]")
         for group in report["bye_plan"]:
-            names = ", ".join(
-                f"{player['name']} ({player['position']}{'' if player['starter'] else ', BN'})"
-                for player in group["players"]
-            )
+            names = ", ".join(_bye_plan_player_label(player) for player in group["players"])
             thin = (
                 f" — thin {', '.join(group['thin_positions'])}" if group["thin_positions"] else ""
             )
             console.print(f"Week {group['bye']}: {names}{thin}")
     if not report["usage_available"]:
         console.print("[dim]Usage trends are not ingested; stash/buy-low flags omitted.[/dim]")
+
+
+def _bye_plan_player_label(player: dict) -> str:
+    """Show IR/IL/BN for non-starters instead of collapsing every reserve to BN."""
+    position = player.get("position") or "—"
+    if player.get("starter"):
+        return f"{player['name']} ({position})"
+    slot = player.get("selected_position") or "BN"
+    return f"{player['name']} ({position}, {slot})"
 
 
 def _render_lineup(report: dict, *, week: int, team_name: str) -> None:

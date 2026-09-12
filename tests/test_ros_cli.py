@@ -1,5 +1,6 @@
 """CLI rest-of-season report against synthetic projections and schedule games."""
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -155,3 +156,46 @@ def test_ros_omits_usage_flags_when_usage_is_not_ingested(tmp_path):
     result = runner.invoke(app, ["ros", "2024"], env=env)
     assert result.exit_code == 0, result.output
     assert "usage" in result.output.lower()
+
+
+def _league_fixture(tmp_path, *, current_week=1, henry_slot="BN"):
+    payload = json.loads(FIXTURE.read_text())
+    payload["league"]["current_week"] = current_week
+    for roster in payload["rosters"]:
+        roster["week"] = current_week
+        for player in roster["players"]:
+            if player["yahoo_player_id"] == "29279":
+                player["selected_position"] = henry_slot
+    path = tmp_path / f"league-week{current_week}.json"
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def test_ros_labels_ir_players_in_the_bye_plan(tmp_path):
+    env = _seed_ros_store(tmp_path)
+    fixture = _league_fixture(tmp_path, henry_slot="IR")
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(fixture)], env=env)
+    assert synced.exit_code == 0, synced.output
+    result = runner.invoke(app, ["ros", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    henry = next(line for line in result.output.splitlines() if "Week 14:" in line)
+    assert "Derrick Henry" in henry
+    assert "IR" in henry
+    assert "BN" not in henry
+
+
+def test_ros_omits_past_bye_weeks_and_completed_playoff_games(tmp_path):
+    env = _seed_ros_store(tmp_path)
+    fixture = _league_fixture(tmp_path, current_week=16)
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(fixture)], env=env)
+    assert synced.exit_code == 0, synced.output
+    result = runner.invoke(app, ["ros", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Week 5:" not in result.output
+    assert "Week 12:" not in result.output
+    assert "Week 14:" not in result.output
+    henry = next(
+        line for line in result.output.splitlines() if "Derrick Henry" in line and "RB" in line
+    )
+    assert "BUF" not in henry
+    assert "@KCC" in henry

@@ -538,8 +538,7 @@ def ensure_schedule_ingested(
         len(rows),
         len(games),
     )
-    store.replace_team_byes(rows, season)
-    store.replace_schedule_games(games, season)
+    store.replace_schedule(rows, games, season)
     log.info("processing source=schedule step=store action=replace rows=%s", len(rows))
     log.info("ingested %d team bye rows and %d games for %s", len(rows), len(games), season)
     return Reconciliation(source="schedule", n_rows=len(rows), matched=len(rows))

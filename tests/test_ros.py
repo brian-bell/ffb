@@ -189,6 +189,38 @@ def test_bye_plan_does_not_treat_bench_as_a_thin_starter():
     assert len(plan[0]["players"]) == 2
 
 
+def test_bye_plan_omits_weeks_before_current_week():
+    plan = ros.bye_plan(
+        [
+            _roster("Slow Back", "KCC", "RB", "RB", player_key="slow"),
+            _roster("Ja'Marr Chase", "CIN", "WR", "WR", player_key="chase"),
+            _roster("Derrick Henry", "BAL", "RB", "IR", player_key="henry"),
+        ],
+        [_bye("KCC", 5), _bye("CIN", 12), _bye("BAL", 14)],
+        current_week=10,
+    )
+    assert [group["bye"] for group in plan] == [12, 14]
+    henry = next(player for player in plan[-1]["players"] if player["name"] == "Derrick Henry")
+    assert henry["selected_position"] == "IR"
+    assert henry["starter"] is False
+
+
+def test_ros_report_omits_completed_playoff_weeks():
+    report = ros.ros_report(
+        [_consensus("12626", "Derrick Henry", "RB", "BAL", 180.0)],
+        byes=[_bye("BAL", 14)],
+        games=[_game(15, "BAL", "BUF"), _game(16, "KCC", "BAL"), _game(17, "BAL", "CIN")],
+        playoff_weeks=(15, 16, 17),
+        def_points={"BUF": 12.0, "KCC": 4.0, "CIN": 6.0},
+        current_week=16,
+        roster=[_roster("Derrick Henry", "BAL", "RB", "RB")],
+    )
+    assert report["playoff_weeks"] == (16, 17)
+    assert report["players"][0]["playoff"] == "@KCC, CIN"
+    assert report["players"][0]["avg_opp_def"] == 5.0
+    assert report["bye_plan"] == []
+
+
 def test_ros_report_includes_team_strength_and_optional_bye_plan():
     report = ros.ros_report(
         [_consensus("12626", "Derrick Henry", "RB", "BAL", 180.0)],

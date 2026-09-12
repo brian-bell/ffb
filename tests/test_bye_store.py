@@ -62,3 +62,28 @@ def test_source_counts_schedule_stay_on_bye_rows(store):
     store.replace_team_byes([_bye_row("KCC", 10)], 2026)
     store.replace_schedule_games([_game_row(15, "KCC", "BAL"), _game_row(16, "BAL", "CIN")], 2026)
     assert store.source_counts(2026, "schedule") == (1, 1)
+
+
+def test_replace_schedule_mirrors_byes_and_games(store):
+    store.replace_schedule(
+        [_bye_row("KCC", 10), _bye_row("SFO", 9)],
+        [_game_row(15, "KCC", "BAL"), _game_row(16, "SFO", "BAL")],
+        2026,
+    )
+    store.replace_schedule([_bye_row("PHI", 5)], [_game_row(15, "PHI", "DAL")], 2026)
+    assert {(r["team"], r["bye"]) for r in store.team_bye_rows(2026)} == {("PHI", 5)}
+    games = {(r["week"], r["home_team"], r["away_team"]) for r in store.schedule_game_rows(2026)}
+    assert games == {(15, "PHI", "DAL")}
+
+
+def test_replace_schedule_rolls_back_byes_and_games_together(store):
+    store.replace_schedule([_bye_row("KCC", 10)], [_game_row(15, "KCC", "BAL")], 2026)
+    with pytest.raises(Exception, match="(?i)constraint|null"):
+        store.replace_schedule(
+            [_bye_row("SFO", 9)],
+            [_game_row(16, "BAL", "CIN"), {"season": 2026}],
+            2026,
+        )
+    assert {(r["team"], r["bye"]) for r in store.team_bye_rows(2026)} == {("KCC", 10)}
+    games = {(r["week"], r["home_team"], r["away_team"]) for r in store.schedule_game_rows(2026)}
+    assert games == {(15, "KCC", "BAL")}

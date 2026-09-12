@@ -607,6 +607,25 @@ class Store:
             raise
         self.conn.execute("COMMIT")
 
+    def replace_schedule(
+        self,
+        byes: list[dict[str, Any]],
+        games: list[dict[str, Any]],
+        season: int,
+        source: str = "schedule",
+    ) -> None:
+        """Atomically mirror bye weeks and regular-season games from one snapshot."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.delete_team_byes(season, source)
+            self.upsert_team_byes(byes)
+            self.delete_schedule_games(season, source)
+            self.upsert_schedule_games(games)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def schedule_game_rows(self, season: int, source: str = "schedule") -> list[dict[str, Any]]:
         """Return stored regular-season games for a season/source as plain dicts."""
         cursor = self.conn.execute(
