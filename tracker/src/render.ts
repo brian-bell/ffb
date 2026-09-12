@@ -56,14 +56,21 @@ function barWidth(vorp: number | null, maxVorp: number): number {
   return Math.round((vorp / maxVorp) * 100);
 }
 
+/** Text labels travel with each value because rows are buttons, not table cells. */
+function metricValue(label: string, value: number | null): string {
+  return value == null
+    ? `<span class="sr-only">${label} unavailable</span><span aria-hidden="true">—</span>`
+    : `<span class="sr-only">${label}: </span>${fmt1(value)}`;
+}
+
 function vorpCell(p: Player, maxVorp: number): string {
   if (p.vorp == null) {
-    return '<div class="num vorp na"><span class="tnum">—</span></div>';
+    return `<div class="num vorp na"><span class="tnum">${metricValue("VORP", p.vorp)}</span></div>`;
   }
   const w = barWidth(p.vorp, maxVorp);
   return (
     `<div class="num vorp"><span class="bar" style="--w:${w}%"></span>` +
-    `<span class="tnum">${p.vorp.toFixed(1)}</span></div>`
+    `<span class="tnum">${metricValue("VORP", p.vorp)}</span></div>`
   );
 }
 
@@ -123,8 +130,9 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
     `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}</span>` +
+    `<span class="num points tnum${p.points == null ? " na" : ""}">${metricValue("Projected points", p.points)}</span>` +
     vorpCell(p, maxVorp) +
-    `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
+    `<span class="num adp tnum${adpNa}">${metricValue("ADP", p.adp)}</span>` +
     deltaChip(p) +
     (selectable ? `</button>` : `</div>`)
   );
