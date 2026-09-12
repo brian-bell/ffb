@@ -30,6 +30,9 @@ uv run ffb season status 2026
 uv run ffb rankings 2026 -p RB --show-sources
 uv run ffb board show 2026
 uv run ffb board export 2026
+uv run ffb season sync 2026 --week 1 --source projections
+uv run ffb league sync 2026 --fixture PATH
+uv run ffb lineup 2026
 ```
 
 `season sync` is the only projection, ADP, schedule, and crosswalk ingestion
@@ -65,7 +68,9 @@ uv run ffb league show 2026 --rosters
 ```
 
 Without stored league state, the CLI uses the confirmed 10-team Yahoo fallback
-in `src/ffb/config.py`.
+in `src/ffb/config.py`. After a current-week fixture is stored and weekly
+projections are ingested, `ffb lineup` compares the user team's
+`selected_position` to optimal weekly starters. It never writes back to Yahoo.
 
 ## Draft tracker
 

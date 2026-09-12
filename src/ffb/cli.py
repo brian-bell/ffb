@@ -19,6 +19,7 @@ from ffb import config, paths
 from ffb.consensus import consensus_rows
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
+from ffb.lineup import attach_weekly_points, compare_lineup
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import yahoo
@@ -315,6 +316,71 @@ def season_unmatched(
 
 
 @app.command()
+def lineup(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    week: int | None = typer.Option(
+        None, "--week", help="Weekly projection slice. Defaults to stored current week."
+    ),
+) -> None:
+    """Compare the user team's stored lineup to optimal weekly starters."""
+    if week is not None and week < 1:
+        raise typer.BadParameter("week must be a positive integer")
+    store = _open_store()
+    context = store.league_context(season)
+    if context is None:
+        store.close()
+        console.print(
+            f"[yellow]No league state for {season}. Run: ffb league sync "
+            f"{season} --fixture PATH[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    chosen_week = context["current_week"] if week is None else week
+    teams = store.league_teams(season)
+    user_teams = [team for team in teams if team["is_user_team"]]
+    if len(user_teams) != 1:
+        store.close()
+        console.print(
+            "[red]Sit/start needs exactly one team marked is_user_team in league state.[/red]"
+        )
+        raise typer.Exit(code=1)
+    user = user_teams[0]
+    roster_rows = [
+        row
+        for row in store.league_roster_rows(season, week=chosen_week)
+        if row["team_key"] == user["team_key"]
+    ]
+    scope = config.projection_scope(chosen_week)
+    active_sources = [
+        source for source in _SOURCE_COLUMNS if store.has_season(season, source, scope)
+    ]
+    if not active_sources:
+        store.close()
+        console.print(
+            f"[red]No weekly projection sources for {season} week {chosen_week}. "
+            f"Run: ffb season sync {season} --week {chosen_week}[/red]"
+        )
+        raise typer.Exit(code=1)
+    league = load_league_context(store, season)
+    consensus = consensus_rows(
+        store,
+        season=season,
+        week=chosen_week,
+        sources=active_sources,
+        cfg=league.scoring,
+    )
+    store.close()
+    if not roster_rows:
+        console.print(
+            f"[yellow]No roster players for {user['name']} in week {chosen_week}.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    players = attach_weekly_points(roster_rows, consensus)
+    report = compare_lineup(players, league.roster_slots)
+    _render_lineup(report, week=chosen_week, team_name=user["name"])
+    _report_scoring_provenance(league)
+
+
+@app.command()
 def rankings(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
     pos: str = typer.Option(
@@ -538,6 +604,60 @@ def _warn_source_states(status: dict, *, include_adp: bool) -> None:
         error = f": {source['error']}" if source["error"] else ""
         console.print(
             f"[yellow]Warning: {source['name']} is {source['state']}{error}{retained}.[/yellow]"
+        )
+
+
+def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
+    """Print current vs optimal starters, sit/start swaps, and close calls."""
+    console.print(f"[yellow]Week {week} sit/start[/yellow] — {team_name}")
+    console.print(
+        f"Current {report['current_total']:.1f}   "
+        f"Optimal {report['optimal_total']:.1f}   "
+        f"Δ {report['delta']:+.1f}"
+    )
+    table = Table(title=f"Week {week} lineup")
+    table.add_column("Slot", justify="center")
+    table.add_column("Current")
+    table.add_column("Pts", justify="right", style="green")
+    table.add_column("Optimal")
+    table.add_column("Pts", justify="right", style="green")
+    current = list(report["current"])
+    optimal = list(report["optimal"])
+    rows = max(len(current), len(optimal))
+    for index in range(rows):
+        left = current[index] if index < len(current) else None
+        right = optimal[index] if index < len(optimal) else None
+        slot = (left or right or {}).get("slot") or "—"
+        table.add_row(
+            slot,
+            left["name"] if left else "—",
+            _num(left["points"]) if left else "—",
+            right["name"] if right else "—",
+            _num(right["points"]) if right else "—",
+        )
+    console.print(table)
+    if report["start"] or report["sit"]:
+        for row in report["start"]:
+            console.print(
+                f"[green]Start[/green] {row['name']} ({row['slot']}, {_num(row['points'])})"
+            )
+        for row in report["sit"]:
+            console.print(
+                f"[red]Sit[/red] {row['name']} ({row['selected_position']}, {_num(row['points'])})"
+            )
+    else:
+        console.print("[green]Stored lineup matches the weekly optimum.[/green]")
+    for row in report["close_calls"]:
+        console.print(
+            f"[yellow]Close[/yellow] {row['name']} {_num(row['points'])} vs "
+            f"{row['versus']} ({row['slot']}, Δ {row['delta']:.1f})"
+        )
+    if report["missing_projections"]:
+        names = ", ".join(row["name"] for row in report["missing_projections"][:8])
+        more = "…" if len(report["missing_projections"]) > 8 else ""
+        console.print(
+            f"[yellow]⚠ {len(report['missing_projections'])} rostered player(s) "
+            f"have no weekly projection: {names}{more}[/yellow]"
         )
 
 

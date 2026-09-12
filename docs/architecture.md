@@ -61,9 +61,10 @@ Projection stat lines are stored, but fantasy points are not. Season and weekly
 slices share the projections table and are keyed by `scope` (`season` or
 `week{N}`). `scoring.py` applies the active league rules when data is read.
 `consensus.py` scores each requested source independently and averages per
-player; rankings and the board keep requesting the season slice. `board.py`
-merges consensus, ADP, and byes, selects the requested player pool, then derives
-VORP, tiers, and ranks.
+player; rankings and the board keep requesting the season slice. `ffb lineup`
+reads `scope=week{N}` consensus plus stored `selected_position` for
+`is_user_team`. `board.py` merges consensus, ADP, and byes, selects the
+requested player pool, then derives VORP, tiers, and ranks.
 
 This ordering matters: the default draftable filter runs before all derived
 values, so replacement baselines and ranks describe the board that the user
