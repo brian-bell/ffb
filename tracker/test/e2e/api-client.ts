@@ -30,9 +30,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
   return { status: response.status, headers: response.headers, body, json: decoded };
 }
 
+export interface LeagueBundleSummary {
+  ok: true;
+  season: number;
+  current_week: number;
+  teams: number;
+  players: number;
+  source: "fixture" | "yahoo";
+  synced_at: string;
+}
+
 export const api = {
   health: () => request<{ ok: boolean }>("/api/health"),
   getBoard: () => request<Board>("/api/board"),
+  getLeagueBundle: () => request<unknown>("/api/league/bundle"),
+  postLeagueBundle: (bundle: unknown) =>
+    request<LeagueBundleSummary>("/api/league/bundle", {
+      method: "POST",
+      body: JSON.stringify(bundle),
+    }),
   getDraft: () => request<DraftState>("/api/draft"),
   configureDraft: (config: DraftConfigInput) =>
     request<DraftState>("/api/draft", { method: "PUT", body: JSON.stringify(config) }),

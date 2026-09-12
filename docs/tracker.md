@@ -7,9 +7,13 @@ draft at `/`, and provides an isolated roster-aware simulation at `/mock`.
 ## Runtime model
 
 The immutable board blob lives in KV under `board:current`; the Worker streams
-it verbatim from authenticated `GET /api/board`. Draft state lives in D1. The
-static shell is public so the user can enter a shared API key, but every data or
-mutation route requires `Authorization: Bearer <TRACKER_API_KEY>`.
+it verbatim from authenticated `GET /api/board`. The last valid `LeagueBundle`
+v1 lives under `league:bundle:current` and is accepted by
+`POST /api/league/bundle`. That ingest path validates the closed Python
+`parse_bundle` contract, never writes DuckDB, and never reads or mutates live
+or mock draft tables. Draft state lives in D1. The static shell is public so
+the user can enter a shared API key, but every data or mutation route requires
+`Authorization: Bearer <TRACKER_API_KEY>`.
 
 The browser saves the key in `localStorage` with an in-memory fallback. Board
 version drift or malformed data produces an explicit recovery message instead
@@ -20,6 +24,15 @@ Sleeper snapshot's `fetched_at`. The shared live/mock renderer displays a short
 text badge plus a full accessible label on every viewport. `UNKNOWN` is rendered
 as neutral “Status”; old published and saved mock boards without the optional
 object remain valid.
+
+## League bundle ingest
+
+`POST /api/league/bundle` is a producer sink for the closed `LeagueBundle` v1
+JSON. Auth is the same bearer key as other `/api/*` data routes. A valid body
+replaces KV `league:bundle:current` and returns counts only. Extra keys,
+incomplete roster coverage, and other `parse_bundle` failures return 400
+`invalid_bundle` and leave the previous value in place. `GET /api/league/bundle`
+returns the last accepted bundle so the CLI can fetch it later.
 
 ## Live draft
 

@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { BOARD_KEY } from "../../src/board";
+import { LEAGUE_BUNDLE_KEY } from "../../src/league-bundle";
 import { initialBoardView, nextBoardView, type BoardViewState } from "../../src/board-view";
 import { mockClockState, mockSuggestions } from "../../src/mock-ui";
 import { buildPlayerPool } from "../../src/player-pool";
 import { playersEquivalent } from "../../src/player-identity";
 import { api } from "./api-client";
+import leagueBundleFixture from "../fixtures/league-bundle.json";
 
 async function liveTableSnapshot() {
   const [drafts, teams, picks] = await Promise.all([
@@ -23,6 +25,40 @@ async function liveTableSnapshot() {
 describe("generated backend contract", () => {
   beforeEach(async () => {
     await env.BOARD.put(BOARD_KEY, env.E2E_BOARD_JSON);
+    await env.BOARD.delete(LEAGUE_BUNDLE_KEY);
+  });
+
+  it("accepts a LeagueBundle into KV without touching the board or live draft", async () => {
+    const liveBefore = await liveTableSnapshot();
+    const boardBefore = await api.getBoard();
+    expect(boardBefore.status).toBe(200);
+
+    const missing = await api.getLeagueBundle();
+    expect(missing.status).toBe(404);
+
+    const accepted = await api.postLeagueBundle(leagueBundleFixture);
+    expect(accepted.status).toBe(200);
+    expect(accepted.json).toEqual({
+      ok: true,
+      season: 2024,
+      current_week: 1,
+      teams: 1,
+      players: 0,
+      source: "fixture",
+      synced_at: "2026-07-22T12:00:00Z",
+    });
+    expect(accepted.body).not.toContain("Brian");
+
+    const rejected = await api.postLeagueBundle({ ...leagueBundleFixture, extra: "typo" });
+    expect(rejected.status).toBe(400);
+    expect(rejected.json).toMatchObject({ error: "invalid_bundle" });
+
+    const fetched = await api.getLeagueBundle();
+    expect(fetched.status).toBe(200);
+    expect(fetched.json).toEqual(leagueBundleFixture);
+    expect((await api.getBoard()).body).toBe(boardBefore.body);
+    expect(await liveTableSnapshot()).toEqual(liveBefore);
+    expect(await env.BOARD.get(BOARD_KEY)).toBe(env.E2E_BOARD_JSON);
   });
 
   it("drives a draft through the real Worker API", async () => {
