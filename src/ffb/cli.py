@@ -16,6 +16,7 @@ from rich.table import Table
 
 from ffb import board as board_mod
 from ffb import config, paths
+from ffb import ros as ros_mod
 from ffb.consensus import consensus_rows
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
@@ -397,6 +398,78 @@ def lineup(
 
 
 @app.command()
+def ros(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
+    pos: str = typer.Option(
+        None, "-p", "--position", help="Filter by position (e.g. RB). Omit for all."
+    ),
+    limit: int = typer.Option(30, "--limit", help="Max ROS rows to show."),
+    playoff_weeks: str | None = typer.Option(
+        None,
+        "--playoff-weeks",
+        help="Comma-separated playoff weeks (default: 15,16,17).",
+    ),
+) -> None:
+    """Print rest-of-season consensus, playoff slate, and bye planning."""
+    try:
+        weeks = ros_mod.parse_playoff_weeks(playoff_weeks)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    store = _open_store()
+    active_sources = [
+        source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
+    ]
+    if not active_sources:
+        store.close()
+        console.print(f"[red]No projection sources are available for {season}.[/red]")
+        raise typer.Exit(code=1)
+    _warn_source_states(_service(store).status(season), include_adp=False)
+    games = store.schedule_game_rows(season)
+    if not games:
+        console.print(
+            f"[yellow]Warning: schedule games are missing for {season}; "
+            f"playoff slates will be empty. Run `ffb season sync {season} "
+            f"--source schedule`.[/yellow]"
+        )
+    league = load_league_context(store, season)
+    consensus = consensus_rows(
+        store,
+        season=season,
+        position=None,
+        sources=active_sources,
+        cfg=league.scoring,
+    )
+    byes = store.team_bye_rows(season)
+    roster: list[dict] = []
+    context = store.league_context(season)
+    if context is not None:
+        user_teams = [team for team in store.league_teams(season) if team["is_user_team"]]
+        if len(user_teams) == 1:
+            store.refresh_league_roster_identities(season, context["current_week"])
+            roster = [
+                row
+                for row in store.league_roster_rows(season, week=context["current_week"])
+                if row["team_key"] == user_teams[0]["team_key"]
+            ]
+    store.close()
+    report = ros_mod.ros_report(
+        consensus,
+        byes=byes,
+        games=games,
+        playoff_weeks=weeks,
+        roster=roster or None,
+        position=pos,
+        current_week=None if context is None else context["current_week"],
+    )
+    if not report["players"]:
+        scope = f"position {pos}" if pos else "any position"
+        console.print(f"[yellow]No rest-of-season projections for {season} ({scope}).[/yellow]")
+        raise typer.Exit(code=0)
+    _render_ros(report, season=season, pos=pos, limit=limit)
+    _report_scoring_provenance(league)
+
+
+@app.command()
 def rankings(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Projection season."),
     pos: str = typer.Option(
@@ -622,6 +695,69 @@ def _warn_source_states(status: dict, *, include_adp: bool, wanted: set[str] | N
         console.print(
             f"[yellow]Warning: {source['name']} is {source['state']}{error}{retained}.[/yellow]"
         )
+
+
+def _render_ros(report: dict, *, season: int, pos: str | None, limit: int) -> None:
+    """Print ROS consensus, team playoff strength, and optional bye plan."""
+    weeks = ",".join(str(week) for week in report["playoff_weeks"])
+    title = f"{season} rest-of-season strategy" + (f" — {pos.upper()}" if pos else "")
+    console.print(f"[yellow]{title}[/yellow] — playoff weeks {weeks}")
+    table = Table(title=f"{season} ROS rankings")
+    table.add_column("Rank", justify="right", style="cyan")
+    table.add_column("Player")
+    table.add_column("Pos", justify="center")
+    table.add_column("Team", justify="center")
+    table.add_column("Bye", justify="center", style="dim")
+    table.add_column("ROS", justify="right", style="green")
+    table.add_column("Playoff")
+    table.add_column("Diff", justify="right")
+    for row in report["players"][:limit]:
+        table.add_row(
+            str(row["rank"]),
+            row["name"],
+            row["position"] or "—",
+            row["team"] or "—",
+            _cell(row["bye"]),
+            _num(row["ros"]),
+            row["playoff"] or "—",
+            _cell(row["playoff_difficulty"]),
+        )
+    console.print(table)
+    if report["teams"]:
+        strength = Table(title="Playoff schedule strength")
+        strength.add_column("Diff", justify="right", style="cyan")
+        strength.add_column("Team", justify="center")
+        strength.add_column("Games", justify="right")
+        strength.add_column("Opp DEF", justify="right")
+        strength.add_column("Slate")
+        for row in report["teams"]:
+            strength.add_row(
+                _cell(row["difficulty"]),
+                row["team"],
+                str(row["games"]),
+                _num(row["avg_opp_def"]),
+                row["matchups"] or "—",
+            )
+        console.print(strength)
+    if report["bye_plan"]:
+        console.print("[yellow]Bye-week plan[/yellow]")
+        for group in report["bye_plan"]:
+            names = ", ".join(_bye_plan_player_label(player) for player in group["players"])
+            thin = (
+                f" — thin {', '.join(group['thin_positions'])}" if group["thin_positions"] else ""
+            )
+            console.print(f"Week {group['bye']}: {names}{thin}")
+    if not report["usage_available"]:
+        console.print("[dim]Usage trends are not ingested; stash/buy-low flags omitted.[/dim]")
+
+
+def _bye_plan_player_label(player: dict) -> str:
+    """Show IR/IL/BN for non-starters instead of collapsing every reserve to BN."""
+    position = player.get("position") or "—"
+    if player.get("starter"):
+        return f"{player['name']} ({position})"
+    slot = player.get("selected_position") or "BN"
+    return f"{player['name']} ({position}, {slot})"
 
 
 def _render_lineup(report: dict, *, week: int, team_name: str) -> None:

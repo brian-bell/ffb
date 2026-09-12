@@ -501,14 +501,15 @@ def ensure_schedule_ingested(
     rebuild: bool = False,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> Reconciliation:
-    """Ensure ``season`` team bye weeks are stored, derived from the schedule.
+    """Ensure ``season`` team bye weeks and regular-season games are stored.
 
-    Like ADP, byes re-parse from the cached snapshot on **every** run
+    Like ADP, the schedule re-parses from the cached snapshot on **every** run
     (delete-then-insert mirror): parsing ~272 games is trivially cheap, and a
     ``TEAM_ALIASES`` tuning change then reaches the DB without ``--refresh``.
     Network is only touched on ``refresh`` or the first pull. Every stored row
     is canonical by construction (unknown/ambiguous teams are dropped at parse
-    time with a WARNING), so the Reconciliation is all-matched.
+    time with a WARNING), so the Reconciliation is all-matched. Completeness
+    is still gated on byes; games are the same pull's matchup rows for ROS.
     """
     del rebuild  # re-parse happens every run; nothing extra to force
     fetch_fn = fetch or (lambda: schedule.fetch_schedule(season))
@@ -531,8 +532,13 @@ def ensure_schedule_ingested(
         # silently serving previously persisted byes as current.
         raise ValueError(f"schedule pull for {season} is missing byes for: {', '.join(missing)}")
 
-    log.info("processing source=schedule step=derive usable_rows=%s", len(rows))
-    store.replace_team_byes(rows, season)
+    games = schedule.parse_games(raw, season)
+    log.info(
+        "processing source=schedule step=derive usable_rows=%s games=%s",
+        len(rows),
+        len(games),
+    )
+    store.replace_schedule(rows, games, season)
     log.info("processing source=schedule step=store action=replace rows=%s", len(rows))
-    log.info("ingested %d team bye rows for %s", len(rows), season)
+    log.info("ingested %d team bye rows and %d games for %s", len(rows), len(games), season)
     return Reconciliation(source="schedule", n_rows=len(rows), matched=len(rows))

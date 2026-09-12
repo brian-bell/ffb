@@ -30,6 +30,7 @@ uv run ffb season status 2026
 uv run ffb rankings 2026 -p RB --show-sources
 uv run ffb board show 2026
 uv run ffb board export 2026
+uv run ffb ros 2026
 uv run ffb season sync 2026 --week 1 --source projections
 uv run ffb league sync 2026 --fixture PATH
 uv run ffb lineup 2026
@@ -50,6 +51,10 @@ with:
 uv run ffb season unmatched 2026
 uv run ffb season unmatched 2026 --source ffc
 ```
+
+`ffb ros` is a read-time rest-of-season report: season consensus, playoff-week
+opponents and opponent-DEF schedule strength, and (when a user roster is stored)
+bye-week planning. It does not ingest usage trends or change the board.
 
 The draft board combines league-scored projection consensus with Fantasy
 Football Calculator ADP, schedule-derived bye weeks, VORP, and positional tiers.
