@@ -31,7 +31,11 @@ for (const mode of ["live", "mock"] as const) {
     for (const width of [320, 390, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await expect(page.locator(".h-points")).toBeVisible();
-      const geometry = await first.evaluate(row => {
+      // Resolve and measure in one browser task. Live draft loading can replace
+      // a row between locator resolution and evaluate, yielding zero rectangles
+      // for the detached row while the document's headers remain measurable.
+      const geometry = await page.evaluate(() => {
+        const row = document.querySelector('[data-list] [data-player-key="k0"]')!;
         const cells = [".points", ".vorp", ".adp"].map(selector => {
           const cell = row.querySelector(selector)!;
           const box = cell.getBoundingClientRect();
