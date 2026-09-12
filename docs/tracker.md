@@ -54,7 +54,10 @@ second TE that improves flex can still lead. Each available row explains its
 starter/flex contribution or depth role. These are season projection gains,
 not weekly forecasts or estimates of the cost of waiting until the next pick.
 
-Positive lineup gains lead, ordered largest first. An unprojected player who can
+Before the user’s first pick, Available retains published board order, including
+after opponent picks and replay rewinds. Raw season points do not override the
+opening scarcity ranking. Once the user has a pick, positive lineup gains lead,
+ordered largest first. An unprojected player who can
 fill an open starting slot follows measured gains, then RB/WR/TE depth in
 positions supported by the league, then other depth. If any own pick lacks a
 current board projection, the entire roster falls back to open-slot matching
@@ -168,3 +171,27 @@ The Playwright suite covers phone, minimum desktop, standard desktop, and short
 desktop viewports against committed fixtures. It does not read or mutate local
 Wrangler KV or D1 state. Run `make test-backend-e2e` from the repository root
 when Worker routes, APIs, D1 behavior, or the board boundary change.
+
+## Saved draft replay
+
+Board settings offers **Replay MCFFL 2026 Draft**, using the completed 150-pick
+archive bundled into the client at build time. Resetting the live draft only
+deletes its live picks and teams; the bundled archive remains replayable. Replay uses the normal live-board client, current
+`GET /api/board` data, and current recommendation code. Only a prefix of the saved
+pick list is presented as draft state. No replay action writes live or mock D1
+state, and the shared write function refuses all writes while replay is active.
+
+The replay controls step backward/forward, jump to just before the next own
+pick, seek to any saved pick, and refresh the current board. The original teams
+and picks remain fixed; a missing player retains its saved identity and position
+for the existing incomplete-projection fallback. The board is not frozen into
+the archive. Refresh and reload use the current published board.
+
+Replay state is held in sessionStorage for this tab and survives reload when
+storage is available. It falls back to memory if storage fails. Exiting replay
+reloads the live draft without changing it. Saved replay sessions must contain a valid
+ordered snake draft with unique players, contiguous picks, and one user team.
+The saved JSON contains teams and picks, not credentials or a board snapshot.
+The completed MCFFL 2026 draft is preserved in
+[`drafts/mcffl-2026.json`](../drafts/mcffl-2026.json) for repeatable replay.
+No file import or download is needed to replay it.

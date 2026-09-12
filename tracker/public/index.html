@@ -43,7 +43,7 @@
   <details class="board-guide">
     <summary>Points, VORP &amp; board order</summary>
     <p><b>Proj pts</b> are projected season points under this league’s scoring. <b>VORP</b> is points above positional replacement; its bar shows relative value across the board. <b>ADP</b> is average draft position. An em dash (—) means unavailable.</p>
-    <p>Board rank (#) uses VORP, then projected points to break ties; ADP-only players follow scored players in ADP order. Live Available prioritizes roster needs by projected lineup gain across starter and flex slots, then depth. Equal gains use board rank with bye-clash adjustments. Missing roster projections use open-slot needs instead of a numeric gain. Position filters group tiers; search uses relevance; drafted history shows newest picks first. Rows are not sorted by projected points alone.</p>
+    <p>Board rank (#) uses VORP, then projected points to break ties; ADP-only players follow scored players in ADP order. Before your first pick, Available follows the published board order. Once you have a roster, Live Available prioritizes roster needs by projected lineup gain across starter and flex slots, then depth. Equal gains use board rank with bye-clash adjustments. Missing roster projections use open-slot needs instead of a numeric gain. Position filters group tiers; search uses relevance; drafted history shows newest picks first. Rows are not sorted by projected points alone.</p>
   </details>
   <div class="colhead" aria-hidden="true">
     <span class="h-rk">#</span>
@@ -77,6 +77,19 @@
       </div>
     </div>
   </section>
+  <section class="replay-dock" data-replay hidden aria-label="Isolated draft replay">
+    <div class="replay-heading"><b>Isolated replay</b><button data-exit-replay type="button">Exit replay</button></div>
+    <p data-replay-progress aria-live="polite"></p>
+    <p data-replay-next></p>
+    <input data-replay-cursor type="range" min="0" value="0" step="1" aria-label="Picks replayed" />
+    <div class="replay-actions">
+      <button data-replay-previous type="button" aria-label="Previous saved pick">Previous</button>
+      <button data-replay-next-pick type="button" aria-label="Next saved pick">Next pick</button>
+      <button data-replay-own type="button">Next my pick</button>
+      <button data-replay-refresh type="button">Refresh board</button>
+    </div>
+    <p data-replay-error role="status"></p>
+  </section>
   <div class="footbar" data-foot>board.json —</div>
 
   <!-- API-key modal: first-run gate + settings -->
@@ -93,7 +106,11 @@
       <p class="err" data-err hidden></p>
       <button class="save" data-save>Unlock board</button>
       <button class="forget" data-forget hidden>Forget key on this device</button>
-      <p class="desc" data-mock-navigation hidden><a class="mode-link" href="/mock">Mock draft</a></p>
+      <div class="settings-navigation" data-mock-navigation hidden><a class="settings-action" href="/mock">Mock Draft</a></div>
+      <div data-replay-settings hidden>
+        <button class="settings-action" data-start-replay type="button">Replay MCFFL 2026 Draft</button>
+        <p data-replay-start-error role="status"></p>
+      </div>
       <button class="reset-draft-setting" data-reset-draft type="button" hidden>Reset draft…</button>
     </div>
   </div>
