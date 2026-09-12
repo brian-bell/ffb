@@ -174,8 +174,9 @@ when Worker routes, APIs, D1 behavior, or the board boundary change.
 
 ## Saved draft replay
 
-Board settings offers **Save pick list**, **Replay this draft**, and import of a
-previously saved draft JSON. Replay uses the normal live-board client, current
+Board settings offers **Replay MCFFL 2026 Draft**, using the completed 150-pick
+archive bundled into the client at build time. Resetting the live draft only
+deletes its live picks and teams; the bundled archive remains replayable. Replay uses the normal live-board client, current
 `GET /api/board` data, and current recommendation code. Only a prefix of the saved
 pick list is presented as draft state. No replay action writes live or mock D1
 state, and the shared write function refuses all writes while replay is active.
@@ -188,10 +189,9 @@ the archive. Refresh and reload use the current published board.
 
 Replay state is held in sessionStorage for this tab and survives reload when
 storage is available. It falls back to memory if storage fails. Exiting replay
-reloads the live draft without changing it. Imported files must contain a valid
+reloads the live draft without changing it. Saved replay sessions must contain a valid
 ordered snake draft with unique players, contiguous picks, and one user team.
 The saved JSON contains teams and picks, not credentials or a board snapshot.
 The completed MCFFL 2026 draft is preserved in
 [`drafts/mcffl-2026.json`](../drafts/mcffl-2026.json) for repeatable replay.
-Choose that file in the saved-pick import control. Other downloaded archives
-should live outside disposable worktrees; exports are gitignored.
+No file import or download is needed to replay it.

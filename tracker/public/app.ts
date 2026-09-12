@@ -1,3 +1,4 @@
+import mcffl2026Draft from "../../drafts/mcffl-2026.json";
 import { replayState, nextOwnPickCursor, parseReplayDraft, readReplaySession, REPLAY_STORAGE_KEY } from "../src/draft-replay";
 import { liveStarterPriority } from "../src/starter-priority";
 import { wireDraftJingle } from "../src/draft-jingle";
@@ -95,9 +96,7 @@ const replayOwnEl = $<HTMLButtonElement>("[data-replay-own]");
 const replayRefreshEl = $<HTMLButtonElement>("[data-replay-refresh]");
 const replayErrorEl = $<HTMLElement>("[data-replay-error]");
 const startReplayEl = $<HTMLButtonElement>("[data-start-replay]");
-const exportPicksEl = $<HTMLButtonElement>("[data-export-picks]");
-const importReplayEl = $<HTMLInputElement>("[data-import-replay]");
-const replayImportErrorEl = $<HTMLElement>("[data-replay-import-error]");
+const replayStartErrorEl = $<HTMLElement>("[data-replay-start-error]");
 let replayStorage: Storage | null = null;
 try { replayStorage = window.sessionStorage; } catch { /* memory-only replay */ }
 let replay = readReplaySession(replayStorage);
@@ -271,9 +270,7 @@ function renderSelection(): void {
 
 function renderSettingsDraftAction(): void {
   resetDraftEl.hidden = Boolean(replay) || ui.modal !== "settings" || draft?.configured !== true;
-  startReplayEl.disabled = Boolean(replay) || !draft?.picks.length || writing;
-  importReplayEl.disabled = writing || exitingReplay;
-  exportPicksEl.disabled = !(replay?.saved ?? draft)?.picks.length;
+  startReplayEl.disabled = Boolean(replay) || writing || exitingReplay;
   resetDraftEl.disabled = writing;
 }
 
@@ -617,7 +614,7 @@ function seekReplay(cursor: number): void {
 }
 
 function startReplay(value: unknown): void {
-  // Check at entry, including after an asynchronous archive file read.
+  // Check at entry, including during a pending live transition.
   if (writing || exitingReplay) throw new Error("Wait for the current draft update to finish before starting a replay.");
   const saved = parseReplayDraft(value);
   replay = { saved, cursor: 0 };
@@ -628,28 +625,8 @@ function startReplay(value: unknown): void {
 }
 
 startReplayEl.addEventListener("click", () => {
-  try { startReplay(draft); }
-  catch (error) { replayImportErrorEl.textContent = (error as Error).message; }
-});
-importReplayEl.addEventListener("change", async () => {
-  const file = importReplayEl.files?.[0];
-  if (!file) return;
-  replayImportErrorEl.textContent = "";
-  try {
-    if (file.size > 2_000_000) throw new Error("Pick-list files must be smaller than 2 MB.");
-    startReplay(JSON.parse(await file.text()));
-  } catch (error) { replayImportErrorEl.textContent = (error as Error).message; }
-  finally { importReplayEl.value = ""; }
-});
-exportPicksEl.addEventListener("click", () => {
-  const saved = replay?.saved ?? draft;
-  if (!saved?.picks.length) return;
-  const url = URL.createObjectURL(new Blob([JSON.stringify(saved, null, 2)], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "draft-picks.json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  try { startReplay(mcffl2026Draft); }
+  catch (error) { replayStartErrorEl.textContent = (error as Error).message; }
 });
 replayPreviousEl.addEventListener("click", () => { if (replay) seekReplay(Math.max(0, replay.cursor - 1)); });
 replayNextPickEl.addEventListener("click", () => { if (replay) seekReplay(Math.min(replay.saved.picks.length, replay.cursor + 1)); });

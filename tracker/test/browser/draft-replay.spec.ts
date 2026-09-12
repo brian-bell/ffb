@@ -26,9 +26,9 @@ test("replay uses the live board client and latest board without sending draft w
     if (request.method() !== "GET") writes.push(request.method() + " " + request.url());
     return route.fulfill({ json: request.url().endsWith("/api/board") ? board : saved });
   });
+  await page.addInitScript(saved => !sessionStorage.getItem("ffb.draftReplay.v1") && sessionStorage.setItem("ffb.draftReplay.v1", JSON.stringify({ saved, cursor: 0 })), saved);
   await page.goto("/");
-  await page.getByRole("button", { name: "Board settings and API key" }).click();
-  await page.getByRole("button", { name: "Replay this draft" }).click();
+
   await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 4 picks replayed");
   await expect(page.locator("[data-list] .rowA").first()).toContainText(fixture.players[0]!.name);
   await page.getByRole("button", { name: "Next saved pick", exact: true }).click();
@@ -56,27 +56,30 @@ test("replay uses the live board client and latest board without sending draft w
   expect(writes).toEqual([]);
 });
 
-test("imports archived picks without their old board and rejects malformed files", async ({ page }) => {
+test("bundled MCFFL replay remains available after resetting the live draft", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
+  let reset = false;
   await page.route("**/api/board", route => route.fulfill({ json: fixture }));
-  await page.route("**/api/draft", route => route.fulfill({ json: { configured: false, picks: [], revision: 0 } }));
+  await page.route("**/api/draft", route => {
+    if (route.request().method() === "DELETE") reset = true;
+    return route.fulfill({ json: reset ? { configured: false, picks: [], revision: 0 } : saved });
+  });
   await page.goto("/");
   await page.getByRole("button", { name: "Board settings and API key" }).click();
-  const file = page.locator("[data-import-replay]");
-  const upload = async (contents: string) => file.evaluate((input, text) => {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([text], "draft.json", { type: "application/json" }));
-    (input as HTMLInputElement).files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }, contents);
-  await upload("{}");
-  await expect(page.locator("[data-replay-import-error]")).toContainText("Saved draft must contain");
-  await expect(page.locator("[data-replay]")).toBeHidden();
-  await upload(JSON.stringify(saved));
-  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 4 picks replayed");
-  await expect(page.locator("[data-setup-modal]")).toBeHidden();
-  await page.getByRole("button", { name: "Next saved pick", exact: true }).click();
-  await expect(page.locator("[data-replay-progress]")).toHaveText("1 / 4 picks replayed");
+  await expect(page.locator("[data-import-replay], [data-export-picks]")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Mock Draft", exact: true })).toBeVisible();
+  page.on("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Reset draft…", exact: true }).click();
+  await expect.poll(() => reset).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Board settings and API key" }).click();
+  await page.getByRole("button", { name: "Replay MCFFL 2026 Draft", exact: true }).click();
+  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 150 picks replayed");
+  await expect(page.locator("[data-replay-next]")).toContainText("Jahmyr Gibbs");
+  await page.locator("[data-replay-cursor]").fill("150");
+  await expect(page.locator("[data-replay-progress]")).toHaveText("150 / 150 picks replayed");
+  await page.getByRole("button", { name: "Drafted", exact: true }).click();
+  await expect(page.locator("[data-list]")).toContainText("Kenneth Gainwell");
 });
 
 test("cannot enter replay while a live pick write is pending", async ({ page }) => {
@@ -97,17 +100,9 @@ test("cannot enter replay while a live pick write is pending", async ({ page }) 
   await page.locator("[data-record-pick]").click();
   await writing;
   await page.getByRole("button", { name: "Board settings and API key" }).click();
-  // Also exercise the entry guard after a file read finishes during a pending write.
-  await page.locator("[data-import-replay]").evaluate((input, contents) => {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([contents], "draft.json", { type: "application/json" }));
-    (input as HTMLInputElement).files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }, JSON.stringify(saved));
-  await expect(page.locator("[data-replay-import-error]")).toContainText("Wait for the current draft update");
-  await expect(page.locator("[data-import-replay]")).toBeDisabled();
+  await expect(page.locator("[data-start-replay]")).toBeDisabled();
   releaseWrite();
-  await expect(page.locator("[data-import-replay]")).toBeEnabled();
+  await expect(page.locator("[data-start-replay]")).toBeEnabled();
   await expect(page.locator("[data-replay]")).toBeHidden();
 });
 
@@ -123,21 +118,21 @@ test("keeps replay isolated while exiting to a slow live draft", async ({ page }
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Board settings and API key" }).click();
-  await page.getByRole("button", { name: "Replay this draft" }).click();
+  await page.getByRole("button", { name: "Replay MCFFL 2026 Draft" }).click();
   leaving = true;
   const request = page.waitForRequest(req => req.url().endsWith("/api/draft"));
   await page.getByRole("button", { name: "Exit replay", exact: true }).click();
   await request;
   await page.getByRole("button", { name: "Board settings and API key" }).click();
-  await expect(page.locator("[data-import-replay]")).toBeDisabled();
-  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 4 picks replayed");
+  await expect(page.locator("[data-start-replay]")).toBeDisabled();
+  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 150 picks replayed");
   await expect(page.locator("[data-pick-panel]")).toBeHidden();
   finishExit();
   await expect(page.locator("[data-replay]")).toBeHidden();
   await expect(page.locator("[data-clock]")).toHaveText("Draft complete");
 });
 
-test("ignores a live draft response that arrives after a replay import", async ({ page }) => {
+test("ignores a live draft response that arrives after starting the bundled replay", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
   let finishRead!: () => void;
   const pending = new Promise<void>(resolve => { finishRead = resolve; });
@@ -148,17 +143,12 @@ test("ignores a live draft response that arrives after a replay import", async (
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Board settings and API key" }).click();
-  await page.locator("[data-import-replay]").evaluate((input, contents) => {
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([contents], "draft.json", { type: "application/json" }));
-    (input as HTMLInputElement).files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }, JSON.stringify(saved));
-  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 4 picks replayed");
+  await page.getByRole("button", { name: "Replay MCFFL 2026 Draft" }).click();
+  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 150 picks replayed");
   const response = page.waitForResponse(res => res.url().endsWith("/api/draft"));
   finishRead();
   await (await response).finished();
   await page.getByRole("button", { name: "My team", exact: true }).click();
   await expect(page.locator("[data-list]")).toContainText("You haven’t drafted any players yet.");
-  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 4 picks replayed");
+  await expect(page.locator("[data-replay-progress]")).toHaveText("0 / 150 picks replayed");
 });

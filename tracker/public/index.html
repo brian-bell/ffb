@@ -106,12 +106,10 @@
       <p class="err" data-err hidden></p>
       <button class="save" data-save>Unlock board</button>
       <button class="forget" data-forget hidden>Forget key on this device</button>
-      <p class="desc" data-mock-navigation hidden><a class="mode-link" href="/mock">Mock draft</a></p>
+      <div class="settings-navigation" data-mock-navigation hidden><a class="settings-action" href="/mock">Mock Draft</a></div>
       <div data-replay-settings hidden>
-        <button class="forget" data-start-replay type="button">Replay this draft</button>
-        <button class="forget" data-export-picks type="button">Save pick list</button>
-        <label>Replay a saved pick list <input data-import-replay type="file" accept=".json,application/json" /></label>
-        <p data-replay-import-error role="status"></p>
+        <button class="settings-action" data-start-replay type="button">Replay MCFFL 2026 Draft</button>
+        <p data-replay-start-error role="status"></p>
       </div>
       <button class="reset-draft-setting" data-reset-draft type="button" hidden>Reset draft…</button>
     </div>

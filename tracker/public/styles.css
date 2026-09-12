@@ -1133,5 +1133,27 @@ body {
 .replay-dock p:empty { display: none; }
 .replay-dock input[type=range] { width: 100%; accent-color: var(--dr-accent); }
 [data-replay-settings] { margin-top: 12px; }
-[data-replay-settings] input { max-width: 100%; }
-[data-replay-import-error], [data-replay-error] { color: var(--reach); }
+
+[data-replay-start-error], [data-replay-error] { color: var(--reach); }
+
+.settings-navigation { margin-top: 18px; }
+.settings-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--dr-line);
+  border-radius: 9px;
+  background: var(--dr-screen);
+  color: var(--dr-accent);
+  font: 650 14px/1.3 var(--sans);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.settings-action:hover { border-color: var(--dr-accent); }
+.settings-action:focus-visible { outline: 2px solid var(--dr-accent); outline-offset: 2px; }
+.settings-action:disabled { opacity: .48; cursor: not-allowed; }
+[data-replay-start-error]:empty { display: none; }
