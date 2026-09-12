@@ -34,10 +34,11 @@ uv run ffb ros 2026
 uv run ffb season sync 2026 --week 1 --source projections
 uv run ffb league sync 2026 --fixture PATH
 uv run ffb lineup 2026
+uv run ffb digest 2026
 ```
 
-`season sync` is the only projection, ADP, schedule, and crosswalk ingestion
-path. Its default policy reuses existing snapshots and fetches only missing
+`season sync` is the only projection, ADP, schedule, injury, headline, and
+crosswalk ingestion path. Its default policy reuses existing snapshots and fetches only missing
 ones. Use `--refresh` to fetch selected sources again, `--offline` to prohibit
 network access, `--rebuild` to force cached data back through parsing and
 atomic replacement, and `--week N` to also ingest that week's Sleeper/ESPN
@@ -79,6 +80,12 @@ projections are ingested, `ffb lineup` compares the user team's
 Sleeper Q/O/D/IR flags on the stored current week. Out, doubtful, and IR-list
 players are not started and count as zero in current totals. It never writes
 back to Yahoo.
+
+`ffb digest` is a read-time injury/headline brief for the user roster and
+unrostered players mentioned in ESPN/RSS news. It never changes rankings or
+sit/start numbers. Without `ANTHROPIC_API_KEY` it still prints headlines and
+injury labels; with a key, Haiku adds per-player flags and Sonnet writes a
+short Tuesday-brief paragraph.
 
 ## Draft tracker
 

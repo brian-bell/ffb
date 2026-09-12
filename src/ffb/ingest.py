@@ -23,7 +23,7 @@ from typing import Any
 
 from ffb import config, identity, names
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
+from ffb.sources import crosswalk, espn, espn_news, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
@@ -338,6 +338,108 @@ def ensure_injuries_ingested(
             }
         )
     store.replace_injuries(resolved, season)
+    return recon
+
+
+def _resolve_headline_mentions(
+    store: Store, rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int, int]:
+    athlete_ids = [
+        athlete["native_id"]
+        for row in rows
+        for athlete in row.get("athletes") or []
+        if athlete.get("native_id")
+    ]
+    lookup = store.resolve_batch("espn", athlete_ids)
+    mentions: list[dict[str, Any]] = []
+    matched_headlines = 0
+    unmatched_athletes = 0
+    for row in rows:
+        headline_matched = False
+        for athlete in row.get("athletes") or []:
+            native_id = athlete.get("native_id")
+            if not native_id:
+                continue
+            hit = lookup.get(native_id)
+            matched = hit is not None
+            headline_matched = headline_matched or matched
+            unmatched_athletes += int(not matched)
+            mentions.append(
+                {
+                    "headline_id": row["native_id"],
+                    "native_id": native_id,
+                    "full_name": (hit["full_name"] if hit else athlete.get("full_name")) or "",
+                    "player_key": hit["player_key"] if hit else f"espn:{native_id}",
+                    "position": hit["position"] if hit else None,
+                    "team": hit["team"] if hit else None,
+                    "matched": matched,
+                }
+            )
+        matched_headlines += int(headline_matched)
+    return mentions, matched_headlines, unmatched_athletes
+
+
+def ensure_news_ingested(
+    store: Store,
+    cache: SnapshotCache,
+    season: int,
+    *,
+    refresh: bool = False,
+    policy: SnapshotPolicy | str | None = None,
+    fetched_at: str | None = None,
+    fetch: Callable[[], Any] | None = None,
+    fetch_rss: Callable[[], Any] | None = None,
+) -> Reconciliation:
+    """Replay or fetch ESPN/RSS headlines, resolve athlete ids, and mirror them."""
+    selected_policy = (
+        SnapshotPolicy(policy)
+        if policy is not None
+        else (SnapshotPolicy.REFRESH if refresh else SnapshotPolicy.MISSING_ONLY)
+    )
+    raw = cache.get_json(
+        espn_news.snapshot_key(),
+        fetch or espn_news.fetch_news,
+        refresh=refresh,
+        policy=selected_policy,
+        is_valid=lambda data: bool(espn_news.parse_news(data)),
+    )
+    rows = espn_news.parse_news(raw)
+    if not rows:
+        raise ValueError("ESPN news returned no usable headlines")
+    metadata = cache.metadata(espn_news.snapshot_key())
+    snapshot_time = fetched_at or (metadata.modified_at if metadata else None)
+    if snapshot_time is None:
+        raise ValueError("ESPN news snapshot has no fetched timestamp")
+    stamped = [{**row, "fetched_at": snapshot_time} for row in rows]
+    mentions, matched_headlines, unmatched_athletes = _resolve_headline_mentions(store, stamped)
+    store.replace_headlines(stamped, mentions, season, "espn")
+
+    rss_rows: list[dict[str, Any]] = []
+    try:
+        rss_raw = cache.get_json(
+            espn_news.rss_snapshot_key(),
+            fetch_rss or espn_news.fetch_rss,
+            refresh=refresh,
+            policy=selected_policy,
+            is_valid=lambda data: bool(espn_news.parse_rss(data)),
+        )
+    except Exception as exc:  # noqa: BLE001 - RSS is additive; ESPN can stand alone
+        log.info("processing source=news step=rss skipped error=%s", exc)
+    else:
+        parsed_rss = espn_news.parse_rss(rss_raw)
+        if not parsed_rss:
+            log.info("processing source=news step=rss skipped reason=empty-or-invalid")
+        else:
+            rss_metadata = cache.metadata(espn_news.rss_snapshot_key())
+            rss_time = rss_metadata.modified_at if rss_metadata else None
+            if rss_time is None:
+                raise ValueError("ESPN RSS snapshot has no fetched timestamp")
+            rss_rows = [{**row, "fetched_at": rss_time} for row in parsed_rss]
+            store.replace_headlines(rss_rows, [], season, "espn_rss")
+
+    recon = Reconciliation(source="news", n_rows=len(stamped) + len(rss_rows))
+    recon.matched = matched_headlines
+    recon.unmatched = unmatched_athletes
     return recon
 
 

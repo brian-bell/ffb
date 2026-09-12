@@ -77,8 +77,8 @@ Tracker:    board.json → KV → Worker/client; draft state → D1
   I/O-free compute boundaries.
 - Points, consensus, VORP, and tiers are computed at read time. Raw source
   values such as projections, ADP, and team byes are stored.
-- `season sync` is the only projection/ADP/schedule ingest path. Rankings and
-  board commands are read-only and never fetch.
+- `season sync` is the only projection/ADP/schedule/injury/headline ingest path.
+  Rankings and board commands are read-only and never fetch.
 - Every raw pull is cached under `snapshots/`. Refreshes validate before
   replacing known-good snapshots or database slices.
 - Players resolve through nflverse `mfl_id`; defenses use

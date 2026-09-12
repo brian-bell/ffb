@@ -58,15 +58,49 @@ def _fixture_fetchers():
         "injuries": lambda: json.loads(
             (FIXTURES / "sleeper_players_injury_sample.json").read_text()
         ),
+        "news": lambda: json.loads((FIXTURES / "espn_news_sample.json").read_text()),
+        "news_rss": lambda: json.loads((FIXTURES / "espn_news_rss_sample.json").read_text()),
     }
 
 
 def test_expand_sources_includes_schedule():
     from ffb.season_data import expand_sources
 
-    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries"]
+    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries", "news"]
     assert expand_sources(["schedule"]) == ["schedule"]
     assert expand_sources(["injuries"]) == ["injuries"]
+    assert expand_sources(["news"]) == ["news"]
+
+
+def test_sync_news_records_ready_state(tmp_path):
+    store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
+
+    results = {r.source: r for r in service.sync(2024, selectors=["news"])}
+    status = service.status(2024)
+    store.close()
+
+    assert results["news"].state == "ready"
+    assert results["news"].rows == 6
+    assert results["news"].matched == 2
+    tracked = next(s for s in status["sources"] if s["name"] == "news")
+    assert tracked["kind"] == "news"
+    assert tracked["state"] == "ready"
+    assert tracked["snapshot"]["key"] == "espn/news_nfl"
+
+
+def test_status_marks_news_stale_after_crosswalk_change(tmp_path):
+    store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
+    service.sync(2024, selectors=["news"])
+    from ffb.sources.crosswalk import parse_crosswalk
+
+    spine = parse_crosswalk(json.loads((FIXTURES / "ff_playerids_sample.json").read_text()))
+    store.replace_crosswalk([row for row in spine if row["player_key"] != "12626"])
+    status = service.status(2024)
+    store.close()
+
+    tracked = next(s for s in status["sources"] if s["name"] == "news")
+    assert tracked["stale"] is True
+    assert status["complete"] is False
 
 
 def test_sync_schedule_records_ready_state(tmp_path):

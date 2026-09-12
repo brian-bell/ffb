@@ -42,11 +42,11 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → team byes + regular-season games | **Live** |
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
+| **ESPN news / RSS** | REST JSON (`site.web.api.espn.com`) + RSS (`espn.com`) | none | Headlines for the LLM digest (never numeric) | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
 | Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
-| ESPN news / RSS | REST / RSS | none | Headlines for LLM digest (never numeric) | Planned (slice 13) |
 
 ---
 
@@ -345,6 +345,39 @@ depends on FFC's non-exhaustive ADP list for byes.
     that team's bye at parse time; the completeness gate then rejects the whole
     pull, keeping the last complete mirror in place.
 
+### 7. ESPN news / RSS — headlines for the digest
+
+`src/ffb/sources/espn_news.py`. Narrative only. Headlines never enter scoring,
+consensus, VORP, sit/start, or ROS math.
+
+- **Endpoints**
+  ```
+  GET https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50
+  GET https://www.espn.com/espn/rss/nfl/news
+  ```
+  Unofficial JSON plus the public NFL RSS. Header `User-Agent: ffb/0.1
+  (personal use)`. **No auth.** `site.api.espn.com` is often blocked; the web
+  API host is the one the parser targets.
+- **What we extract** (`parse_news` / `parse_rss`, pure): article id, headline,
+  description, published time, web URL, and ESPN `athleteId` categories.
+  Malformed rows are skipped. RSS is snapshotted as `{"xml": "..."}` so the
+  JSON cache stays unchanged; RSS items have no athlete ids.
+- **Identity** — ESPN athlete ids resolve through the crosswalk `espn_id` at
+  ingest. Ambiguous or missing ids stay unmatched (`espn:<id>`). RSS attaches
+  at read time only when a roster or already-mentioned name uniquely appears
+  in the headline text.
+- **Storage** — `headlines` and `headline_mentions`. Atomic per-feed replace.
+  `ffb digest` left-joins them onto the user roster and unrostered mentions
+  (a watch list, not a waiver ranking). Haiku flags and a Sonnet Tuesday-brief
+  paragraph are optional and require `ANTHROPIC_API_KEY` or
+  `FFB_ANTHROPIC_API_KEY`.
+- **Snapshot keys** — `espn/news_nfl` and `espn/news_nfl_rss`.
+- **Gotchas**
+  - An empty/bad ESPN JSON refresh is rejected so it cannot wipe a known-good
+    headline cache. RSS is additive; a RSS failure leaves ESPN headlines in
+    place.
+  - News is part of `season sync` `all`. Status `complete` requires it.
+
 ---
 
 ## The access layer: snapshot cache
@@ -438,8 +471,6 @@ are not ingested today.
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Same access pattern as the crosswalk.
 - **Sleeper player status + trending adds/drops** (slice 11) — waiver signal.
-- **ESPN news / RSS headlines** (slice 13) — LLM-digested into per-player flags
-  and prose; **never** adjusts numbers directly.
 
 ## Source hygiene
 

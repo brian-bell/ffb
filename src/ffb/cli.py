@@ -16,7 +16,18 @@ from rich.table import Table
 
 from ffb import board as board_mod
 from ffb import config, paths
+from ffb import digest as digest_mod
 from ffb import ros as ros_mod
+from ffb.claude import (
+    HAIKU_MODEL,
+    SONNET_MODEL,
+    api_key_from_env,
+    complete_claude,
+    haiku_system_prompt,
+    haiku_user_prompt,
+    sonnet_system_prompt,
+    sonnet_user_prompt,
+)
 from ffb.consensus import consensus_rows
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
@@ -186,7 +197,7 @@ def season_sync(  # noqa: B008
     source: list[str] | None = typer.Option(  # noqa: B008
         None,
         "--source",
-        help="all, projections, adp, sleeper, espn, ffc, schedule, or injuries; repeatable.",
+        help="all, projections, adp, sleeper, espn, ffc, schedule, injuries, or news; repeatable.",
     ),
     missing_only: bool = typer.Option(
         False, "--missing-only", help="Fetch only missing snapshots."
@@ -287,7 +298,7 @@ def season_status(
 def season_unmatched(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="Data season."),
     source: str | None = typer.Option(
-        None, "--source", help="Filter to sleeper, espn, ffc, or injuries."
+        None, "--source", help="Filter to sleeper, espn, ffc, injuries, or news."
     ),
 ) -> None:
     """List current rows that did not resolve to canonical identities."""
@@ -467,6 +478,64 @@ def ros(
         raise typer.Exit(code=0)
     _render_ros(report, season=season, pos=pos, limit=limit)
     _report_scoring_provenance(league)
+
+
+@app.command()
+def digest(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    week: int | None = typer.Option(
+        None, "--week", help="Digest week label. Defaults to stored current week."
+    ),
+) -> None:
+    """Injury and headline context for the user roster and unrostered mentions."""
+    if week is not None and week < 1:
+        raise typer.BadParameter("week must be a positive integer")
+    store = _open_store()
+    context = store.league_context(season)
+    chosen_week = week
+    team_name = None
+    roster_rows: list[dict] = []
+    league_keys: set[str] = set()
+    if context is not None:
+        chosen_week = context["current_week"] if week is None else week
+        store.refresh_league_roster_identities(season, chosen_week)
+        teams = store.league_teams(season)
+        user_teams = [team for team in teams if team["is_user_team"]]
+        all_roster = store.league_roster_rows(season, week=chosen_week)
+        league_keys = {row["player_key"] for row in all_roster if row.get("matched")}
+        if len(user_teams) == 1:
+            team_name = user_teams[0]["name"]
+            roster_rows = [
+                row for row in all_roster if row["team_key"] == user_teams[0]["team_key"]
+            ]
+    elif week is None:
+        store.close()
+        console.print(
+            f"[yellow]No league state for {season}. Run: ffb league sync "
+            f"{season} --fixture PATH[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    status = _service(store).status(season)
+    injuries = store.injury_rows(season)
+    headlines = store.headline_rows(season)
+    mentions = store.headline_mention_rows(season)
+    store.close()
+    _warn_source_states(status, include_adp=False, wanted={"news", "injuries"})
+    players = attach_injuries(
+        [_digest_player(row) for row in roster_rows if row.get("matched")],
+        injuries,
+    )
+    report = digest_mod.build_digest(
+        roster=players,
+        headlines=headlines,
+        mentions=mentions,
+        league_keys=league_keys,
+        week=chosen_week,
+        team_name=team_name,
+    )
+    report["watch"] = attach_injuries(report["watch"], injuries)
+    _apply_digest_llm(report)
+    _render_digest(report)
 
 
 @app.command()
@@ -679,6 +748,11 @@ def _warn_source_states(status: dict, *, include_adp: bool, wanted: set[str] | N
                     f"[yellow]Warning: injuries has stale identity resolution; run "
                     f"`ffb season sync {status['season']} --source injuries`.[/yellow]"
                 )
+            elif source["name"] == "news":
+                console.print(
+                    f"[yellow]Warning: news has stale identity resolution; run "
+                    f"`ffb season sync {status['season']} --source news`.[/yellow]"
+                )
             else:
                 console.print(
                     f"[yellow]Warning: {source['name']} has stale identity resolution; "
@@ -758,6 +832,101 @@ def _bye_plan_player_label(player: dict) -> str:
         return f"{player['name']} ({position})"
     slot = player.get("selected_position") or "BN"
     return f"{player['name']} ({position}, {slot})"
+
+
+def _digest_player(row: dict) -> dict:
+    """Map a stored roster row into the digest's player shape (no points)."""
+    return {
+        "player_key": row["player_key"],
+        "full_name": row.get("full_name") or row.get("name"),
+        "position": row.get("position") or row.get("primary_position"),
+        "team": row.get("team") or row.get("nfl_team"),
+        "selected_position": row.get("selected_position"),
+        "matched": row.get("matched"),
+    }
+
+
+def _apply_digest_llm(report: dict) -> None:
+    """Fill Haiku flags and Sonnet narrative when an API key is present."""
+    key = api_key_from_env()
+    if key is None:
+        report["llm"]["error"] = "LLM skipped (no ANTHROPIC_API_KEY / FFB_ANTHROPIC_API_KEY)."
+        return
+    try:
+        flags = digest_mod.parse_haiku_flags(
+            complete_claude(
+                model=HAIKU_MODEL,
+                system=haiku_system_prompt(),
+                user=haiku_user_prompt(report),
+                api_key=key,
+            )
+        )
+        report["roster"] = digest_mod.apply_flags(report["roster"], flags)
+        report["watch"] = digest_mod.apply_flags(report["watch"], flags)
+        report["llm"]["haiku"] = True
+        report["narrative"] = digest_mod.parse_sonnet_narrative(
+            complete_claude(
+                model=SONNET_MODEL,
+                system=sonnet_system_prompt(),
+                user=sonnet_user_prompt(report),
+                api_key=key,
+            )
+        )
+        report["llm"]["sonnet"] = bool(report["narrative"])
+    except httpx.HTTPError as exc:
+        report["llm"]["error"] = f"LLM request failed: {exc}"
+
+
+def _digest_player_label(player: dict) -> str:
+    badge = player.get("flag") or injury_badge(player)
+    slot = player.get("selected_position")
+    bits = [player.get("full_name") or "—"]
+    if player.get("position"):
+        bits.append(str(player["position"]))
+    if player.get("team"):
+        bits.append(str(player["team"]))
+    if slot:
+        bits.append(str(slot))
+    if badge:
+        bits.append(str(badge))
+    return "  ".join(bits)
+
+
+def _render_digest(report: dict) -> None:
+    """Print roster/watch headlines and optional narrative. No point totals."""
+    week = report.get("week")
+    title = f"Week {week} news digest" if week is not None else "News digest"
+    team = report.get("team_name")
+    console.print(f"[yellow]{title}[/yellow]" + (f" — {team}" if team else ""))
+    if report.get("injury_as_of"):
+        console.print(f"Injuries as of {report['injury_as_of']}")
+    if report.get("news_as_of"):
+        console.print(f"Headlines as of {report['news_as_of']}")
+    if report["llm"].get("error"):
+        console.print(f"[yellow]{report['llm']['error']}[/yellow]")
+    if report.get("roster"):
+        console.print("[bold]Roster[/bold]")
+        for player in report["roster"]:
+            console.print(_digest_player_label(player))
+            if player.get("note"):
+                console.print(f"  {player['note']}")
+            for headline in player.get("headlines") or []:
+                console.print(f"  - {headline['headline']}")
+    if report.get("watch"):
+        console.print("[bold]Watch[/bold] (unrostered mentions, not a waiver ranking)")
+        for player in report["watch"]:
+            console.print(_digest_player_label(player))
+            if player.get("note"):
+                console.print(f"  {player['note']}")
+            for headline in player.get("headlines") or []:
+                console.print(f"  - {headline['headline']}")
+    if report.get("other_headlines"):
+        console.print("[bold]Other headlines[/bold]")
+        for headline in report["other_headlines"]:
+            console.print(f"  - {headline['headline']}")
+    if report.get("narrative"):
+        console.print("[bold]Tuesday brief[/bold]")
+        console.print(report["narrative"])
 
 
 def _render_lineup(report: dict, *, week: int, team_name: str) -> None:

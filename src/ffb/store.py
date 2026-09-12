@@ -109,6 +109,33 @@ CREATE TABLE IF NOT EXISTS injuries (
     PRIMARY KEY (player_key, season, source)
 );
 
+CREATE TABLE IF NOT EXISTS headlines (
+    headline_id VARCHAR,
+    season INTEGER,
+    source VARCHAR,
+    native_id VARCHAR,
+    headline VARCHAR,
+    summary VARCHAR,
+    url VARCHAR,
+    published_at VARCHAR,
+    fetched_at VARCHAR,
+    athlete_ids_json VARCHAR,
+    PRIMARY KEY (headline_id, season, source)
+);
+
+CREATE TABLE IF NOT EXISTS headline_mentions (
+    season INTEGER,
+    source VARCHAR,
+    headline_id VARCHAR,
+    native_id VARCHAR,
+    full_name VARCHAR,
+    player_key VARCHAR,
+    position VARCHAR,
+    team VARCHAR,
+    matched BOOLEAN,
+    PRIMARY KEY (season, source, headline_id, native_id)
+);
+
 CREATE TABLE IF NOT EXISTS season_source_state (
     season INTEGER,
     source VARCHAR,
@@ -464,6 +491,70 @@ class Store:
             raise
         self.conn.execute("COMMIT")
 
+    def replace_headlines(
+        self,
+        rows: list[dict[str, Any]],
+        mentions: list[dict[str, Any]],
+        season: int,
+        source: str,
+    ) -> None:
+        """Atomically mirror one season's headlines and athlete mentions."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.conn.execute(
+                "DELETE FROM headlines WHERE season = ? AND source = ?", [season, source]
+            )
+            self.conn.execute(
+                "DELETE FROM headline_mentions WHERE season = ? AND source = ?",
+                [season, source],
+            )
+            for row in rows:
+                athletes = row.get("athletes") or []
+                self.conn.execute(
+                    """
+                    INSERT INTO headlines
+                        (headline_id, season, source, native_id, headline, summary,
+                         url, published_at, fetched_at, athlete_ids_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        row["native_id"],
+                        season,
+                        source,
+                        row["native_id"],
+                        row["headline"],
+                        row.get("summary") or "",
+                        row.get("url"),
+                        row.get("published_at"),
+                        row["fetched_at"],
+                        json.dumps([item.get("native_id") for item in athletes]),
+                    ],
+                )
+            for mention in mentions:
+                self.conn.execute(
+                    """
+                    INSERT INTO headline_mentions
+                        (season, source, headline_id, native_id, full_name,
+                         player_key, position, team, matched)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        season,
+                        source,
+                        mention["headline_id"],
+                        mention["native_id"],
+                        mention.get("full_name"),
+                        mention["player_key"],
+                        mention.get("position"),
+                        mention.get("team"),
+                        mention["matched"],
+                    ],
+                )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
     def replace_projections(
         self, rows: list[dict[str, Any]], season: int, source: str, scope: str = "season"
     ) -> None:
@@ -689,6 +780,26 @@ class Store:
                 [season],
             ).fetchone()
             return (int(result[0]), int(result[1])) if result else (0, 0)
+        if source == "news":
+            result = self.conn.execute(
+                """
+                SELECT COUNT(*),
+                       COALESCE(SUM(CASE WHEN matched_headline THEN 1 ELSE 0 END), 0)
+                FROM (
+                    SELECT h.headline_id, h.source,
+                           BOOL_OR(m.matched) AS matched_headline
+                    FROM headlines h
+                    LEFT JOIN headline_mentions m
+                      ON m.season = h.season
+                     AND m.source = h.source
+                     AND m.headline_id = h.headline_id
+                    WHERE h.season = ?
+                    GROUP BY h.headline_id, h.source
+                )
+                """,
+                [season],
+            ).fetchone()
+            return (int(result[0]), int(result[1])) if result else (0, 0)
         if source == "schedule":
             # Bye rows are canonical by construction (unknown/ambiguous teams
             # are dropped at parse time), so every stored row counts as matched.
@@ -758,6 +869,20 @@ class Store:
             rows.extend(
                 dict(zip(injury_columns, values, strict=True))
                 for values in injury_cursor.fetchall()
+            )
+        if source is None or source == "news":
+            news_cursor = self.conn.execute(
+                """
+                SELECT DISTINCT 'news' AS source, native_id, player_key, full_name,
+                       position, team
+                FROM headline_mentions
+                WHERE season = ? AND NOT matched
+                """,
+                [season],
+            )
+            news_columns = [column[0] for column in news_cursor.description]
+            rows.extend(
+                dict(zip(news_columns, values, strict=True)) for values in news_cursor.fetchall()
             )
         return sorted(rows, key=lambda row: (row["source"], row["full_name"], row["native_id"]))
 
@@ -961,6 +1086,44 @@ class Store:
         cols = [c[0] for c in cursor.description]
         return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
 
+    def headline_rows(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
+        """Return stored ESPN/RSS headlines for a season as plain dicts."""
+        query = """
+            SELECT headline_id, season, source, native_id, headline, summary,
+                   url, published_at, fetched_at, athlete_ids_json
+            FROM headlines WHERE season = ?
+        """
+        params: list[Any] = [season]
+        if source is not None:
+            query += " AND source = ?"
+            params.append(source)
+        query += " ORDER BY source, published_at, native_id"
+        cursor = self.conn.execute(query, params)
+        cols = [column[0] for column in cursor.description]
+        rows = []
+        for values in cursor.fetchall():
+            row = dict(zip(cols, values, strict=True))
+            ids = json.loads(row.pop("athlete_ids_json") or "[]")
+            row["athletes"] = [
+                {"native_id": native_id, "full_name": ""} for native_id in ids if native_id
+            ]
+            rows.append(row)
+        return rows
+
+    def headline_mention_rows(self, season: int) -> list[dict[str, Any]]:
+        """Return resolved ESPN athlete mentions for digest attachment."""
+        cursor = self.conn.execute(
+            """
+            SELECT season, source, headline_id, native_id, full_name, player_key,
+                   position, team, matched
+            FROM headline_mentions WHERE season = ?
+            ORDER BY source, headline_id, native_id
+            """,
+            [season],
+        )
+        cols = [column[0] for column in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
     def injury_rows(self, season: int) -> list[dict[str, Any]]:
         """Return the dedicated Sleeper injury/status slice as plain dicts."""
         cursor = self.conn.execute(
@@ -1069,6 +1232,27 @@ class Store:
         ).fetchall()
         return any(
             stored_key != _unique_or_fallback("sleeper", native_id, crosswalk_keys)
+            for stored_key, native_id, crosswalk_keys in rows
+        )
+
+    def has_stale_news_resolution(self, season: int) -> bool:
+        """True when a stored ESPN athlete mention no longer matches the crosswalk.
+
+        Same uniqueness rule as ``resolve_batch``: a native id on more than one
+        ``player_key`` is unmatched rather than guessed.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT m.player_key, m.native_id, LIST(DISTINCT c.player_key)
+            FROM headline_mentions m
+            LEFT JOIN crosswalk c ON c.espn_id = m.native_id
+            WHERE m.season = ?
+            GROUP BY m.player_key, m.native_id
+            """,
+            [season],
+        ).fetchall()
+        return any(
+            stored_key != _unique_or_fallback("espn", native_id, crosswalk_keys)
             for stored_key, native_id, crosswalk_keys in rows
         )
 
