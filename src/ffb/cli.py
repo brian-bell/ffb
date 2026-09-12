@@ -19,7 +19,12 @@ from ffb import config, paths
 from ffb.consensus import consensus_rows
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
-from ffb.lineup import attach_weekly_points, compare_lineup
+from ffb.lineup import (
+    attach_injuries,
+    attach_weekly_points,
+    compare_lineup,
+    injury_badge,
+)
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import yahoo
@@ -369,13 +374,23 @@ def lineup(
         sources=active_sources,
         cfg=league.scoring,
     )
+    status = _service(store).status(season)
+    current_week = context["current_week"]
+    apply_injuries = chosen_week == current_week
+    injuries = store.injury_rows(season) if apply_injuries else []
     store.close()
+    _warn_source_states(status, include_adp=False, wanted={"injuries"})
+    if not apply_injuries:
+        console.print(
+            f"[yellow]Injury flags omitted for week {chosen_week}; "
+            f"Sleeper status is current-week only (week {current_week}).[/yellow]"
+        )
     if not roster_rows:
         console.print(
             f"[yellow]No roster players for {user['name']} in week {chosen_week}.[/yellow]"
         )
         raise typer.Exit(code=1)
-    players = attach_weekly_points(roster_rows, consensus)
+    players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
     report = compare_lineup(players, league.roster_slots)
     _render_lineup(report, week=chosen_week, team_name=user["name"])
     _report_scoring_provenance(league)
@@ -571,11 +586,12 @@ def _export_board(
     console.print("[green]Wrote[/green] " + ", ".join(str(path) for path in written))
 
 
-def _warn_source_states(status: dict, *, include_adp: bool) -> None:
-    wanted = {"crosswalk", "sleeper", "espn"}
-    if include_adp:
-        # The board consumes ADP and schedule byes; warn when either is off.
-        wanted.update(("ffc", "schedule", "injuries"))
+def _warn_source_states(status: dict, *, include_adp: bool, wanted: set[str] | None = None) -> None:
+    if wanted is None:
+        wanted = {"crosswalk", "sleeper", "espn"}
+        if include_adp:
+            # The board consumes ADP and schedule byes; warn when either is off.
+            wanted.update(("ffc", "schedule", "injuries"))
     for source in status["sources"]:
         if source["name"] not in wanted:
             continue
@@ -616,6 +632,8 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
         f"Optimal {report['optimal_total']:.1f}   "
         f"Δ {report['delta']:+.1f}"
     )
+    if report.get("injury_as_of"):
+        console.print(f"Injuries as of {report['injury_as_of']}")
     table = Table(title=f"Week {week} lineup")
     table.add_column("Slot", justify="center")
     table.add_column("Current")
@@ -627,20 +645,21 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
         right = pair["optimal"]
         table.add_row(
             pair["slot"],
-            left["name"] if left else "—",
+            _lineup_name(left) if left else "—",
             _num(left["points"]) if left else "—",
-            right["name"] if right else "—",
+            _lineup_name(right) if right else "—",
             _num(right["points"]) if right else "—",
         )
     console.print(table)
     if report["start"] or report["sit"] or report["undecidable"]:
         for row in report["start"]:
             console.print(
-                f"[green]Start[/green] {row['name']} ({row['slot']}, {_num(row['points'])})"
+                f"[green]Start[/green] {_lineup_name(row)} ({row['slot']}, {_num(row['points'])})"
             )
         for row in report["sit"]:
             console.print(
-                f"[red]Sit[/red] {row['name']} ({row['selected_position']}, {_num(row['points'])})"
+                f"[red]Sit[/red] {_lineup_name(row)} "
+                f"({row['selected_position']}, {_num(row['points'])})"
             )
         for row in report["undecidable"]:
             console.print(
@@ -699,6 +718,12 @@ def _cell(value: object) -> str:
 
 def _num(value: object) -> str:
     return "—" if value is None else f"{value:.1f}"
+
+
+def _lineup_name(row: dict) -> str:
+    name = row["name"]
+    badge = injury_badge(row)
+    return f"{name} ({badge})" if badge else name
 
 
 def _value_delta(row: dict) -> str:

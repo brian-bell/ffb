@@ -1,10 +1,14 @@
 """Sit/start optimizer: weekly points vs stored selected_position."""
 
+import pytest
+
 from ffb.lineup import (
     CLOSE_CALL_POINTS,
     align_lineup_slots,
+    attach_injuries,
     attach_weekly_points,
     compare_lineup,
+    injury_badge,
     projection_key,
 )
 
@@ -300,3 +304,254 @@ def test_close_call_flags_bench_within_threshold_of_a_starter_slot():
     assert report["close_calls"][0]["name"] == "Close RB"
     assert report["close_calls"][0]["versus"] == "Starter RB"
     assert report["close_calls"][0]["delta"] == CLOSE_CALL_POINTS
+
+
+def _injury(player_key, status, *, matched=True, fetched_at="2026-09-12T12:00:00Z"):
+    return {
+        "player_key": player_key,
+        "season": 2024,
+        "source": "sleeper",
+        "native_id": player_key,
+        "status": status,
+        "fetched_at": fetched_at,
+        "matched": matched,
+    }
+
+
+def test_attach_injuries_joins_matched_status_onto_current_and_optimal_rows():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="start",
+                    full_name="Starter RB",
+                    selected_position="RB",
+                    player_key="start",
+                    matched=True,
+                ),
+                _roster(
+                    yahoo_player_id="bench",
+                    full_name="Bench RB",
+                    selected_position="BN",
+                    player_key="bench",
+                    matched=True,
+                ),
+            ],
+            [_consensus("start", 10.0), _consensus("bench", 8.0)],
+        ),
+        [_injury("start", "QUESTIONABLE"), _injury("bench", "OUT")],
+    )
+    report = compare_lineup(players, {"RB": 1, "BN": 1})
+
+    assert report["current"][0]["injury"] == {
+        "status": "QUESTIONABLE",
+        "fetched_at": "2026-09-12T12:00:00Z",
+    }
+    assert report["optimal"][0]["injury"]["status"] == "QUESTIONABLE"
+    assert injury_badge(report["current"][0]) == "Q"
+    assert report["injury_as_of"] == "2026-09-12T12:00:00Z"
+
+
+def test_attach_injuries_ignores_unmatched_and_blank_status():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    full_name="Starter RB",
+                    selected_position="RB",
+                    player_key="start",
+                    matched=True,
+                )
+            ],
+            [_consensus("start", 10.0)],
+        ),
+        [
+            _injury("start", "OUT", matched=False),
+            _injury("other", None),
+        ],
+    )
+
+    assert players[0]["injury"] is None
+    assert compare_lineup(players, {"RB": 1})["optimal"][0]["name"] == "Starter RB"
+
+
+def test_out_starter_is_sat_for_healthy_backup():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="out",
+                    full_name="Out Starter",
+                    selected_position="RB",
+                    player_key="out",
+                    matched=True,
+                ),
+                _roster(
+                    yahoo_player_id="backup",
+                    full_name="Healthy Backup",
+                    selected_position="BN",
+                    player_key="backup",
+                    matched=True,
+                ),
+            ],
+            [_consensus("out", 22.0), _consensus("backup", 6.0)],
+        ),
+        [_injury("out", "OUT")],
+    )
+    report = compare_lineup(players, {"RB": 1, "BN": 1})
+
+    assert [row["name"] for row in report["optimal"]] == ["Healthy Backup"]
+    assert [row["name"] for row in report["start"]] == ["Healthy Backup"]
+    assert [row["name"] for row in report["sit"]] == ["Out Starter"]
+    assert report["sit"][0]["injury"]["status"] == "OUT"
+    assert report["start"][0].get("injury") is None
+    assert report["current"][0]["points"] == 22.0
+    assert report["current_total"] == 0.0
+    assert report["optimal_total"] == 6.0
+    assert report["delta"] == 6.0
+
+
+@pytest.mark.parametrize("status", ["DOUBTFUL", "IR", "PUP", "NFI"])
+def test_unavailable_status_is_not_started(status):
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="down",
+                    full_name="Unavailable Star",
+                    selected_position="BN",
+                    player_key="down",
+                    matched=True,
+                ),
+                _roster(
+                    yahoo_player_id="ok",
+                    full_name="Healthy Starter",
+                    selected_position="RB",
+                    player_key="ok",
+                    matched=True,
+                ),
+            ],
+            [_consensus("down", 20.0), _consensus("ok", 5.0)],
+        ),
+        [_injury("down", status)],
+    )
+    report = compare_lineup(players, {"RB": 1, "BN": 1})
+
+    assert [row["name"] for row in report["optimal"]] == ["Healthy Starter"]
+    assert report["start"] == []
+    assert report["sit"] == []
+
+
+def test_questionable_player_can_still_be_the_optimal_starter():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="q",
+                    full_name="Questionable Star",
+                    selected_position="BN",
+                    player_key="q",
+                    matched=True,
+                ),
+                _roster(
+                    yahoo_player_id="ok",
+                    full_name="Healthy Backup",
+                    selected_position="RB",
+                    player_key="ok",
+                    matched=True,
+                ),
+            ],
+            [_consensus("q", 18.0), _consensus("ok", 8.0)],
+        ),
+        [_injury("q", "QUESTIONABLE")],
+    )
+    report = compare_lineup(players, {"RB": 1, "BN": 1})
+
+    assert [row["name"] for row in report["optimal"]] == ["Questionable Star"]
+    assert [row["name"] for row in report["start"]] == ["Questionable Star"]
+    assert report["optimal"][0]["injury"]["status"] == "QUESTIONABLE"
+
+
+def test_out_starter_is_not_retained_when_the_slot_has_no_replacement():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="out",
+                    full_name="Out QB",
+                    primary_position="QB",
+                    eligible_positions=["QB"],
+                    selected_position="QB",
+                    player_key="out",
+                    matched=True,
+                )
+            ],
+            [_consensus("out", 16.0)],
+        ),
+        [_injury("out", "OUT")],
+    )
+    report = compare_lineup(players, {"QB": 1})
+
+    assert [row["name"] for row in report["current"]] == ["Out QB"]
+    assert report["optimal"] == []
+    assert [row["name"] for row in report["sit"]] == ["Out QB"]
+    assert report["undecidable"] == []
+    assert report["current"][0]["points"] == 16.0
+    assert report["current_total"] == 0.0
+    assert report["optimal_total"] == 0.0
+    assert report["delta"] == 0.0
+    qb = next(row for row in report["aligned"] if row["slot"] == "QB")
+    assert qb["current"]["name"] == "Out QB"
+    assert qb["optimal"] is None
+
+
+def test_unavailable_bench_is_not_a_close_call():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="start",
+                    full_name="Starter RB",
+                    selected_position="RB",
+                    player_key="start",
+                    matched=True,
+                ),
+                _roster(
+                    yahoo_player_id="bench",
+                    full_name="Out Close RB",
+                    selected_position="BN",
+                    player_key="bench",
+                    matched=True,
+                ),
+            ],
+            [_consensus("start", 12.0), _consensus("bench", 12.0 - CLOSE_CALL_POINTS)],
+        ),
+        [_injury("bench", "OUT")],
+    )
+    report = compare_lineup(players, {"RB": 1, "BN": 1})
+
+    assert report["close_calls"] == []
+    assert report["start"] == []
+
+
+def test_questionable_starter_still_counts_in_current_total():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="q",
+                    full_name="Questionable Starter",
+                    selected_position="RB",
+                    player_key="q",
+                    matched=True,
+                )
+            ],
+            [_consensus("q", 14.0)],
+        ),
+        [_injury("q", "QUESTIONABLE")],
+    )
+    report = compare_lineup(players, {"RB": 1})
+
+    assert report["current_total"] == 14.0
+    assert report["optimal_total"] == 14.0
+    assert report["delta"] == 0.0

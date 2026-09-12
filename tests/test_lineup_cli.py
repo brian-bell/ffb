@@ -20,7 +20,7 @@ def _env(tmp_path):
     }
 
 
-def _weekly_row(player_key, name, position, team, native_id, stats, matched=True):
+def _weekly_row(player_key, name, position, team, native_id, stats, matched=True, scope="week1"):
     return {
         "player_key": player_key,
         "native_id": native_id,
@@ -30,7 +30,7 @@ def _weekly_row(player_key, name, position, team, native_id, stats, matched=True
         "matched": matched,
         "season": 2024,
         "source": "sleeper",
-        "scope": "week1",
+        "scope": scope,
         "stats": stats,
         "src_pts_ppr": None,
         "draftable": True,
@@ -256,3 +256,217 @@ def test_lineup_table_keeps_vacant_optimal_under_the_same_slot(tmp_path):
     assert "Rookie QB" in result.output
     qb_line = next(line for line in result.output.splitlines() if "QB" in line and "Rookie" in line)
     assert "Derrick Henry" not in qb_line
+
+
+def _injury_row(player_key, name, status, native_id):
+    return {
+        "player_key": player_key,
+        "native_id": native_id,
+        "full_name": name,
+        "position": "RB",
+        "team": "BAL",
+        "raw_injury_status": status.title() if status != "IR" else "IR",
+        "raw_roster_status": "Active",
+        "status": status,
+        "fetched_at": "2026-09-12T12:00:00Z",
+        "matched": True,
+    }
+
+
+def test_lineup_shows_injury_flags_on_current_and_optimal_rows(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.replace_injuries(
+        [
+            _injury_row("rb-low", "Slow Back", "OUT", "slow"),
+            _injury_row("13971", "Ja'Marr Chase", "QUESTIONABLE", "7564"),
+        ],
+        2024,
+    )
+    store.close()
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    current_rb = next(
+        line for line in result.output.splitlines() if "Slow Back" in line and "RB" in line
+    )
+    chase_line = next(line for line in result.output.splitlines() if "Ja'Marr Chase" in line)
+    assert "(OUT)" in current_rb
+    assert "(Q)" in chase_line
+    assert "Injuries as of 2026-09-12T12:00:00Z" in result.output
+    assert "Start" in result.output
+    assert "Sit" in result.output
+    sit_line = next(line for line in result.output.splitlines() if line.startswith("Sit"))
+    assert "Slow Back" in sit_line
+    assert "OUT" in sit_line
+    assert "Current 19.0" in result.output
+    assert "Optimal 37.0" in result.output
+    assert "Δ +18.0" in result.output
+
+
+def test_lineup_does_not_start_an_out_bench_player(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.replace_injuries([_injury_row("12626", "Derrick Henry", "OUT", "3198")], 2024)
+    store.close()
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Derrick Henry" not in "\n".join(
+        line for line in result.output.splitlines() if line.startswith("Start")
+    )
+    assert "Stored lineup matches the weekly optimum." in result.output
+
+
+def test_lineup_skips_injuries_for_a_non_current_week(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.upsert_projections(
+        [
+            _weekly_row(
+                "12626",
+                "Derrick Henry",
+                "RB",
+                "BAL",
+                "3198",
+                {"rush_yd": 180.0},
+                scope="week2",
+            ),
+            _weekly_row(
+                "rb-low", "Slow Back", "RB", "KCC", "slow", {"rush_yd": 40.0}, scope="week2"
+            ),
+            _weekly_row(
+                "13971",
+                "Ja'Marr Chase",
+                "WR",
+                "CIN",
+                "7564",
+                {"rec": 10.0, "rec_yd": 80.0},
+                scope="week2",
+            ),
+            _weekly_row(
+                "wr-flex",
+                "Flex Filler",
+                "WR",
+                "CHI",
+                "flex",
+                {"rec": 2.0, "rec_yd": 20.0},
+                scope="week2",
+            ),
+            _weekly_row("def:SFO", "49ers", "DEF", "SFO", "SF", {"sack": 3.0}, scope="week2"),
+        ]
+    )
+    store.replace_injuries([_injury_row("12626", "Derrick Henry", "OUT", "3198")], 2024)
+    store.close()
+
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    week2 = json.loads(FIXTURE.read_text())
+    week2["league"]["current_week"] = 2
+    for roster in week2["rosters"]:
+        roster["week"] = 2
+    week2_path = tmp_path / "week2.json"
+    week2_path.write_text(json.dumps(week2))
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(week2_path)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    historical = runner.invoke(app, ["lineup", "2024", "--week", "1"], env=env)
+    assert historical.exit_code == 0, historical.output
+    assert "Injury flags omitted" in historical.output
+    assert "(OUT)" not in historical.output
+    start_lines = [line for line in historical.output.splitlines() if line.startswith("Start")]
+    assert any("Derrick Henry" in line for line in start_lines)
+
+    current = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert current.exit_code == 0, current.output
+    assert "Injury flags omitted" not in current.output
+    assert "Derrick Henry" not in "\n".join(
+        line for line in current.output.splitlines() if line.startswith("Start")
+    )
+
+
+def test_lineup_warns_when_injuries_are_missing(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Warning: injuries is missing" in result.output
+
+
+def test_lineup_warns_when_injuries_failed(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.upsert_season_source_state(
+        {
+            "season": 2024,
+            "source": "injuries",
+            "latest_attempt_status": "failed",
+            "last_attempt_at": "2026-09-12T12:00:00Z",
+            "last_success_at": None,
+            "row_count": 0,
+            "match_count": 0,
+            "snapshot_key": None,
+            "snapshot_modified_at": None,
+            "snapshot_sha256": None,
+            "latest_error": "empty snapshot",
+        }
+    )
+    store.close()
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Warning: injuries is failed: empty snapshot" in result.output
+
+
+def test_lineup_warns_when_injuries_are_stale(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.replace_injuries(
+        [
+            {
+                **_injury_row("wrong-key", "Derrick Henry", "OUT", "3198"),
+                "player_key": "wrong-key",
+            }
+        ],
+        2024,
+    )
+    store.upsert_season_source_state(
+        {
+            "season": 2024,
+            "source": "injuries",
+            "latest_attempt_status": "ready",
+            "last_attempt_at": "2026-09-12T12:00:00Z",
+            "last_success_at": "2026-09-12T12:00:00Z",
+            "row_count": 1,
+            "match_count": 1,
+            "snapshot_key": "sleeper/players_nfl",
+            "snapshot_modified_at": "2026-09-12T12:00:00Z",
+            "snapshot_sha256": "abc",
+            "latest_error": None,
+        }
+    )
+    store.close()
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Warning: injuries has stale identity resolution" in result.output
