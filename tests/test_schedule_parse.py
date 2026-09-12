@@ -98,6 +98,37 @@ def test_parse_empty_or_wrong_shape_returns_empty():
     assert schedule.parse_byes(None, 2026) == []
 
 
+def _games(rows: list[dict]) -> list[tuple[int, str, str]]:
+    return [(row["week"], row["home_team"], row["away_team"]) for row in rows]
+
+
+def test_parse_games_keeps_regular_season_matchups_with_canonical_teams(raw):
+    rows = schedule.parse_games(raw, 2024)
+    assert (1, "BAL", "BUF") in _games(rows)
+    assert (1, "JAC", "KCC") in _games(rows)  # JAX → JAC, KC → KCC
+    assert (1, "LAR", "LAC") in _games(rows)  # LA → LAR
+    assert all(row["season"] == 2024 and row["source"] == "schedule" for row in rows)
+    assert all(row["home_team"] in config.NFL_TEAM_CODES for row in rows)
+    assert all(row["away_team"] in config.NFL_TEAM_CODES for row in rows)
+
+
+def test_parse_games_ignores_non_regular_season_and_other_seasons(raw):
+    games = _games(schedule.parse_games(raw, 2024))
+    assert (2, "SFO", "KCC") not in games  # fixture POST game
+    assert schedule.parse_games(raw, 2025) == []
+
+
+def test_parse_games_skips_unknown_teams_and_malformed_rows(raw):
+    rows = schedule.parse_games(raw, 2024)
+    assert all({row["home_team"], row["away_team"]}.issubset(config.NFL_TEAM_CODES) for row in rows)
+
+
+def test_parse_games_empty_or_wrong_shape_returns_empty():
+    assert schedule.parse_games([], 2026) == []
+    assert schedule.parse_games({"status": "error"}, 2026) == []
+    assert schedule.parse_games(None, 2026) == []
+
+
 def test_snapshot_key():
     assert schedule.snapshot_key(2026) == "nflverse/schedule_2026"
 

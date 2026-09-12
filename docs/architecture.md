@@ -34,7 +34,7 @@ queries, and transaction boundaries. The main stored domains are:
 | Domain | Tables | Purpose |
 | --- | --- | --- |
 | Identity | `crosswalk`, `players` | Canonical and fallback player identities |
-| Source data | `projections`, `adp`, `team_byes`, `injuries` | Normalized raw values used at read time |
+| Source data | `projections`, `adp`, `team_byes`, `schedule_games`, `injuries` | Normalized raw values used at read time |
 | Source health | `season_source_state` | Attempts, successes, counts, snapshots, and errors |
 | League context | `league_settings`, `league_teams`, `league_rosters` | Validated fixture-backed league state |
 
@@ -47,12 +47,13 @@ cross-version schema migration is deliberately unsupported.
 DuckDB projections ──→ scoring ──→ consensus ──┐
 DuckDB ADP ────────────────────────────────────┤
 DuckDB team byes ──────────────────────────────┤
+DuckDB schedule games ─────────────────────────┤
 DuckDB injuries ───────────────────────────────┤
 stored/fallback league context ────────────────┘
                                                 ↓
                                   player-pool selection
                                                 ↓
-                                      VORP → tiers → ranks
+                      VORP → tiers → ranks  |  ROS report
                                                 ↓
                               terminal / Markdown / CSV / JSON
 ```
@@ -67,9 +68,12 @@ reads `scope=week{N}` consensus plus stored `selected_position` for
 the stored current week. Out, doubtful, IR, PUP, and NFI players are shown but
 never assigned as optimal starters, and their current-lineup contribution is
 zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
-or stale injury source state is warned before the report. `board.py` merges
-consensus, ADP, and byes, selects the requested player pool, then derives VORP,
-tiers, and ranks.
+or stale injury source state is warned before the report. `ffb ros` is another
+season-slice read: it joins consensus to schedule-derived byes and
+regular-season games, ranks playoff-week opponent DEF consensus, and (when a
+user roster is stored) groups that roster by bye. `board.py` merges consensus,
+ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
+ranks.
 
 This ordering matters: the default draftable filter runs before all derived
 values, so replacement baselines and ranks describe the board that the user

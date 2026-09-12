@@ -40,7 +40,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season and weekly projections (offense + K/DEF stat lines) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
-| **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → one bye week per team | **Live** |
+| **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → team byes + regular-season games | **Live** |
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
@@ -318,8 +318,10 @@ depends on FFC's non-exhaustive ADP list for byes.
   (`KC`/`SF`/`LA`); every code routes through `identity.canonical_team`
   (`config.TEAM_ALIASES` carries `LA → LAR` for this source, plus retired
   `OAK → LVR` for stale crosswalk teams on the join side).
-- **Storage** — the `team_byes` table, keyed `(season, source, team)`. Byes are
-  a **source value, so they are stored** (like ADP, unlike computed points).
+- **Storage** — the `team_byes` table, keyed `(season, source, team)`, and
+  `schedule_games`, keyed `(season, source, week, home_team, away_team)`. Both
+  are **source values, so they are stored** (like ADP, unlike computed points).
+  `ffb ros` uses the games for playoff-week slates; byes still feed the board.
 - **Ingest** (`ensure_schedule_ingested`) — re-parses + re-resolves from the
   cached snapshot on **every** run (atomic delete-then-insert mirror): parsing
   ~272 games is trivial, and a `TEAM_ALIASES` tuning change reaches the DB
@@ -330,7 +332,10 @@ depends on FFC's non-exhaustive ADP list for byes.
 - **How it's used** — `board.py` joins byes onto every row by canonical team
   (players, kickers, and `def:<team>` D/ST alike), independent of ADP. The
   schedule bye wins; FFC's per-player `bye` field is only a fallback when the
-  schedule lacks the team.
+  schedule lacks the team. `ros.py` joins the same byes plus stored regular-
+  season games onto season consensus for playoff-week opponents and bye
+  planning. Opponent DEF consensus (higher = harder) is a read-time proxy for
+  schedule strength; it is not points-allowed.
 - **Snapshot key** — `nflverse/schedule_{season}`.
 - **Gotchas**
   - The schedule for an upcoming season is published in May; syncing before
@@ -389,7 +394,8 @@ roster components independently, falling back to placeholders safely.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors
-schedule-derived team byes into `team_byes` the same way. `ffb board show/export`
+schedule-derived team byes into `team_byes` and regular-season games into
+`schedule_games` the same way. `ffb board show/export`
 then left-joins that ADP onto the consensus in `board.py`, joins byes by
 canonical team, and defaults to the strict draftable pool. Consensus projection
 evidence is authoritative; ADP-only rows require matched identity plus a current

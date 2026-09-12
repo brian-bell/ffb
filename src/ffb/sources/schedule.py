@@ -1,4 +1,4 @@
-"""nflverse season schedule source: complete team bye weeks.
+"""nflverse season schedule source: team bye weeks and regular-season games.
 
 Pulled via ``nflreadpy.load_schedules`` (spike-verified 2026-07-23: 272 REG
 games, columns ``season/game_type/week/home_team/away_team``, team codes in
@@ -98,4 +98,56 @@ def parse_byes(raw: Any, season: int) -> list[dict[str, Any]]:
             log.warning("skip team %s with ambiguous bye (missing weeks %s)", team, sorted(missing))
             continue
         rows.append({"season": season, "source": SOURCE, "team": team, "bye": missing.pop()})
+    return rows
+
+
+def parse_games(raw: Any, season: int) -> list[dict[str, Any]]:
+    """Return canonical regular-season games from a raw schedule pull.
+
+    Unknown team codes and malformed rows are skipped, never guessed. Returns
+    ``[]`` for an empty or wrong-shaped payload so callers can treat games as
+    additive to the bye completeness gate.
+    """
+    if not isinstance(raw, list):
+        log.warning("schedule pull is not a list; no game rows")
+        return []
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, str, str]] = set()
+    for game in raw:
+        if not isinstance(game, dict):
+            log.warning("skip non-object schedule entry: %r", game)
+            continue
+        if game.get("season") != season:
+            continue
+        if game.get("game_type") != "REG":
+            continue
+        week = game.get("week")
+        if not isinstance(week, int):
+            log.warning("skip schedule game with missing/invalid week: %s", game)
+            continue
+        home = identity.canonical_team(game.get("home_team"))
+        away = identity.canonical_team(game.get("away_team"))
+        if home is None or away is None:
+            log.warning(
+                "skip schedule game with unknown team home=%r away=%r (week %s)",
+                game.get("home_team"),
+                game.get("away_team"),
+                week,
+            )
+            continue
+        key = (season, week, home, away)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "season": season,
+                "source": SOURCE,
+                "week": week,
+                "home_team": home,
+                "away_team": away,
+            }
+        )
+    rows.sort(key=lambda row: (row["week"], row["home_team"], row["away_team"]))
     return rows

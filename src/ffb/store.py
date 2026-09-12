@@ -6,7 +6,9 @@ Everything else (ingest, rankings, CLI) goes through this class. A test
 Projections are keyed by a canonical ``player_key`` (nflverse ``mfl_id`` for
 players, ``def:<team>`` for defenses) so multiple sources align for consensus;
 the ``crosswalk`` table maps each player's native id onto it, while ``source``
-and ``scope`` keep weekly projections (slice 9) additive. Scoring is NOT stored —
+and ``scope`` keep weekly projections (slice 9) additive. Regular-season games
+live beside team byes so ``ffb ros`` can build a playoff slate at read time.
+Scoring is NOT stored —
 points are computed from
 ``stats_json`` at read time so rankings stay reproducible and league re-scoring
 (slice 4) is a config swap.
@@ -80,6 +82,15 @@ CREATE TABLE IF NOT EXISTS team_byes (
     team   VARCHAR,                    -- canonical MFL-style team code
     bye    INTEGER,
     PRIMARY KEY (season, source, team)
+);
+
+CREATE TABLE IF NOT EXISTS schedule_games (
+    season INTEGER,
+    source VARCHAR,                    -- 'schedule'
+    week INTEGER,
+    home_team VARCHAR,                 -- canonical MFL-style team code
+    away_team VARCHAR,
+    PRIMARY KEY (season, source, week, home_team, away_team)
 );
 
 CREATE TABLE IF NOT EXISTS injuries (
@@ -552,6 +563,55 @@ class Store:
         cursor = self.conn.execute(
             "SELECT season, source, team, bye FROM team_byes "
             "WHERE season = ? AND source = ? ORDER BY team",
+            [season, source],
+        )
+        cols = [c[0] for c in cursor.description]
+        return [dict(zip(cols, values, strict=True)) for values in cursor.fetchall()]
+
+    def upsert_schedule_games(self, rows: list[dict[str, Any]]) -> None:
+        """Insert-or-replace regular-season games used by the ROS playoff slate."""
+        for row in rows:
+            self.conn.execute(
+                """
+                INSERT INTO schedule_games
+                    (season, source, week, home_team, away_team)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (season, source, week, home_team, away_team) DO NOTHING
+                """,
+                [
+                    row.get("season"),
+                    row.get("source"),
+                    row.get("week"),
+                    row.get("home_team"),
+                    row.get("away_team"),
+                ],
+            )
+
+    def delete_schedule_games(self, season: int, source: str = "schedule") -> None:
+        """Remove a ``(season, source)`` game slice so a re-ingest mirrors."""
+        self.conn.execute(
+            "DELETE FROM schedule_games WHERE season = ? AND source = ?",
+            [season, source],
+        )
+
+    def replace_schedule_games(
+        self, rows: list[dict[str, Any]], season: int, source: str = "schedule"
+    ) -> None:
+        """Atomically mirror one regular-season game slice."""
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            self.delete_schedule_games(season, source)
+            self.upsert_schedule_games(rows)
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+
+    def schedule_game_rows(self, season: int, source: str = "schedule") -> list[dict[str, Any]]:
+        """Return stored regular-season games for a season/source as plain dicts."""
+        cursor = self.conn.execute(
+            "SELECT season, source, week, home_team, away_team FROM schedule_games "
+            "WHERE season = ? AND source = ? ORDER BY week, home_team, away_team",
             [season, source],
         )
         cols = [c[0] for c in cursor.description]

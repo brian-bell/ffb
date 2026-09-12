@@ -32,6 +32,9 @@ def test_schedule_ingest_offline_from_snapshot(store, tmp_path):
     assert byes["KCC"] == 2
     assert byes["LAR"] == 3
     assert byes["BAL"] == 4
+    games = {(r["week"], r["home_team"], r["away_team"]) for r in store.schedule_game_rows(2024)}
+    assert (1, "BAL", "BUF") in games
+    assert (1, "JAC", "KCC") in games
     assert recon.source == "schedule"
     assert recon.n_rows == 32
     assert recon.matched == 32
@@ -42,11 +45,14 @@ def test_schedule_ingest_reparses_every_run(store, tmp_path):
     cache = _prime(tmp_path / "snap")
     ensure_schedule_ingested(store, cache, season=2024, fetch=_no_network)
     store.conn.execute("DELETE FROM team_byes WHERE team = 'KCC'")
+    store.conn.execute("DELETE FROM schedule_games WHERE home_team = 'BAL'")
 
     ensure_schedule_ingested(store, cache, season=2024, fetch=_no_network)
 
     byes = {r["team"]: r["bye"] for r in store.team_bye_rows(2024)}
     assert byes["KCC"] == 2  # plain re-run restores the mirror, no refresh needed
+    games = {(r["week"], r["home_team"], r["away_team"]) for r in store.schedule_game_rows(2024)}
+    assert (1, "BAL", "BUF") in games
 
 
 def test_schedule_ingest_empty_parse_raises(store, tmp_path):
