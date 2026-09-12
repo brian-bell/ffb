@@ -88,6 +88,21 @@ def test_sync_news_records_ready_state(tmp_path):
     assert tracked["snapshot"]["key"] == "espn/news_nfl"
 
 
+def test_status_marks_news_stale_after_crosswalk_change(tmp_path):
+    store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
+    service.sync(2024, selectors=["news"])
+    from ffb.sources.crosswalk import parse_crosswalk
+
+    spine = parse_crosswalk(json.loads((FIXTURES / "ff_playerids_sample.json").read_text()))
+    store.replace_crosswalk([row for row in spine if row["player_key"] != "12626"])
+    status = service.status(2024)
+    store.close()
+
+    tracked = next(s for s in status["sources"] if s["name"] == "news")
+    assert tracked["stale"] is True
+    assert status["complete"] is False
+
+
 def test_sync_schedule_records_ready_state(tmp_path):
     store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
 

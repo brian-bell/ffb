@@ -372,6 +372,11 @@ class SeasonDataService:
                     and bool(row_count)
                     and self.store.has_stale_injury_resolution(season)
                 )
+                or (
+                    source == "news"
+                    and bool(row_count)
+                    and self.store.has_stale_news_resolution(season)
+                )
             )
             sources.append(
                 {

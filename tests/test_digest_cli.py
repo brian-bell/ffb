@@ -106,6 +106,40 @@ def test_digest_skips_llm_without_a_key(tmp_path):
     assert "game-time call" not in result.output
 
 
+def test_digest_warns_when_news_mentions_are_stale(tmp_path):
+    env = _seed(tmp_path)
+    _sync_league_and_news(tmp_path, env)
+    store = Store(env["FFB_DB_PATH"])
+    store.replace_crosswalk(
+        [
+            row
+            for row in parse_crosswalk(json.loads(XWALK.read_text()))
+            if row["player_key"] != "12626"
+        ]
+    )
+    store.upsert_season_source_state(
+        {
+            "season": 2024,
+            "source": "news",
+            "latest_attempt_status": "ready",
+            "last_attempt_at": "2026-09-12T12:00:00Z",
+            "last_success_at": "2026-09-12T12:00:00Z",
+            "row_count": 6,
+            "match_count": 2,
+            "snapshot_key": "espn/news_nfl",
+            "snapshot_modified_at": "2026-09-12T12:00:00Z",
+            "snapshot_sha256": "abc",
+            "latest_error": None,
+        }
+    )
+    store.close()
+    result = runner.invoke(app, ["digest", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    compact = " ".join(result.output.split())
+    assert "news has stale identity resolution" in compact
+    assert "--source news" in compact
+
+
 def test_digest_warns_when_news_is_missing(tmp_path):
     env = _seed(tmp_path)
     synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)

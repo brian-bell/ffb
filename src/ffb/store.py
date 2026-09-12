@@ -1235,6 +1235,27 @@ class Store:
             for stored_key, native_id, crosswalk_keys in rows
         )
 
+    def has_stale_news_resolution(self, season: int) -> bool:
+        """True when a stored ESPN athlete mention no longer matches the crosswalk.
+
+        Same uniqueness rule as ``resolve_batch``: a native id on more than one
+        ``player_key`` is unmatched rather than guessed.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT m.player_key, m.native_id, LIST(DISTINCT c.player_key)
+            FROM headline_mentions m
+            LEFT JOIN crosswalk c ON c.espn_id = m.native_id
+            WHERE m.season = ?
+            GROUP BY m.player_key, m.native_id
+            """,
+            [season],
+        ).fetchall()
+        return any(
+            stored_key != _unique_or_fallback("espn", native_id, crosswalk_keys)
+            for stored_key, native_id, crosswalk_keys in rows
+        )
+
     def has_legacy_defense_return_td_stats(
         self, season: int, source: str, scope: str = "season"
     ) -> bool:

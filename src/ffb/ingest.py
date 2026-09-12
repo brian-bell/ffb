@@ -421,16 +421,21 @@ def ensure_news_ingested(
             fetch_rss or espn_news.fetch_rss,
             refresh=refresh,
             policy=selected_policy,
-            is_valid=lambda data: (
-                espn_news.parse_rss(data) is not None
-                and isinstance(data, dict)
-                and isinstance(data.get("xml"), str)
-            ),
+            is_valid=lambda data: bool(espn_news.parse_rss(data)),
         )
-        rss_rows = [{**row, "fetched_at": snapshot_time} for row in espn_news.parse_rss(rss_raw)]
-        store.replace_headlines(rss_rows, [], season, "espn_rss")
     except Exception as exc:  # noqa: BLE001 - RSS is additive; ESPN can stand alone
         log.info("processing source=news step=rss skipped error=%s", exc)
+    else:
+        parsed_rss = espn_news.parse_rss(rss_raw)
+        if not parsed_rss:
+            log.info("processing source=news step=rss skipped reason=empty-or-invalid")
+        else:
+            rss_metadata = cache.metadata(espn_news.rss_snapshot_key())
+            rss_time = rss_metadata.modified_at if rss_metadata else None
+            if rss_time is None:
+                raise ValueError("ESPN RSS snapshot has no fetched timestamp")
+            rss_rows = [{**row, "fetched_at": rss_time} for row in parsed_rss]
+            store.replace_headlines(rss_rows, [], season, "espn_rss")
 
     recon = Reconciliation(source="news", n_rows=len(stamped) + len(rss_rows))
     recon.matched = matched_headlines

@@ -748,6 +748,11 @@ def _warn_source_states(status: dict, *, include_adp: bool, wanted: set[str] | N
                     f"[yellow]Warning: injuries has stale identity resolution; run "
                     f"`ffb season sync {status['season']} --source injuries`.[/yellow]"
                 )
+            elif source["name"] == "news":
+                console.print(
+                    f"[yellow]Warning: news has stale identity resolution; run "
+                    f"`ffb season sync {status['season']} --source news`.[/yellow]"
+                )
             else:
                 console.print(
                     f"[yellow]Warning: {source['name']} has stale identity resolution; "
