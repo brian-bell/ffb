@@ -1105,9 +1105,7 @@ class Store:
             row = dict(zip(cols, values, strict=True))
             ids = json.loads(row.pop("athlete_ids_json") or "[]")
             row["athletes"] = [
-                {"native_id": native_id, "full_name": ""}
-                for native_id in ids
-                if native_id
+                {"native_id": native_id, "full_name": ""} for native_id in ids if native_id
             ]
             rows.append(row)
         return rows

@@ -17,7 +17,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def _store(tmp_path):
     store = Store(tmp_path / "ffb.duckdb")
     store.init_schema()
-    store.replace_crosswalk(parse_crosswalk(json.loads((FIXTURES / "ff_playerids_sample.json").read_text())))
+    raw = json.loads((FIXTURES / "ff_playerids_sample.json").read_text())
+    store.replace_crosswalk(parse_crosswalk(raw))
     return store
 
 

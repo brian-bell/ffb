@@ -138,9 +138,23 @@ def test_headlines_do_not_change_rankings(tmp_path):
         ]
     )
     store.close()
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
     before = runner.invoke(app, ["rankings", "2024", "-p", "RB"], env=env)
     assert before.exit_code == 0, before.output
-    _sync_league_and_news(tmp_path, env)
+    from ffb.ingest import ensure_news_ingested
+    from ffb.snapshot import SnapshotCache
+
+    store = Store(env["FFB_DB_PATH"])
+    ensure_news_ingested(
+        store,
+        SnapshotCache(tmp_path / "snapshots"),
+        2024,
+        fetch=lambda: json.loads(NEWS.read_text()),
+        fetch_rss=lambda: json.loads(RSS.read_text()),
+        fetched_at="2026-09-12T12:00:00Z",
+    )
+    store.close()
     after = runner.invoke(app, ["rankings", "2024", "-p", "RB"], env=env)
     assert after.exit_code == 0, after.output
     assert before.output == after.output

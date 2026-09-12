@@ -206,7 +206,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     result = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
 
     assert result.exit_code == 1
-    assert result.output.lower().count("failed") == 6
+    assert result.output.lower().count("failed") == 7
     assert "offline snapshot missing" in result.output
 
 

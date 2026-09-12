@@ -421,9 +421,11 @@ def ensure_news_ingested(
             fetch_rss or espn_news.fetch_rss,
             refresh=refresh,
             policy=selected_policy,
-            is_valid=lambda data: espn_news.parse_rss(data) is not None
-            and isinstance(data, dict)
-            and isinstance(data.get("xml"), str),
+            is_valid=lambda data: (
+                espn_news.parse_rss(data) is not None
+                and isinstance(data, dict)
+                and isinstance(data.get("xml"), str)
+            ),
         )
         rss_rows = [{**row, "fetched_at": snapshot_time} for row in espn_news.parse_rss(rss_raw)]
         store.replace_headlines(rss_rows, [], season, "espn_rss")

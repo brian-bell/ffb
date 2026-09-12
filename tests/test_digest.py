@@ -75,6 +75,7 @@ def test_attach_headlines_uses_mentions_then_unique_name_hits():
         native_id="49800114",
         headline="Week 1 schedule notes",
         summary="Kickoff times and weather.",
+        url="https://www.espn.com/nfl/story/_/id/49800114/schedule",
         athletes=[],
     )
     players = attach_headlines(
@@ -140,7 +141,9 @@ def test_parse_haiku_flags_is_defensive():
 
 
 def test_parse_sonnet_narrative_strips_fences():
-    assert parse_sonnet_narrative("```\nStay patient with Henry.\n```") == "Stay patient with Henry."
+    assert (
+        parse_sonnet_narrative("```\nStay patient with Henry.\n```") == "Stay patient with Henry."
+    )
     assert parse_sonnet_narrative("   ") == ""
 
 

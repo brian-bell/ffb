@@ -11,7 +11,7 @@ import json
 import re
 from typing import Any
 
-from ffb.lineup import attach_injuries, injury_as_of
+from ffb.lineup import injury_as_of
 from ffb.names import normalize_name
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
@@ -28,9 +28,7 @@ def name_mentioned(name: str, text: str) -> bool:
 
 def _headline_text(headline: dict[str, Any]) -> str:
     return " ".join(
-        part
-        for part in (headline.get("headline") or "", headline.get("summary") or "")
-        if part
+        part for part in (headline.get("headline") or "", headline.get("summary") or "") if part
     )
 
 
