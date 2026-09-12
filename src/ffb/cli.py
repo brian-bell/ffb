@@ -190,6 +190,11 @@ def season_sync(  # noqa: B008
     verbose: bool = typer.Option(
         False, "-v", "--verbose", help="Log API calls and processing steps."
     ),
+    week: int | None = typer.Option(
+        None,
+        "--week",
+        help="Also ingest weekly Sleeper/ESPN projections for this week.",
+    ),
 ) -> None:
     """Synchronize selected season datasets and record each outcome."""
     selected_policies = sum((missing_only, refresh, offline))
@@ -197,6 +202,8 @@ def season_sync(  # noqa: B008
         raise typer.BadParameter("choose only one of --missing-only, --refresh, or --offline")
     if offline and refresh:
         raise typer.BadParameter("--offline and --refresh cannot be combined")
+    if week is not None and week < 1:
+        raise typer.BadParameter("week must be a positive integer")
     policy = (
         SnapshotPolicy.REFRESH
         if refresh
@@ -207,7 +214,9 @@ def season_sync(  # noqa: B008
     store = _open_store()
     try:
         with _verbose_sync_logging(verbose):
-            results = _service(store).sync(season, selectors=source, policy=policy, rebuild=rebuild)
+            results = _service(store).sync(
+                season, selectors=source, policy=policy, rebuild=rebuild, week=week
+            )
     except ValueError as exc:
         store.close()
         raise typer.BadParameter(str(exc)) from exc

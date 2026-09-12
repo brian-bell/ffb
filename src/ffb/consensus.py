@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ffb.config import DEFAULT_PPR, ScoringConfig
+from ffb.config import DEFAULT_PPR, ScoringConfig, projection_scope
 from ffb.scoring import ppr_points
 from ffb.store import Store
 
@@ -25,8 +25,14 @@ def consensus_rows(
     scope: str = "season",
     cfg: ScoringConfig = DEFAULT_PPR,
     sources: list[str] | None = None,
+    *,
+    week: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return consensus rows sorted by consensus points descending.
+
+    ``week`` is keyword-only and selects the ``week{{N}}`` projection slice,
+    overriding ``scope``. Rankings and the board keep calling this with the
+    season default.
 
     ``sources`` restricts which sources contribute (``None`` = every source
     stored). Callers pass the active set so output depends on the request, not on
@@ -39,6 +45,8 @@ def consensus_rows(
     ``matched``, ``source_points`` ({source: pts}), ``consensus``, ``n``, and
     internal ``draftable`` activity aggregated across contributing sources.
     """
+    if week is not None:
+        scope = projection_scope(week)
     rows = store.projection_rows(season=season, position=position, source=None, scope=scope)
     allowed = set(sources) if sources is not None else None
 

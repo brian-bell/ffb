@@ -158,3 +158,48 @@ def test_injury_attempt_throttle_is_global_across_services_and_seasons(tmp_path)
     assert throttled.state == "failed"
     assert "throttled" in (throttled.error or "")
     assert injury_calls == 2
+
+
+def test_sync_week_ingests_weekly_slices_without_changing_season_status(tmp_path):
+    fetchers = _fixture_fetchers()
+    fetchers["sleeper_week"] = lambda: json.loads(
+        (FIXTURES / "sleeper_projections_week1_sample.json").read_text()
+    )
+    fetchers["espn_week"] = lambda: json.loads(
+        (FIXTURES / "espn_projections_week1_sample.json").read_text()
+    )
+    store, service = _fixture_service(tmp_path, fetchers=fetchers)
+
+    results = {r.source: r for r in service.sync(2024, selectors=["projections"], week=1)}
+    status = service.status(2024)
+    sleeper_status = next(s for s in status["sources"] if s["name"] == "sleeper")
+
+    assert results["sleeper"].state == "ready"
+    assert results["espn"].state == "ready"
+    assert results["sleeper week 1"].state == "ready"
+    assert results["espn week 1"].state == "ready"
+    assert results["sleeper week 1"].rows == 3
+    assert results["espn week 1"].rows == 2
+    assert store.has_season(2024, source="sleeper", scope="week1")
+    assert store.has_season(2024, source="espn", scope="week1")
+    assert sleeper_status["row_count"] == store.source_counts(2024, "sleeper")[0]
+    assert sleeper_status["snapshot"]["key"] == sleeper.snapshot_key(2024)
+    assert not any(s["name"].endswith("week 1") for s in status["sources"])
+    store.close()
+
+
+def test_sync_without_week_does_not_touch_weekly_snapshots(tmp_path):
+    fetchers = _fixture_fetchers()
+
+    def boom():
+        raise AssertionError("weekly fetch must not run during season sync")
+
+    fetchers["sleeper_week"] = boom
+    fetchers["espn_week"] = boom
+    store, service = _fixture_service(tmp_path, fetchers=fetchers)
+
+    results = {r.source: r for r in service.sync(2024, selectors=["sleeper"])}
+    store.close()
+
+    assert results["sleeper"].state == "ready"
+    assert "sleeper week 1" not in results

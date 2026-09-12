@@ -3,13 +3,15 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from ffb.config import FANTASY_POSITIONS, LEAGUE_SCORING
 from ffb.scoring import ppr_points
-from ffb.sources.espn import parse_projections
+from ffb.sources.espn import fetch_projections, parse_projections, snapshot_key
 
 FIXTURE = Path(__file__).parent / "fixtures" / "espn_projections_sample.json"
+WEEK_FIXTURE = Path(__file__).parent / "fixtures" / "espn_projections_week1_sample.json"
 
 
 @pytest.fixture
@@ -194,6 +196,63 @@ def test_idp_opt_in_retains_row(raw):
     assert roquan["stats"]["sack"] == 1.890186109
     # The punter's position is still unmapped -> still excluded under the opt-in.
     assert all(r["native_id"] != "15928" for r in rows)
+
+
+def test_snapshot_key_encodes_season_and_optional_week():
+    assert snapshot_key(2026) == "espn/projections_2026"
+    assert snapshot_key(2026, week=1) == "espn/projections_2026_week1"
+
+
+def test_weekly_parse_selects_scoring_period_and_emits_week_scope():
+    raw = json.loads(WEEK_FIXTURE.read_text())
+    rows = parse_projections(raw, season=2024, week=1)
+    henry = next(r for r in rows if r["native_id"] == "3043078")
+    assert henry["scope"] == "week1"
+    assert henry["stats"]["rush_yd"] == 72.0
+    assert henry["stats"]["rush_td"] == 0.6
+    assert all(r["scope"] == "week1" for r in rows)
+    assert all(r["native_id"] != "4362628" for r in rows)
+    assert all(r["native_id"] != "999901" for r in rows)
+    assert all(r["native_id"] != "3915189" for r in rows)
+    defense = next(r for r in rows if r["native_id"] == "-16025")
+    assert defense["position"] == "DEF"
+    assert defense["stats"]["sack"] == 2.5
+
+
+def test_season_parse_ignores_weekly_scoring_period_entries():
+    raw = json.loads(WEEK_FIXTURE.read_text())
+    rows = parse_projections(raw, season=2024)
+    henry = next(r for r in rows if r["native_id"] == "3043078")
+    assert henry["scope"] == "season"
+    assert henry["stats"]["rush_yd"] == 1075.87
+
+
+def test_fetch_weekly_sets_scoring_period(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured["url"] = url
+        captured["params"] = params
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        return httpx.Response(200, json=[], request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    fetch_projections(2026, week=1)
+    assert captured["params"]["scoringPeriodId"] == 1
+    assert captured["params"]["view"] == "kona_player_info"
+
+
+def test_fetch_season_uses_scoring_period_zero(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_get(url, *, params, headers, timeout):
+        captured["params"] = params
+        request = httpx.Request("GET", url, params=params, headers=headers)
+        return httpx.Response(200, json=[], request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    fetch_projections(2026)
+    assert captured["params"]["scoringPeriodId"] == 0
 
 
 def test_skips_rows_with_no_scorable_stats():

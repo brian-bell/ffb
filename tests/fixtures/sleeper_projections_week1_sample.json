@@ -1,0 +1,78 @@
+[
+  {
+    "player_id": "3198",
+    "company": "rotowire",
+    "season": "2024",
+    "week": 1,
+    "season_type": "regular",
+    "stats": {
+      "rush_att": 18.0, "rush_yd": 80.0, "rush_td": 1.0,
+      "rec": 1.0, "rec_yd": 8.0, "fum_lost": 0.0,
+      "pts_ppr": 15.8, "pts_half_ppr": 15.3
+    },
+    "player": {
+      "first_name": "Derrick", "last_name": "Henry",
+      "position": "RB", "team": "BAL", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "SF",
+    "company": "rotowire",
+    "season": "2024",
+    "week": 1,
+    "season_type": "regular",
+    "stats": {
+      "sack": 3.0, "int": 1.0, "fum_rec": 0.0,
+      "pts_allow_14_20": 1.0, "pts_ppr": 6.0
+    },
+    "player": {
+      "first_name": "San Francisco", "last_name": "49ers",
+      "position": "DEF", "team": "SF", "fantasy_positions": ["DEF"]
+    }
+  },
+  {
+    "player_id": "6790",
+    "company": "rotowire",
+    "season": "2024",
+    "week": 1,
+    "season_type": "regular",
+    "stats": {
+      "rush_yd": 55.0, "rush_td": 0.0, "rec": 2.0, "rec_yd": 12.0,
+      "pts_ppr": 8.7
+    },
+    "player": {
+      "first_name": "Jonathan", "last_name": "Taylor",
+      "position": "RB", "team": "IND", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "3198",
+    "company": "some_other_company",
+    "season": "2024",
+    "week": 1,
+    "stats": {"rush_yd": 99.0, "pts_ppr": 20.0},
+    "player": {
+      "first_name": "Derrick", "last_name": "Henry",
+      "position": "RB", "team": "BAL", "fantasy_positions": ["RB"]
+    }
+  },
+  {
+    "player_id": "4960",
+    "company": "rotowire",
+    "season": "2024",
+    "week": 1,
+    "stats": {"idp_tkl": 8.0, "pts_ppr": 9.0},
+    "player": {
+      "first_name": "Roquan", "last_name": "Smith",
+      "position": "LB", "team": "BAL", "fantasy_positions": ["LB"]
+    }
+  },
+  {
+    "player_id": "9999",
+    "company": "rotowire",
+    "season": "2024",
+    "week": 1,
+    "stats": {"rush_yd": 5.0},
+    "player": null
+  }
+]

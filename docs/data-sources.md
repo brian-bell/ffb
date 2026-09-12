@@ -36,8 +36,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 
 | Source | Access | Auth | Provides | Status |
 |---|---|---|---|---|
-| **Sleeper projections** | REST JSON (`api.sleeper.com`) | none | Season projections (all offensive + K/DEF stat lines) | **Live** |
-| **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season projections (offense + K/DEF stat lines) | **Live** |
+| **Sleeper projections** | REST JSON (`api.sleeper.com`) | none | Season and weekly projections (all offensive + K/DEF stat lines) | **Live** |
+| **ESPN projections** | Unofficial REST JSON (`lm-api-reads.fantasy.espn.com`) | none | Season and weekly projections (offense + K/DEF stat lines) | **Live** |
 | **nflverse `ff_playerids`** | `nflreadpy` (parquet → polars) | none | Identity crosswalk across mfl/sleeper/espn/yahoo/gsis ids | **Live** |
 | **Fantasy Football Calculator** | REST JSON (`fantasyfootballcalculator.com`) | none | ADP (draft value-vs-cost) for the cheat sheet | **Live** |
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → one bye week per team | **Live** |
@@ -52,19 +52,20 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 
 ## Live sources
 
-### 1. Sleeper — season projections
+### 1. Sleeper — season and weekly projections
 
 `src/ffb/sources/sleeper.py`. The primary projection source.
 
 - **Endpoint**
   ```
-  GET https://api.sleeper.com/projections/nfl/{season}
+  GET https://api.sleeper.com/projections/nfl/{season}[/{week}]
       ?season_type=regular
       &order_by=pts_ppr
       &position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF
   ```
   Positions come from `config.SLEEPER_POSITIONS`. Header `User-Agent: ffb/0.1
-  (personal use)`, 30s timeout. **No auth.**
+  (personal use)`, 30s timeout. **No auth.** Omit `/{week}` for season totals.
+  `ffb season sync SEASON --week N` also pulls the weekly path.
 - **Response** — a JSON list of rows, one per player-per-company. Each row has:
   - `player` — `first_name`, `last_name`, `position`, `team`
   - `player_id` — Sleeper's native id (→ crosswalk `sleeper_id`)
@@ -75,7 +76,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   config.SLEEPER_COMPANY` (`"rotowire"`, pinned for determinism); drop rows with no
   player/position/id; dedupe by `player_id`. Each kept row becomes
   `{native_id, full_name, position, team, season, source="sleeper",
-  scope="season", stats, src_pts_ppr=stats.pts_ppr, draftable}`. `draftable` is
+  scope="season"|f"week{N}", stats, src_pts_ppr=stats.pts_ppr, draftable}`.
+  `scope` is `season` unless parse is asked for a week. `draftable` is
   true only when the raw `player.team` canonicalizes to a current NFL team;
   null, blank, `FA`, and unknown codes are false. The **entire raw `stats` dict
   is stored** — scoring later picks out the keys it knows.
@@ -90,7 +92,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   weight `pass_int` and `fum_lost`. Everything else Sleeper emits (`adp_*`,
   `bonus_rec_*`, `idp_*`, per-distance receptions, first downs, attempts) is
   intentionally unscored and ignored at read time.
-- **Snapshot key** — `sleeper/projections_nfl_{season}_regular`.
+- **Snapshot key** — `sleeper/projections_nfl_{season}_regular` for season
+  totals, or `sleeper/projections_nfl_{season}_regular_week{N}` for one week.
 - **Gotchas**
   - One company is pinned; multi-company averaging is not done.
   - The rotowire kicker line only projects **40+ yard** FGs (`fgm_40_49`,
@@ -145,7 +148,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   contact. This personal repository uses the non-commercial path; deployment
   for commercial use must stop for a licensing decision.
 
-### 3. ESPN — season projections
+### 3. ESPN — season and weekly projections
 
 `src/ffb/sources/espn.py`. Second projection source, combined with persisted
 Sleeper data to form a consensus. **Unofficial, undocumented endpoint** — no
@@ -154,18 +157,20 @@ auth, may drift.
 - **Endpoint**
   ```
   GET https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season}/players
-      ?view=kona_player_info&scoringPeriodId=0
+      ?view=kona_player_info&scoringPeriodId={period}
   Header x-fantasy-filter: {"players":{"limit":5000,
                             "sortPercOwned":{"sortAsc":false,"sortPriority":1}}}
   Header Accept: application/json,  User-Agent: ffb/0.1 (personal use)
   ```
-  60s timeout. The `limit` (`DEFAULT_LIMIT = 5000`) is deliberately above the full
-  player universe (~2,900) so the low-owned tail is never silently dropped.
+  `scoringPeriodId=0` is the season total; a positive week number is that week's
+  projection. 60s timeout. The `limit` (`DEFAULT_LIMIT = 5000`) is deliberately
+  above the full player universe (~2,900) so the low-owned tail is never silently
+  dropped. `ffb season sync SEASON --week N` also pulls the weekly period.
 - **Response** — a **bare top-level JSON list** of player objects (not wrapped in
   `{"players": …}`). Each has `id`, `fullName`, `active`, `proTeamId`,
-  `defaultPositionId`, and a `stats[]` array. The **season projection** is the
-  `stats[]` entry with `statSourceId == 1 && scoringPeriodId == 0`; its `stats`
-  is a `{numeric statId: value}` map.
+  `defaultPositionId`, and a `stats[]` array. The requested projection is the
+  `stats[]` entry with `statSourceId == 1 && scoringPeriodId == {period}`; its
+  `stats` is a `{numeric statId: value}` map.
 - **What we extract** (`parse_projections`):
   - Position via `config.ESPN_POSITION_MAP` (`defaultPositionId` →
     `QB/RB/WR/TE/K/DEF`; ESPN's D/ST label is normalized to `DEF`).
@@ -181,7 +186,9 @@ auth, may drift.
     false; those rows remain stored when they otherwise have usable stats.
   - **Rows with no decoded scorable stats are skipped** rather than emitted at
     zero, which avoids incorrectly diluting a cross-source consensus.
-- **Snapshot key** — `espn/projections_{season}`.
+  - `scope` is `season` unless parse is asked for a week (`week{N}`).
+- **Snapshot key** — `espn/projections_{season}` for season totals, or
+  `espn/projections_{season}_week{N}` for one week.
 - **Gotchas**
   - Unofficial endpoint: if ESPN changes shape, the committed fixture keeps CI
     green; re-verify with `ffb season sync [SEASON] --refresh --source espn`.

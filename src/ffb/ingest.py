@@ -140,7 +140,13 @@ def resolve_rows(
     return resolved, recon
 
 
-def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str) -> Reconciliation:
+def _finalize(
+    store: Store,
+    rows: list[dict[str, Any]],
+    season: int,
+    source: str,
+    scope: str = "season",
+) -> Reconciliation:
     """Resolve parsed rows, replace the source's slice, and report the outcome."""
     resolved, recon = resolve_rows(store, rows, source)
     log.info(
@@ -152,7 +158,7 @@ def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str
     )
     # Mirror the source: drop the existing slice so a refresh can't leave behind
     # players no longer in the fresh snapshot.
-    store.replace_projections(resolved, season, source)
+    store.replace_projections(resolved, season, source, scope)
     log.info(
         "processing source=%s step=store action=replace rows=%s",
         source,
@@ -162,7 +168,7 @@ def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str
         "ingested %d %s rows for %s (%d matched, %d unmatched)",
         recon.n_rows,
         source,
-        season,
+        season if scope == "season" else f"{season} {scope}",
         recon.matched,
         recon.unmatched,
     )
@@ -176,19 +182,18 @@ def _finalize(store: Store, rows: list[dict[str, Any]], season: int, source: str
     return recon
 
 
-def _can_skip(store: Store, season: int, source: str, refresh: bool) -> bool:
-    """Skip re-ingest only when the source's season slice is present, not being
+def _can_skip(store: Store, season: int, source: str, refresh: bool, scope: str = "season") -> bool:
+    """Skip re-ingest only when the requested scope slice is present, not being
     refreshed, and has no stale (now-resolvable) rows to re-resolve.
 
-    The presence check is scoped to ``season`` to match what these entry points
-    ingest: a weekly-scope row (slice 9) must not make the season slice look
-    present and get skipped.
+    Presence, stale detection, and legacy-stat replay are all scoped so a weekly
+    row cannot make the season slice look present (or vice versa).
     """
     return (
-        store.has_season(season, source=source, scope="season")
+        store.has_season(season, source=source, scope=scope)
         and not refresh
-        and not store.has_stale_resolution(season, source)
-        and not store.has_legacy_defense_return_td_stats(season, source)
+        and not store.has_stale_resolution(season, source, scope=scope)
+        and not store.has_legacy_defense_return_td_stats(season, source, scope=scope)
     )
 
 
@@ -200,35 +205,45 @@ def ensure_ingested(
     refresh: bool = False,
     policy: SnapshotPolicy | str | None = None,
     rebuild: bool = False,
+    week: int | None = None,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> Reconciliation:
-    """Ensure ``season`` Sleeper projections are stored, resolved to player_key.
+    """Ensure Sleeper projections are stored, resolved to player_key.
 
-    Idempotent: skips when already present, unless ``refresh`` (network re-fetch)
-    or a crosswalk that arrived after ingest now makes stranded rows resolvable
-    (re-resolved offline from the cached snapshot). Returns a
-    :class:`Reconciliation` (all-zero when skipped).
+    ``week=None`` ingests the season slice; a positive ``week`` ingests that
+    week's ``week{{N}}`` slice. Idempotent: skips when the requested scope is
+    already present, unless ``refresh`` (network re-fetch) or a crosswalk that
+    arrived after ingest now makes stranded rows resolvable (re-resolved offline
+    from the cached snapshot). Returns a :class:`Reconciliation` (all-zero when
+    skipped).
     """
-    if _can_skip(store, season, "sleeper", refresh) and not rebuild:
+    scope = config.projection_scope(week)
+    if _can_skip(store, season, "sleeper", refresh, scope=scope) and not rebuild:
         log.info(
-            "processing source=sleeper step=skip reason=already-ingested season=%s",
+            "processing source=sleeper step=skip reason=already-ingested season=%s scope=%s",
             season,
+            scope,
         )
         return Reconciliation(source="sleeper")
 
-    fetch_fn = fetch or (lambda: sleeper.fetch_projections(season))
+    fetch_fn = fetch or (
+        (lambda: sleeper.fetch_projections(season, week=week))
+        if week is not None
+        else (lambda: sleeper.fetch_projections(season))
+    )
     raw = cache.get_json(
-        sleeper.snapshot_key(season),
+        sleeper.snapshot_key(season, week=week),
         fetch_fn,
         refresh=refresh,
         policy=policy,
-        is_valid=lambda data: bool(sleeper.parse_projections(data)),
+        is_valid=lambda data: bool(sleeper.parse_projections(data, week=week)),
     )
-    rows = sleeper.parse_projections(raw)
+    rows = sleeper.parse_projections(raw, week=week)
     if not rows:
-        raise ValueError(f"Sleeper projections for {season} returned no usable rows")
-    log.info("processing source=sleeper step=parse usable_rows=%s", len(rows))
-    return _finalize(store, rows, season, "sleeper")
+        label = str(season) if week is None else f"{season} week {week}"
+        raise ValueError(f"Sleeper projections for {label} returned no usable rows")
+    log.info("processing source=sleeper step=parse usable_rows=%s scope=%s", len(rows), scope)
+    return _finalize(store, rows, season, "sleeper", scope=scope)
 
 
 def ensure_injuries_ingested(
@@ -334,32 +349,41 @@ def ensure_espn_ingested(
     refresh: bool = False,
     policy: SnapshotPolicy | str | None = None,
     rebuild: bool = False,
+    week: int | None = None,
     fetch: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> Reconciliation:
-    """Ensure ``season`` ESPN projections are stored, resolved to player_key.
+    """Ensure ESPN projections are stored, resolved to player_key.
 
     Same idempotency + late-crosswalk self-healing as :func:`ensure_ingested`.
+    ``week=None`` is the season slice; a positive ``week`` is ``week{{N}}``.
     """
-    if _can_skip(store, season, "espn", refresh) and not rebuild:
+    scope = config.projection_scope(week)
+    if _can_skip(store, season, "espn", refresh, scope=scope) and not rebuild:
         log.info(
-            "processing source=espn step=skip reason=already-ingested season=%s",
+            "processing source=espn step=skip reason=already-ingested season=%s scope=%s",
             season,
+            scope,
         )
         return Reconciliation(source="espn")
 
-    fetch_fn = fetch or (lambda: espn.fetch_projections(season))
+    fetch_fn = fetch or (
+        (lambda: espn.fetch_projections(season, week=week))
+        if week is not None
+        else (lambda: espn.fetch_projections(season))
+    )
     raw = cache.get_json(
-        espn.snapshot_key(season),
+        espn.snapshot_key(season, week=week),
         fetch_fn,
         refresh=refresh,
         policy=policy,
-        is_valid=lambda data: bool(espn.parse_projections(data, season)),
+        is_valid=lambda data: bool(espn.parse_projections(data, season, week=week)),
     )
-    rows = espn.parse_projections(raw, season)
+    rows = espn.parse_projections(raw, season, week=week)
     if not rows:
-        raise ValueError(f"ESPN projections for {season} returned no usable rows")
-    log.info("processing source=espn step=parse usable_rows=%s", len(rows))
-    return _finalize(store, rows, season, "espn")
+        label = str(season) if week is None else f"{season} week {week}"
+        raise ValueError(f"ESPN projections for {label} returned no usable rows")
+    log.info("processing source=espn step=parse usable_rows=%s scope=%s", len(rows), scope)
+    return _finalize(store, rows, season, "espn", scope=scope)
 
 
 def resolve_adp_rows(

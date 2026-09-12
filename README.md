@@ -35,8 +35,9 @@ uv run ffb board export 2026
 `season sync` is the only projection, ADP, schedule, and crosswalk ingestion
 path. Its default policy reuses existing snapshots and fetches only missing
 ones. Use `--refresh` to fetch selected sources again, `--offline` to prohibit
-network access, and `--rebuild` to force cached data back through parsing and
-atomic replacement.
+network access, `--rebuild` to force cached data back through parsing and
+atomic replacement, and `--week N` to also ingest that week's Sleeper/ESPN
+projections (stored as `scope=week{N}`; rankings and the board stay season-only).
 
 Read commands never fetch. They warn about missing, failed, stale, or untracked
 inputs and use whatever valid projection sources are persisted. Inspect misses

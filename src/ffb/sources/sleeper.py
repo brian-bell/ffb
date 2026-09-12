@@ -2,7 +2,7 @@
 
 Endpoint (no auth, verified 2026-07-20)::
 
-    GET https://api.sleeper.com/projections/nfl/{season}
+    GET https://api.sleeper.com/projections/nfl/{season}[/{week}]
         ?season_type=regular&position[]=RB&...&order_by=pts_ppr
 
 Each row embeds ``player`` (name/pos/team), ``stats`` (raw stat line plus
@@ -38,21 +38,25 @@ def _normalize_stats(raw_stats: dict[str, Any], position: str) -> dict[str, Any]
     return stats
 
 
-def snapshot_key(season: int) -> str:
-    return f"sleeper/projections_nfl_{season}_regular"
+def snapshot_key(season: int, week: int | None = None) -> str:
+    if week is None:
+        return f"sleeper/projections_nfl_{season}_regular"
+    return f"sleeper/projections_nfl_{season}_regular_{config.projection_scope(week)}"
 
 
 def fetch_projections(
     season: int,
     positions: tuple[str, ...] = config.SLEEPER_POSITIONS,
+    *,
+    week: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch raw season projection rows from Sleeper. Hits the network."""
+    """Fetch raw season or weekly projection rows from Sleeper. Hits the network."""
     params: list[tuple[str, str]] = [
         ("season_type", "regular"),
         ("order_by", "pts_ppr"),
     ]
     params += [("position[]", pos) for pos in positions]
-    url = f"{BASE_URL}/{season}"
+    url = f"{BASE_URL}/{season}" if week is None else f"{BASE_URL}/{season}/{week}"
     log.info(
         "api request provider=sleeper method=GET url=%s params=%s",
         url,
@@ -72,6 +76,8 @@ def parse_projections(
     raw: list[dict[str, Any]],
     company: str = config.SLEEPER_COMPANY,
     allowed_positions: Collection[str] | None = None,
+    *,
+    week: int | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize raw rows into records ready for the store.
 
@@ -86,6 +92,7 @@ def parse_projections(
     """
     if allowed_positions is None:
         allowed_positions = config.FANTASY_POSITIONS
+    scope = config.projection_scope(week)
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     skipped_positions = 0
@@ -123,7 +130,7 @@ def parse_projections(
                     "draftable": identity.canonical_team(player.get("team")) is not None,
                     "season": int(item.get("season", 0)),
                     "source": "sleeper",
-                    "scope": "season",
+                    "scope": scope,
                     "stats": stats,
                     "src_pts_ppr": stats.get("pts_ppr"),
                 }

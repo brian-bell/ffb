@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ffb import config
 from ffb.ingest import (
     ensure_adp_ingested,
     ensure_crosswalk,
@@ -93,18 +94,29 @@ class SeasonDataService:
         selectors: list[str] | None = None,
         policy: SnapshotPolicy = SnapshotPolicy.MISSING_ONLY,
         rebuild: bool = False,
+        week: int | None = None,
     ) -> list[SyncResult]:
+        if week is not None:
+            config.projection_scope(week)
         sources = ["crosswalk", *expand_sources(selectors)]
         log.info(
-            "sync start season=%s sources=%s policy=%s rebuild=%s",
+            "sync start season=%s sources=%s policy=%s rebuild=%s week=%s",
             season,
             ",".join(sources),
             policy,
             rebuild,
+            week,
         )
-        return [
+        results = [
             self._sync_one(season, source, policy=policy, rebuild=rebuild) for source in sources
         ]
+        if week is not None:
+            for source in sources:
+                if source in ("sleeper", "espn"):
+                    results.append(
+                        self._sync_weekly(season, source, week, policy=policy, rebuild=rebuild)
+                    )
+        return results
 
     def _sync_one(
         self, season: int, source: str, *, policy: SnapshotPolicy, rebuild: bool
@@ -247,6 +259,73 @@ class SeasonDataService:
                 exc,
             )
             return SyncResult(source, "failed", rows, matched, str(exc))
+
+    def _sync_weekly(
+        self,
+        season: int,
+        source: str,
+        week: int,
+        *,
+        policy: SnapshotPolicy,
+        rebuild: bool,
+    ) -> SyncResult:
+        """Ingest one weekly projection slice without rewriting season source state."""
+        refresh = policy is SnapshotPolicy.REFRESH
+        snapshot_key = (
+            sleeper.snapshot_key(season, week=week)
+            if source == "sleeper"
+            else espn.snapshot_key(season, week=week)
+        )
+        force_rebuild = rebuild or not self.cache.has(snapshot_key)
+        label = f"{source} week {week}"
+        log.info(
+            "source start source=%s snapshot=%s policy=%s rebuild=%s week=%s",
+            label,
+            snapshot_key,
+            policy,
+            force_rebuild,
+            week,
+        )
+        try:
+            if source == "sleeper":
+                ensure_ingested(
+                    self.store,
+                    self.cache,
+                    season,
+                    refresh=refresh,
+                    policy=policy,
+                    rebuild=force_rebuild,
+                    week=week,
+                    fetch=self.fetchers.get("sleeper_week"),
+                )
+            else:
+                ensure_espn_ingested(
+                    self.store,
+                    self.cache,
+                    season,
+                    refresh=refresh,
+                    policy=policy,
+                    rebuild=force_rebuild,
+                    week=week,
+                    fetch=self.fetchers.get("espn_week"),
+                )
+            rows, matched = self.store.source_counts(
+                season, source, scope=config.projection_scope(week)
+            )
+            log.info("source ready source=%s rows=%s matched=%s", label, rows, matched)
+            return SyncResult(label, "ready", rows, matched)
+        except Exception as exc:  # noqa: BLE001 - aggregate every requested source
+            rows, matched = self.store.source_counts(
+                season, source, scope=config.projection_scope(week)
+            )
+            log.info(
+                "source failed source=%s rows=%s matched=%s error=%s",
+                label,
+                rows,
+                matched,
+                exc,
+            )
+            return SyncResult(label, "failed", rows, matched, str(exc))
 
     def _tracked(self, source: str, season: int) -> dict[str, Any] | None:
         rows = self.store.season_source_state(season, source)

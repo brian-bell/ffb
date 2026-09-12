@@ -1,6 +1,8 @@
 """Consensus: per-source scored points pivoted and averaged per player."""
 
+from ffb.config import LEAGUE_SCORING
 from ffb.consensus import consensus_rows
+from ffb.scoring import ppr_points
 
 
 def _row(source, native_id, key, name, pos, stats, matched=True, draftable=None):
@@ -167,6 +169,52 @@ def test_sources_filter_restricts_contributors(store):
     assert both["n"] == 2
     assert both["consensus"] == 110.0
     assert both["draftable"] is True
+
+
+def test_positional_scope_cfg_sources_still_score_the_season_slice(store):
+    store.upsert_projections(
+        [
+            _row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 1000.0}),
+            {
+                **_row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 80.0}),
+                "scope": "week1",
+            },
+        ]
+    )
+    # Pre-week signature: consensus_rows(store, season, position, scope, cfg, sources)
+    rows = consensus_rows(store, 2024, "RB", "season", LEAGUE_SCORING, ["sleeper"])
+    henry = next(r for r in rows if r["player_key"] == "12626")
+    assert henry["n"] == 1
+    assert henry["consensus"] == round(ppr_points({"rush_yd": 1000.0}, LEAGUE_SCORING), 2)
+
+
+def test_weekly_consensus_uses_requested_scope_and_league_scoring(store):
+    store.upsert_projections(
+        [
+            _row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 1575.0}),
+            {
+                **_row("sleeper", "3198", "12626", "Derrick Henry", "RB", {"rush_yd": 80.0}),
+                "scope": "week1",
+            },
+            {
+                **_row("espn", "3043078", "12626", "Derrick Henry", "RB", {"rush_yd": 100.0}),
+                "scope": "week1",
+            },
+        ]
+    )
+    season = next(
+        r for r in consensus_rows(store, 2024, cfg=LEAGUE_SCORING) if r["player_key"] == "12626"
+    )
+    weekly = next(
+        r
+        for r in consensus_rows(store, 2024, week=1, cfg=LEAGUE_SCORING)
+        if r["player_key"] == "12626"
+    )
+    assert season["n"] == 1
+    assert season["consensus"] == 157.5
+    assert weekly["n"] == 2
+    assert weekly["source_points"] == {"sleeper": 8.0, "espn": 10.0}
+    assert weekly["consensus"] == 9.0
 
 
 def test_position_filter_applies(store):

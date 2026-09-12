@@ -25,6 +25,7 @@ uv run ffb season sync 2026 --refresh       # fetch all selected sources
 uv run ffb season sync 2026 --offline       # cached snapshots only
 uv run ffb season sync 2026 --offline --rebuild
 uv run ffb season sync 2026 --source projections
+uv run ffb season sync 2026 --week 1 --source projections
 uv run ffb season sync 2026 --source ffc
 uv run ffb season sync 2026 --source schedule
 uv run ffb season sync 2026 --source injuries

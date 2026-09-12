@@ -3,13 +3,14 @@
 Endpoint (unofficial, no auth, spike-verified 2026-07-21)::
 
     GET https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/
-        seasons/{season}/players?view=kona_player_info&scoringPeriodId=0
+        seasons/{season}/players?view=kona_player_info&scoringPeriodId={period}
     Header x-fantasy-filter: {"players": {"limit": N,
                               "sortPercOwned": {"sortAsc": false, "sortPriority": 1}}}
 
 The response is a **bare top-level JSON list** of player objects (not wrapped in
-``{"players": ...}``). Each player's season projection is the ``stats[]`` entry
-with ``statSourceId == 1`` and ``scoringPeriodId == 0``; its ``stats`` is a
+``{"players": ...}``). Each player's projection is the ``stats[]`` entry
+with ``statSourceId == 1`` and ``scoringPeriodId`` matching the fetch
+(``0`` for season, the week number for weekly); its ``stats`` is a
 ``{numeric statId: value}`` map that ``config.ESPN_STAT_MAP`` translates into the
 same stat keys Sleeper uses, so ``ppr_points`` scores both sources identically.
 ESPN's ``appliedTotal`` is 0 in this view, so we compute points ourselves and
@@ -37,12 +38,16 @@ USER_AGENT = "ffb/0.1 (personal use)"
 DEFAULT_LIMIT = 5000
 
 
-def snapshot_key(season: int) -> str:
-    return f"espn/projections_{season}"
+def snapshot_key(season: int, week: int | None = None) -> str:
+    if week is None:
+        return f"espn/projections_{season}"
+    return f"espn/projections_{season}_{config.projection_scope(week)}"
 
 
-def fetch_projections(season: int, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
-    """Fetch raw ESPN player rows for ``season``. Hits the network."""
+def fetch_projections(
+    season: int, limit: int = DEFAULT_LIMIT, *, week: int | None = None
+) -> list[dict[str, Any]]:
+    """Fetch raw ESPN player rows for ``season`` or one week. Hits the network."""
     import json
 
     xff = {"players": {"limit": limit, "sortPercOwned": {"sortAsc": False, "sortPriority": 1}}}
@@ -52,7 +57,8 @@ def fetch_projections(season: int, limit: int = DEFAULT_LIMIT) -> list[dict[str,
         "Accept": "application/json",
     }
     url = f"{BASE_URL}/seasons/{season}/players"
-    params = {"view": "kona_player_info", "scoringPeriodId": 0}
+    scoring_period = 0 if week is None else week
+    params = {"view": "kona_player_info", "scoringPeriodId": scoring_period}
     log.info(
         "api request provider=espn method=GET url=%s params=%s",
         url,
@@ -73,10 +79,10 @@ def fetch_projections(season: int, limit: int = DEFAULT_LIMIT) -> list[dict[str,
     return data
 
 
-def _season_projection(player: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the season-projection stat entry for a player, or None."""
+def _projection_entry(player: dict[str, Any], scoring_period_id: int) -> dict[str, Any] | None:
+    """Return the projection stat entry for a scoring period, or None."""
     for entry in player.get("stats") or []:
-        if entry.get("statSourceId") == 1 and entry.get("scoringPeriodId") == 0:
+        if entry.get("statSourceId") == 1 and entry.get("scoringPeriodId") == scoring_period_id:
             return entry
     return None
 
@@ -95,10 +101,13 @@ def parse_projections(
     raw: list[dict[str, Any]],
     season: int,
     allowed_positions: Collection[str] | None = None,
+    *,
+    week: int | None = None,
 ) -> list[dict[str, Any]]:
     """Normalize raw ESPN player rows into records ready for ingest.
 
-    Keeps only players with a season projection carrying stats, whose position
+    Keeps only players with a projection for the requested scoring period
+    (season: ``0``; weekly: the week number) carrying stats, whose position
     is in the standard lineup allowlist (``None`` -> ``config.FANTASY_POSITIONS``,
     resolved at call time); an unmapped ``defaultPositionId`` (``position=None``)
     is dropped too. An IDP league opts in by passing a superset (e.g.
@@ -107,13 +116,15 @@ def parse_projections(
     """
     if allowed_positions is None:
         allowed_positions = config.FANTASY_POSITIONS
+    scoring_period = 0 if week is None else week
+    scope = config.projection_scope(week)
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     skipped_positions = 0
     for player in raw:
         try:
             native_id = player.get("id")
-            proj = _season_projection(player)
+            proj = _projection_entry(player, scoring_period)
             if native_id is None or proj is None:
                 continue
             # Position gate first: it excludes ~60% of the raw universe (IDP),
@@ -148,7 +159,7 @@ def parse_projections(
                     and identity.canonical_team(team) is not None,
                     "season": season,
                     "source": "espn",
-                    "scope": "season",
+                    "scope": scope,
                     "stats": stats,
                     "src_pts_ppr": None,
                 }
