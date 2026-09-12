@@ -1,3 +1,4 @@
+import { waitingCost } from "../src/wait-cost";
 import { liveStarterPriority } from "../src/starter-priority";
 import { wireDraftJingle } from "../src/draft-jingle";
 // Client boot: reads the key from the store, gates the board behind the key
@@ -242,6 +243,18 @@ function renderSelection(): void {
   selectedEl.innerHTML = player
     ? `<b>${escapeHtml(player.name)}</b> · ${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")}`
     : "No Player Selected.";
+  const advice = player ? waitingCost(draft, board, player.key) : null;
+  if (advice) {
+    const detail = document.createElement("details");
+    detail.dataset.waitAdvice = "";
+    const summary = document.createElement("summary");
+    summary.textContent = "Take now or wait?";
+    const explanation = document.createElement("p");
+    explanation.textContent = advice.text;
+    detail.appendChild(summary);
+    detail.appendChild(explanation);
+    selectedEl.appendChild(detail);
+  }
   recordPickEl.disabled = !player || !draft?.next || writing;
   clearPickEl.disabled = !player || !draft?.next || writing;
 }

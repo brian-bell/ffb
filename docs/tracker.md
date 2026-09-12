@@ -150,6 +150,46 @@ The bundled `public/audio/espn-draft-chime.mp3` comes from the
 [NFL Draft Chime download](https://instantsbutton.com/sound/nfl-draft-chime)
 (retrieved September 6, 2026). Playback failures show a retry message.
 
+## Taking a player now versus waiting
+
+On the user's turn, selecting an available player in either live or active mock
+opens access to **Take now or wait?** advice. `wait-cost.ts` reuses the live
+starter/flex contribution model with the session's roster slots and owned picks.
+Mock advice uses its immutable saved board. This is a selection advisory; live
+lineup ordering and mock **Likely next** market ordering retain their roles.
+Market forecasts are explicitly labeled separately from recommendations.
+
+The model finds the next user pick from snake order, counts intervening opponent
+picks, and handles consecutive turns and the final user pick explicitly. Market
+evidence is an envelope around ADP with a minimum buffer of one league round
+(actual session team count), widened by ADP standard deviation and observed
+high/low picks when present. If the entire envelope precedes the next turn,
+availability is **at risk**; if it follows, the player is **reasonable later**;
+overlap is **uncertain**. Missing ADP is **unknown**. The envelope is a conservative
+heuristic, not a calibrated distribution, confidence interval, or probability.
+A player who has already slipped past ADP can continue to slip; opponent needs
+and differences between the ADP market and this league are not modeled.
+
+The waiting scenario compares the selected player's current marginal lineup gain
+with the best marginal gain among same-position players classified reasonable
+later (including the candidate when appropriate). Their nonnegative difference
+is the conditional positional drop-off in projected season lineup points, not
+an expected loss. Drafted identities are excluded. Missing owned/candidate
+projections, missing projections among later alternatives, or no sufficiently
+supported later alternative suppress the numeric drop-off rather than assume
+zero replacement value. Flex eligibility and existing starters influence every
+gain through the shared lineup assignment. This same-position comparison does
+not optimize a two-pick plan across positions or account for future injuries.
+
+A scarce lower-point TE can warrant consideration when it improves the lineup
+and has a materially larger drop-off than another position. Scarcity alone does
+not promote a depth pick with no starter/flex gain. Advice asks the user to
+compare positional losses before passing on more points; uncertain timing
+retains lineup-gain priority. No probability, guaranteed availability, or
+league-wide optimal recommendation is claimed. Computation is read-only and
+uses no RNG, so CPU strategy, seeded replay, persistence, APIs, and board v1
+remain unchanged.
+
 ## Local validation
 
 Use the exact versions pinned by `.nvmrc` and `package.json`:
