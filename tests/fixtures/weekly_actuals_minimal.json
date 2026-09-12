@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "synced_at": "2026-09-16T16:00:00Z",
+  "league": {
+    "league_id": "sit-1",
+    "league_key": "1.l.sit",
+    "name": "Sit Start Mock",
+    "season": 2024,
+    "week": 1,
+    "num_teams": 2
+  },
+  "matchups": [
+    {
+      "matchup_id": "1",
+      "week": 1,
+      "teams": [
+        {"team_key": "1.l.sit.t.1", "points": 41.5},
+        {"team_key": "1.l.sit.t.2", "points": 18.0}
+      ]
+    }
+  ],
+  "players": [
+    {
+      "yahoo_player_id": "55501",
+      "yahoo_player_key": "1.p.55501",
+      "name": "Slow Back",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "RB",
+      "points": 2.0
+    },
+    {
+      "yahoo_player_id": "33393",
+      "yahoo_player_key": "1.p.33393",
+      "name": "Ja'Marr Chase",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "WR",
+      "points": 16.5
+    },
+    {
+      "yahoo_player_id": "55502",
+      "yahoo_player_key": "1.p.55502",
+      "name": "Flex Filler",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "W/R/T",
+      "points": 3.0
+    },
+    {
+      "yahoo_player_id": "100025",
+      "yahoo_player_key": "1.p.100025",
+      "name": "49ers",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "DEF",
+      "points": 4.0
+    },
+    {
+      "yahoo_player_id": "29279",
+      "yahoo_player_key": "1.p.29279",
+      "name": "Derrick Henry",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "BN",
+      "points": 24.0
+    },
+    {
+      "yahoo_player_id": "99901",
+      "yahoo_player_key": "1.p.99901",
+      "name": "Rival Receiver",
+      "team_key": "1.l.sit.t.2",
+      "selected_position": "WR",
+      "points": 18.0
+    }
+  ]
+}

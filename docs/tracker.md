@@ -94,6 +94,21 @@ removes the user's latest decision plus all CPU picks it caused and restores the
 checkpoint. Restart keeps the mock id, board, strategy, variance, and user slot
 while rebuilding the initial seeded prefix.
 
+## Weekly actuals ingest
+
+Sibling of any LeagueBundle ingest route. Grok (or a fixture) `POST`s a closed
+`WeeklyActualsBundle` v1 to `/api/actuals` with the same
+`Authorization: Bearer <TRACKER_API_KEY>` gate. The Worker validates exact keys
+and stores the payload in KV as `actuals:v1:{season}:{week}`.
+`GET /api/actuals?season=&week=` reads it back. Live scores never belong in git.
+The tracker does not import Python; `ffb retro` consumes a local snapshot or
+`--fixture` of the same contract.
+
+| Method and route | Purpose |
+| --- | --- |
+| `POST /api/actuals` | Validate and store one week's scoreboard + player actuals |
+| `GET /api/actuals?season=&week=` | Read the stored actuals blob for that week |
+
 ## Roster safety and identity
 
 `roster-fit.ts` uses exact capacity matching across dedicated positions,

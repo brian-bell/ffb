@@ -2,6 +2,7 @@ import { SELF } from "cloudflare:test";
 import type { DraftConfigInput, DraftState } from "../../src/draft-store";
 import type { MockState } from "../../src/mock-draft";
 import type { VariancePreset } from "../../src/mock-strategy";
+import type { WeeklyActualsBundle } from "../../src/actuals";
 import type { Board } from "../../src/types";
 
 const API_ORIGIN = "https://e2e.test";
@@ -86,4 +87,11 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify({ mock_id: mockId, expected_revision: expectedRevision }),
     }),
+  postActuals: (bundle: WeeklyActualsBundle) =>
+    request<{ ok: boolean; season: number; week: number; players: number; matchups: number; key: string }>(
+      "/api/actuals",
+      { method: "POST", body: JSON.stringify(bundle) },
+    ),
+  getActuals: (season: number, week: number) =>
+    request<WeeklyActualsBundle>(`/api/actuals?season=${season}&week=${week}`),
 };

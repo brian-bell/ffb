@@ -43,6 +43,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → team byes + regular-season games | **Live** |
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
+| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v1) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
 | Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
@@ -391,6 +392,11 @@ affirmative.
 `Store.replace_league_state` atomically mirrors settings/teams and replaces only
 the current roster week. `league_context.py` selects complete fixture scoring and
 roster components independently, falling back to placeholders safely.
+`actuals.py` validates a sibling closed `WeeklyActualsBundle` (scoreboard +
+player points). The Worker stores accepted payloads in KV; the CLI snapshots
+them under `snapshots/actuals/` and never writes actuals to DuckDB. `ffb lineup`
+snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
+by `yahoo_player_id`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors

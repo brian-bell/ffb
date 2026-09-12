@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "synced_at": "2026-09-16T16:00:00Z",
+  "league": {
+    "league_id": "sit-1",
+    "league_key": "1.l.sit",
+    "name": "Sit Start Mock",
+    "season": 2024,
+    "week": 1,
+    "num_teams": 2
+  },
+  "matchups": [
+    {
+      "matchup_id": "1",
+      "week": 1,
+      "teams": [
+        {"team_key": "1.l.sit.t.1", "points": 41.5},
+        {"team_key": "1.l.sit.t.2", "points": 18.0}
+      ]
+    }
+  ],
+  "players": [
+    {
+      "yahoo_player_id": "29279",
+      "yahoo_player_key": "1.p.29279",
+      "name": "Derrick Henry",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "BN",
+      "points": 24.0
+    }
+  ]
+}

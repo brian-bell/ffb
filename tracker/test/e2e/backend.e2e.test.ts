@@ -5,7 +5,9 @@ import { initialBoardView, nextBoardView, type BoardViewState } from "../../src/
 import { mockClockState, mockSuggestions } from "../../src/mock-ui";
 import { buildPlayerPool } from "../../src/player-pool";
 import { playersEquivalent } from "../../src/player-identity";
+import actualsFixture from "../fixtures/weekly-actuals.json";
 import { api } from "./api-client";
+import type { WeeklyActualsBundle } from "../../src/actuals";
 
 async function liveTableSnapshot() {
   const [drafts, teams, picks] = await Promise.all([
@@ -420,5 +422,22 @@ describe("generated backend contract", () => {
     expect(discarded.json).toEqual({ configured: false, picks: [], revision: 0 });
     expect((await api.getDraft()).body).toBe(liveBefore.body);
     expect(await liveTableSnapshot()).toEqual(liveRowsBefore);
+  });
+});
+
+describe("weekly actuals ingest", () => {
+  beforeEach(async () => {
+    await env.BOARD.put(BOARD_KEY, env.E2E_BOARD_JSON);
+  });
+
+  it("stores a closed WeeklyActualsBundle beside the board key", async () => {
+    const bundle = actualsFixture as WeeklyActualsBundle;
+    const posted = await api.postActuals(bundle);
+    expect(posted.status).toBe(200);
+    expect(posted.json).toMatchObject({ ok: true, season: 2024, week: 1, key: "actuals:v1:2024:1" });
+    const loaded = await api.getActuals(2024, 1);
+    expect(loaded.status).toBe(200);
+    expect(loaded.json).toEqual(bundle);
+    expect((await api.getBoard()).status).toBe(200);
   });
 });
