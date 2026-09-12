@@ -7,7 +7,6 @@ import boardFixture from "./fixtures/board.json";
 
 const KEY = "test-secret-key";
 const BUNDLE_URL = "https://x/api/league/bundle";
-const fixtureText = JSON.stringify(fixtureJson);
 
 function bearer(key = KEY): HeadersInit {
   return { Authorization: `Bearer ${key}` };

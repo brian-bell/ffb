@@ -103,12 +103,12 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
     ["roster_slots", "scoring_rules", "unmapped_scoring_rules", "provider_settings"],
     "settings",
   );
-  asList(settings.roster_slots, "settings.roster_slots");
-  asList(settings.scoring_rules, "settings.scoring_rules");
-  asList(settings.unmapped_scoring_rules, "settings.unmapped_scoring_rules");
+  const rosterSlots = asList(settings.roster_slots, "settings.roster_slots");
+  const scoringRules = asList(settings.scoring_rules, "settings.scoring_rules");
+  const unmappedRules = asList(settings.unmapped_scoring_rules, "settings.unmapped_scoring_rules");
   mapping(settings.provider_settings, "settings.provider_settings");
-  validateSlots(settings.roster_slots);
-  validateRules(settings.scoring_rules, settings.unmapped_scoring_rules);
+  validateSlots(rosterSlots);
+  validateRules(scoringRules, unmappedRules);
 
   const teams = asList(data.teams, "teams");
   if (teams.length !== league.num_teams) {
