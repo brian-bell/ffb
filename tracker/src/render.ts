@@ -1,10 +1,11 @@
 // Pure board renderer (slice-6 §3c). DOM-free: takes the v1 board + a position
 // filter, returns an HTML string the client drops into the list mount. The
-// board is pre-sorted by VORP; optional starter priority groups available rows
-// while preserving their board ranks. Kept a pure function so it unit-tests without a DOM round-trip.
+// board is pre-sorted by VORP; optional lineup priority orders available rows
+// while preserving displayed ranks. Kept pure for DOM-free tests.
 
 import type { Board, Player } from "./types";
 import { indexPlayerIdentities, normalizedPosition } from "./player-identity";
+import type { CandidatePriority } from "./starter-priority";
 
 export interface PickAnnotation {
   overall_pick: number;
@@ -27,8 +28,9 @@ export interface RenderOptions {
   selectable?: boolean;
   selectedKey?: string | null;
   searchResults?: readonly Player[];
-  /** Positions currently below the user’s draft targets. */
+  /** Optional position grouping for callers without candidate scores. */
   starterPositions?: ReadonlySet<string>;
+  lineupPriority?: ReadonlyMap<string, CandidatePriority>;
   byeConflicts?: ReadonlyMap<string, number>;
   /** Progressive loading: render only the first `limit` rows. */
   window?: { limit: number };
@@ -116,7 +118,7 @@ function metaLine(p: Player): string {
   return `${posLabel(p)} · ${team} · BYE ${bye}`;
 }
 
-function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null, byeConflicts = 0): string {
+function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null, byeConflicts = 0, reason?: string): string {
   const adpNa = p.adp == null ? " na" : "";
   const selected = selectable && p.key === selectedKey;
   const annotation = pick
@@ -129,7 +131,7 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
     open +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
-    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}</span>` +
+    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}${reason ? `<span class="lineup-reason">${esc(reason)}</span>` : ""}</span>` +
     `<span class="num points tnum${p.points == null ? " na" : ""}">${metricValue("Projected points", p.points)}</span>` +
     vorpCell(p, maxVorp) +
     `<span class="num adp tnum${adpNa}">${metricValue("ADP", p.adp)}</span>` +
@@ -227,6 +229,18 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
     rows = [...rows].sort((a, b) => (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0) || score(a) - score(b));
   }
   if (prioritizing) rows = [...rows.filter(fillsStarter), ...rows.filter(p => !fillsStarter(p))];
+  const lineupPriority = !history && !searching ? options.lineupPriority : undefined;
+  if (lineupPriority) {
+    const tiers = new Map([...new Set(visiblePlayers.map(p => p.tier))].map((tier, i) => [tier, i]));
+    const score = (p: Player): number => p.rank + 5 * (options.byeConflicts?.get(p.key) ?? 0);
+    rows = [...rows].sort((a, b) => {
+      const left = lineupPriority.get(a.key), right = lineupPriority.get(b.key);
+      return (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0)
+        || (left?.group ?? 3) - (right?.group ?? 3)
+        || (right?.gain ?? 0) - (left?.gain ?? 0)
+        || score(a) - score(b) || a.rank - b.rank;
+    });
+  }
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
 
@@ -243,7 +257,7 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
       curTier = p.tier;
       html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
-    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey, history ? 0 : options.byeConflicts?.get(p.key));
+    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey, history ? 0 : options.byeConflicts?.get(p.key), lineupPriority?.get(p.key)?.reason);
   }
   if (rows.length > limit) html += loadMoreSentinel(rows.length - limit);
   return html;

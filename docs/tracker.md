@@ -44,20 +44,34 @@ history remains legible after a board republish. The write API retains a
 validated `manual_player` path for a Yahoo pick missing from the board; the
 current UI intentionally uses board-row selection.
 
-The live Available board first targets 2 QB, 2 RB, 4 WR, 2 TE, and 2 DEF for
-Brian’s drafted roster. While any target is unmet, only positions below those
-counts receive priority; extra RB/WR/TE are not promoted for flex eligibility.
-After all twelve required picks are covered, priority shifts to one WR/TE and
-one RB/WR/TE FLEX beyond those counts. Surplus WR/TE fills the narrower slot
-first, and no player counts twice. These are draft targets, not starting slots.
-Only Brian’s picks count toward these needs. Players below the active targets precede other available players. Sharing a known bye with a drafted player at the same position adds a
-five-rank-place penalty per overlap within each priority group. Positional views
-keep tier groups intact. Unknown byes have no penalty. A “Bye clash” badge
-explains overlaps; original board ranks and VORP remain visible. Once all targets
-are filled, RB/WR/TE depth stays ahead of extra QB/DEF picks, ordered by rank with
-the same modest bye penalty.
-Search relevance and newest-first Drafted history are unchanged. A “Need”
-summary updates after picks and undo. Mock drafts retain their saved league shape.
+The live Available board evaluates Brian’s roster against the published board’s
+actual dedicated starting slots plus `W/T` and `W/R/T` flex slots. An exact
+weighted slot assignment measures each candidate’s increase to the best total
+projected starting lineup. A player occupies at most one slot; bench contributes
+no starting points. Dedicated starters and flex upgrades compete on their usable
+point gain, so a first WR can precede a second TE while an exceptional TE or a
+second TE that improves flex can still lead. Each available row explains its
+starter/flex contribution or depth role. These are season projection gains,
+not weekly forecasts or estimates of the cost of waiting until the next pick.
+
+Positive lineup gains lead, ordered largest first. An unprojected player who can
+fill an open starting slot follows measured gains, then RB/WR/TE depth in
+positions supported by the league, then other depth. If any own pick lacks a
+current board projection, the entire roster falls back to open-slot matching
+and board rank, with an explicit incomplete-projection message; no numeric gain
+is invented. Missing and ambiguous identities retain their pick position for
+occupancy. Unknown candidate projections are labeled on the row.
+
+Original board ranks, VORP, and tiers remain visible as static scarcity context.
+For equal lineup gains (and within fallback/depth groups), each same-position
+bye overlap adds five board-rank places as a soft tiebreak. Unknown byes are
+neutral, and a “Bye clash” badge explains overlaps. Bye penalties never erase a
+larger measured lineup gain. Positional views preserve tier groups, applying
+lineup ordering within each tier. Search relevance and newest-first history
+remain unchanged. Only unique own picks count, and the Need summary and gains
+recompute after picks and undo. Once starters are filled, the summary announces
+depth building, while any remaining positive lineup upgrades still lead.
+Mock drafts retain their saved league shape and existing strategy.
 
 ## Mock draft
 

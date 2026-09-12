@@ -20,7 +20,8 @@ for (const mode of ["live", "mock"] as const) {
       } }));
       await page.goto("/");
     }
-    const first = page.locator("[data-list] .rowA").first();
+    // Inspect a stable player: live lineup priority may change board order.
+    const first = page.locator('[data-list] [data-player-key="k0"]');
     await expect(first).toContainText("Christian McCaffrey");
     await expect(first.locator(".points")).toHaveText("Projected points: 306.7");
     await expect(first.locator(".vorp")).toHaveText("VORP: 120.0");
@@ -64,7 +65,7 @@ for (const mode of ["live", "mock"] as const) {
     await page.keyboard.press("Enter");
     await expect(guide).toHaveAttribute("open", "");
     await expect(guide).toContainText("points above positional replacement");
-    await expect(guide).toContainText(mode === "live" ? "Live Available prioritizes roster needs" : "Mock Available follows board rank");
+    await expect(guide).toContainText(mode === "live" ? "Live Available prioritizes roster needs by projected lineup gain" : "Mock Available follows board rank");
     await expect(guide).toContainText("Rows are not sorted by projected points alone");
     await page.locator("[data-player-search]").fill("San Francisco Defense");
     const missing = page.locator("[data-list] .rowA").first();

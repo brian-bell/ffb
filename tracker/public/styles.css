@@ -1120,3 +1120,5 @@ body {
   .rowA .nm b { white-space: normal; overflow-wrap: anywhere; }
   .rowA .nm i { flex-wrap: wrap; }
 }
+
+.lineup-reason { display: block; margin-top: 3px; color: var(--dr-muted); font-size: 10px; line-height: 1.3; white-space: normal; }
