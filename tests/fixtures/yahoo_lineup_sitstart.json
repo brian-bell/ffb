@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "synced_at": "2026-09-12T00:00:00Z",
+  "league": {
+    "league_id": "sit-1",
+    "league_key": "1.l.sit",
+    "name": "Sit Start Mock",
+    "season": 2024,
+    "current_week": 1,
+    "num_teams": 2
+  },
+  "settings": {
+    "roster_slots": [
+      {"position": "RB", "count": 1, "is_starting": true},
+      {"position": "WR", "count": 1, "is_starting": true},
+      {"position": "W/R/T", "count": 1, "is_starting": true},
+      {"position": "DEF", "count": 1, "is_starting": true},
+      {"position": "BN", "count": 4, "is_starting": false}
+    ],
+    "scoring_rules": [
+      {"stat_key": "rush_yd", "points": 0.1, "provider_stat_id": "9", "provider_name": "Rushing Yards"},
+      {"stat_key": "rec", "points": 0.5, "provider_stat_id": "11", "provider_name": "Receptions"},
+      {"stat_key": "rec_yd", "points": 0.1, "provider_stat_id": "12", "provider_name": "Receiving Yards"},
+      {"stat_key": "sack", "points": 1.0, "provider_stat_id": "32", "provider_name": "Sack"}
+    ],
+    "unmapped_scoring_rules": [],
+    "provider_settings": {}
+  },
+  "teams": [
+    {
+      "team_id": "1",
+      "team_key": "1.l.sit.t.1",
+      "name": "Brian's Team",
+      "managers": ["Brian"],
+      "is_user_team": true
+    },
+    {
+      "team_id": "2",
+      "team_key": "1.l.sit.t.2",
+      "name": "Other Team",
+      "managers": ["Alex"],
+      "is_user_team": false
+    }
+  ],
+  "rosters": [
+    {
+      "team_key": "1.l.sit.t.1",
+      "week": 1,
+      "players": [
+        {
+          "yahoo_player_id": "55501",
+          "yahoo_player_key": "1.p.55501",
+          "name": "Slow Back",
+          "nfl_team": "KCC",
+          "primary_position": "RB",
+          "eligible_positions": ["RB", "W/R/T"],
+          "selected_position": "RB"
+        },
+        {
+          "yahoo_player_id": "33393",
+          "yahoo_player_key": "1.p.33393",
+          "name": "Ja'Marr Chase",
+          "nfl_team": "CIN",
+          "primary_position": "WR",
+          "eligible_positions": ["WR", "W/T", "W/R/T"],
+          "selected_position": "WR"
+        },
+        {
+          "yahoo_player_id": "55502",
+          "yahoo_player_key": "1.p.55502",
+          "name": "Flex Filler",
+          "nfl_team": "CHI",
+          "primary_position": "WR",
+          "eligible_positions": ["WR", "W/T", "W/R/T"],
+          "selected_position": "W/R/T"
+        },
+        {
+          "yahoo_player_id": "100025",
+          "yahoo_player_key": "1.p.100025",
+          "name": "49ers",
+          "nfl_team": "SFO",
+          "primary_position": "DEF",
+          "eligible_positions": ["DEF"],
+          "selected_position": "DEF"
+        },
+        {
+          "yahoo_player_id": "29279",
+          "yahoo_player_key": "1.p.29279",
+          "name": "Derrick Henry",
+          "nfl_team": "BAL",
+          "primary_position": "RB",
+          "eligible_positions": ["RB", "W/R/T"],
+          "selected_position": "BN"
+        },
+        {
+          "yahoo_player_id": "42025",
+          "yahoo_player_key": "1.p.42025",
+          "name": "Rookie Bench",
+          "nfl_team": "CHI",
+          "primary_position": "RB",
+          "eligible_positions": ["RB", "W/R/T"],
+          "selected_position": "BN"
+        }
+      ]
+    },
+    {
+      "team_key": "1.l.sit.t.2",
+      "week": 1,
+      "players": [
+        {
+          "yahoo_player_id": "99901",
+          "yahoo_player_key": "1.p.99901",
+          "name": "Rival Receiver",
+          "nfl_team": "DAL",
+          "primary_position": "WR",
+          "eligible_positions": ["WR", "W/R/T"],
+          "selected_position": "WR"
+        }
+      ]
+    }
+  ]
+}
