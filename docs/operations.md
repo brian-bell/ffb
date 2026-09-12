@@ -27,6 +27,7 @@ uv run ffb season sync 2026 --offline --rebuild
 uv run ffb season sync 2026 --source projections
 uv run ffb season sync 2026 --week 1 --source projections
 uv run ffb lineup 2026
+uv run ffb retro 2026 --week 1 --fixture PATH
 uv run ffb ros 2026
 uv run ffb season sync 2026 --source ffc
 uv run ffb season sync 2026 --source schedule

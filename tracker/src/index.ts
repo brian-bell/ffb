@@ -2,6 +2,7 @@
 // everything else falls through to Static Assets (the mobile shell). The board
 // blob is streamed from KV verbatim — the pipeline owns its shape (§5).
 
+import { handleActualsApi } from "./actuals-api";
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
@@ -53,6 +54,13 @@ export default {
       const denied = requireBearer(request, env);
       if (denied) return denied;
       return handleMockApi(request, env, pathname);
+    }
+
+    // Sibling of any LeagueBundle ingest route — actuals only, closed v1 contract.
+    if (pathname === "/api/actuals") {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleActualsApi(request, env, url);
     }
 
     // Any other /api/* path is a real 404 (never a static asset).

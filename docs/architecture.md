@@ -71,7 +71,11 @@ zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
 or stale injury source state is warned before the report. `ffb ros` is another
 season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
-user roster is stored) groups that roster by bye. `board.py` merges consensus,
+user roster is stored) groups that roster by bye. `ffb lineup` writes an
+immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
+week and refuses to replace it; `ffb retro` joins that
+advice to a closed `WeeklyActualsBundle` (fixture or `snapshots/actuals/`) and
+never stores actuals in DuckDB. `board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
 ranks.
 
@@ -136,8 +140,11 @@ and a coordinated tracker update.
 
 ## Tracker boundary
 
-The Worker streams the current board from KV key `board:current`. D1 stores
-mutable state separately:
+The Worker streams the current board from KV key `board:current`. Authenticated
+`POST /api/actuals` validates a closed `WeeklyActualsBundle` v1 and stores it
+under `actuals:v1:{season}:{week}` in the same KV namespace — a sibling of any
+LeagueBundle ingest route, not a DuckDB write. D1 stores mutable draft state
+separately:
 
 - `drafts`, `teams`, and `picks` hold the one live manual draft;
 - `mock_boards`, `mock_drafts`, `mock_teams`, `mock_picks`, and
