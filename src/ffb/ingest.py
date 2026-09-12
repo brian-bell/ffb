@@ -226,7 +226,11 @@ def ensure_ingested(
         )
         return Reconciliation(source="sleeper")
 
-    fetch_fn = fetch or (lambda: sleeper.fetch_projections(season, week=week))
+    fetch_fn = fetch or (
+        (lambda: sleeper.fetch_projections(season, week=week))
+        if week is not None
+        else (lambda: sleeper.fetch_projections(season))
+    )
     raw = cache.get_json(
         sleeper.snapshot_key(season, week=week),
         fetch_fn,
@@ -362,7 +366,11 @@ def ensure_espn_ingested(
         )
         return Reconciliation(source="espn")
 
-    fetch_fn = fetch or (lambda: espn.fetch_projections(season, week=week))
+    fetch_fn = fetch or (
+        (lambda: espn.fetch_projections(season, week=week))
+        if week is not None
+        else (lambda: espn.fetch_projections(season))
+    )
     raw = cache.get_json(
         espn.snapshot_key(season, week=week),
         fetch_fn,
