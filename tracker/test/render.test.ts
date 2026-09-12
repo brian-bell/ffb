@@ -312,7 +312,7 @@ describe("renderBoard — draft availability", () => {
       },
     );
 
-    expect(history).toContain('<span class="num adp tnum na">—</span>');
+    expect(history).toContain('ADP unavailable</span><span aria-hidden="true">—</span>');
     expect(history).not.toContain(">1.0<");
     expect(history).not.toContain("222.0");
   });
@@ -473,5 +473,31 @@ describe("renderBoard — bye considerations", () => {
     const searchResults = [board.players[0]!, board.players[1]!];
     const search = renderBoard(board, "ALL", { byeConflicts: conflicts, searchResults });
     expect(search.indexOf("Christian McCaffrey")).toBeLessThan(search.indexOf("Ja'Marr Chase"));
+  });
+});
+
+
+describe("renderBoard — projected points", () => {
+  it("shows league-scored points separately from VORP without changing rank order", () => {
+    const html = renderBoard(board, "ALL");
+    expect(rowFor(html, "Christian McCaffrey")).toContain('Projected points: </span>306.7');
+    expect(rowFor(html, "Josh Allen")).toContain('Projected points: </span>380.0');
+    expect(html.indexOf("Christian McCaffrey")).toBeLessThan(html.indexOf("Josh Allen"));
+    expect(rowFor(html, "Christian McCaffrey")).toContain('VORP: </span>120.0');
+  });
+
+  it.each([null, 0, -1.25])("distinguishes missing projections from numeric %s", (points) => {
+    const html = renderBoard({ ...board, players: [{ ...board.players[0]!, points }] }, "ALL", { selectable: true });
+    expect(html).toContain(points === null
+      ? 'Projected points unavailable</span><span aria-hidden="true">—</span>'
+      : `Projected points: </span>${points.toFixed(1)}`);
+  });
+
+  it("shows unavailable points for an off-board history pick", () => {
+    const html = renderBoard(board, "ALL", { mode: "drafted", draftPicks: [{
+      overall_pick: 1, round: 1, round_pick: 1, team_name: "Brian", player_key: "manual:new",
+      player_name: "New player", player_pos: "WR", player_team: null,
+    }] });
+    expect(html).toContain('Projected points unavailable');
   });
 });

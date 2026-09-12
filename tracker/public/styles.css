@@ -189,7 +189,7 @@ body {
 .colhead {
   flex: none;
   display: grid;
-  grid-template-columns: 22px 1fr 56px 40px 40px;
+  grid-template-columns: 22px minmax(0, 1fr) 60px 56px 40px 40px;
   gap: 9px;
   padding: 9px 14px 8px;
   background: var(--dr-chrome);
@@ -268,7 +268,7 @@ body {
 
 .rowA {
   display: grid;
-  grid-template-columns: 22px 1fr 56px 40px 40px;
+  grid-template-columns: 22px minmax(0, 1fr) 60px 56px 40px 40px;
   align-items: center;
   gap: 9px;
   padding: 8px 14px;
@@ -365,7 +365,7 @@ body {
   width: var(--w);
   background: rgba(245, 166, 35, 0.16);
 }
-.num.vorp span {
+.num.vorp > .tnum {
   position: relative;
 }
 .num.adp {
@@ -999,7 +999,7 @@ body {
   .tabs { gap: 7px; padding: 8px 14px 9px; overflow-x: visible; }
   .tab { min-height: 40px; padding: 8px 13px; }
   .colhead, .rowA {
-    grid-template-columns: 26px minmax(120px, 1fr) 64px 48px 48px;
+    grid-template-columns: 26px minmax(100px, 1fr) 60px 64px 48px 48px;
     gap: 12px;
     padding-right: 16px;
     padding-left: 16px;
@@ -1106,3 +1106,17 @@ body {
 .player-search[hidden] { display: none; }
 
 .list[data-mode="my-team"] .rowA.drafted { opacity: 1; text-decoration: none; }
+
+/* Board metrics retain full labels and a shared header/row grid. */
+.board-guide { flex: none; padding: 8px 14px; color: var(--dr-muted); font-size: 12px; line-height: 1.45; }
+.board-guide summary { cursor: pointer; color: var(--dr-ink); }
+.board-guide summary:focus-visible { outline: 2px solid var(--dr-accent); outline-offset: 3px; }
+.board-guide[open] { max-height: 180px; overflow-y: auto; }
+.board-guide p { margin: 8px 0 0; }
+@media (max-width: 600px) {
+  .colhead, .rowA { grid-template-columns: 22px minmax(0, 1fr) 64px 54px 40px; }
+  .colhead .h-nm, .rowA .nm { grid-column: 2 / -1; }
+  .colhead .h-points, .rowA .points { grid-column: 2; }
+  .rowA .nm b { white-space: normal; overflow-wrap: anywhere; }
+  .rowA .nm i { flex-wrap: wrap; }
+}
