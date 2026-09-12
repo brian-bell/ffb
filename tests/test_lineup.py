@@ -177,6 +177,39 @@ def test_missing_weekly_points_are_excluded_from_optimal_and_listed():
     assert report["current_total"] == 0.0
 
 
+def test_equal_weekly_points_keep_the_current_starter():
+    players = attach_weekly_points(
+        [
+            _roster(
+                yahoo_player_id="100014",
+                full_name="Rams",
+                nfl_team="LAR",
+                primary_position="DEF",
+                eligible_positions=["DEF"],
+                selected_position="DEF",
+                player_key="yahoo:100014",
+                matched=False,
+            ),
+            _roster(
+                yahoo_player_id="100033",
+                full_name="Ravens",
+                nfl_team="BAL",
+                primary_position="DEF",
+                eligible_positions=["DEF"],
+                selected_position="BN",
+                player_key="yahoo:100033",
+                matched=False,
+            ),
+        ],
+        [_consensus("def:LAR", 7.04), _consensus("def:BAL", 7.01)],
+    )
+    report = compare_lineup(players, {"DEF": 1, "BN": 1})
+
+    assert [row["name"] for row in report["optimal"]] == ["Rams"]
+    assert report["start"] == []
+    assert report["sit"] == []
+
+
 def test_close_call_flags_bench_within_threshold_of_a_starter_slot():
     players = attach_weekly_points(
         [

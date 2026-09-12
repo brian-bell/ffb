@@ -119,11 +119,18 @@ def _identity(player: dict[str, Any]) -> str:
     )
 
 
-def _points_sort_key(player: dict[str, Any]) -> tuple[int, float, str]:
+def _display_points(points: float) -> float:
+    """One-decimal points — the same granularity the CLI shows."""
+    return round(float(points), 1)
+
+
+def _points_sort_key(player: dict[str, Any]) -> tuple[int, float, int, str]:
     points = player.get("points")
+    non_starter = 0 if is_starter(player.get("selected_position")) else 1
+    name = player.get("name") or ""
     if points is None:
-        return (1, 0.0, player.get("name") or "")
-    return (0, -float(points), player.get("name") or "")
+        return (1, 0.0, non_starter, name)
+    return (0, -_display_points(points), non_starter, name)
 
 
 def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
@@ -227,7 +234,7 @@ def _close_calls(
         for starter in optimal:
             if starter["points"] is None or not can_fill(player, starter["slot"]):
                 continue
-            gap = round(float(starter["points"]) - float(player["points"]), 2)
+            gap = round(_display_points(starter["points"]) - _display_points(player["points"]), 1)
             if 0 < gap <= close_call:
                 flagged.append(
                     {
