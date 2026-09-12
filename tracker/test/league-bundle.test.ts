@@ -105,6 +105,8 @@ describe("parseBundle closed LeagueBundle v1", () => {
 
   it("rejects non-UTC synced_at and non-boolean is_user_team", () => {
     expectReject(bundle({ synced_at: "2026-07-22T12:00:00-04:00" }), 2024, "must be UTC");
+    expectReject(bundle({ synced_at: "2026-07-22T12:00:00" }), 2024, "must be UTC");
+    expectReject(bundle({ synced_at: "2026-07-22 12:00:00" }), 2024, "must be UTC");
     expectReject(bundle({ synced_at: "not-a-timestamp" }), 2024, "RFC 3339");
     const team = structuredClone(fixtureJson.teams[0]);
     (team as { is_user_team: unknown }).is_user_team = 1;

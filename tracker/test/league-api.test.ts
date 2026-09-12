@@ -94,6 +94,19 @@ describe("Worker /api/league/bundle", () => {
     expect(await env.BOARD.get(BOARD_KEY)).toBe(JSON.stringify(boardFixture));
   });
 
+  it("rejects timezone-less synced_at the same way parse_bundle does", async () => {
+    expect((await postBundle(fixtureJson)).status).toBe(200);
+    const previous = await env.BOARD.get(LEAGUE_BUNDLE_KEY);
+
+    const naive = await postBundle({ ...fixtureJson, synced_at: "2026-07-22T12:00:00" });
+    expect(naive.status).toBe(400);
+    expect(await naive.json()).toEqual({
+      error: "invalid_bundle",
+      message: "bundle.synced_at must be UTC",
+    });
+    expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBe(previous);
+  });
+
   it("rejects invalid JSON without logging-shaped echo", async () => {
     const res = await postBundle("{not-json");
     expect(res.status).toBe(400);

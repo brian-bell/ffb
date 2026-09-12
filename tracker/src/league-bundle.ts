@@ -326,12 +326,14 @@ function utcTimestamp(value: unknown, name: string): void {
     throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
   }
   const [, datetime, offset] = match;
-  const parsed = new Date(`${datetime.replace(" ", "T")}${offset === "Z" || !offset ? "Z" : offset}`);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
-  }
+  // Require an explicit UTC designator. Do not invent `Z` for naive values;
+  // Python parse_bundle rejects those as non-UTC.
   if (offset !== "Z" && offset !== "+00:00" && offset !== "-00:00") {
     throw new LeagueBundleError(`${name} must be UTC`);
+  }
+  const parsed = new Date(`${datetime.replace(" ", "T")}${offset}`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
   }
 }
 
