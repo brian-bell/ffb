@@ -402,20 +402,27 @@ def lineup(
         raise typer.Exit(code=1)
     players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
     report = compare_lineup(players, league.roster_slots)
-    SnapshotCache(paths.snapshot_dir()).put_json(
-        lineup_snapshot_key(season, chosen_week),
-        build_lineup_snapshot(
-            season=season,
-            week=chosen_week,
-            generated_at=snapshot_now(),
-            team_key=user["team_key"],
-            team_name=user["name"],
-            roster_slots=league.roster_slots,
-            players=players,
-            report=report,
-        ),
-        mode=0o600,
-    )
+    cache = SnapshotCache(paths.snapshot_dir())
+    advice_key = lineup_snapshot_key(season, chosen_week)
+    if cache.has(advice_key):
+        console.print(
+            f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged.[/dim]"
+        )
+    else:
+        cache.put_json(
+            advice_key,
+            build_lineup_snapshot(
+                season=season,
+                week=chosen_week,
+                generated_at=snapshot_now(),
+                team_key=user["team_key"],
+                team_name=user["name"],
+                roster_slots=league.roster_slots,
+                players=players,
+                report=report,
+            ),
+            mode=0o600,
+        )
     _render_lineup(report, week=chosen_week, team_name=user["name"])
     _report_scoring_provenance(league)
 
@@ -488,7 +495,11 @@ def retro(
         console.print(f"[red]Stored sit/start snapshot is invalid:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
-    report = retro_report(advice, bundle)
+    try:
+        report = retro_report(advice, bundle)
+    except ValueError as exc:
+        console.print(f"[red]Weekly actuals do not match the sit/start snapshot:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
     _render_retro(report)
 
 

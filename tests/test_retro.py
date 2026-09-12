@@ -1,5 +1,7 @@
 """Weekly retro: sit/start advice vs locked actuals."""
 
+import pytest
+
 from ffb.lineup import attach_weekly_points, compare_lineup
 from ffb.retro import (
     actuals_snapshot_key,
@@ -193,3 +195,26 @@ def test_retro_lists_players_missing_actuals():
     retro = retro_report(_advice(), actuals)
     assert [row["name"] for row in retro["missing_actuals"]] == ["Derrick Henry"]
     assert retro["recommended_total"] == 0.0
+
+
+def test_retro_rejects_actuals_that_omit_the_snapshot_team():
+    actuals = _actuals()
+    actuals["matchups"][0]["teams"] = [
+        {"team_key": "1.l.other.t.1", "points": 10.0},
+        {"team_key": "1.l.other.t.2", "points": 8.0},
+    ]
+    for row in actuals["players"]:
+        row["team_key"] = "1.l.other.t.1"
+    with pytest.raises(ValueError, match="team_key"):
+        retro_report(_advice(), actuals)
+
+
+def test_retro_does_not_treat_advice_as_started_when_team_has_no_player_rows():
+    actuals = _actuals()
+    for row in actuals["players"]:
+        if row["team_key"] == "1.l.sit.t.1":
+            row["team_key"] = "1.l.sit.t.2"
+    retro = retro_report(_advice(), actuals)
+    assert retro["started_total"] == 0.0
+    assert retro["recommended_total"] == 24.0
+    assert retro["start_misses"][0]["name"] == "Derrick Henry"

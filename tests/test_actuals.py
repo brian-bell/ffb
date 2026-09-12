@@ -84,3 +84,23 @@ def test_actuals_rejects_non_finite_points():
     data["players"][0]["points"] = float("nan")
     with pytest.raises(ValueError, match="finite"):
         parse_actuals(data, season=2024)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda data: data["league"].__setitem__("league_id", ""),
+        lambda data: data["league"].__setitem__("name", ""),
+        lambda data: data["matchups"][0].__setitem__("matchup_id", ""),
+        lambda data: data["matchups"][0]["teams"][0].__setitem__("team_key", ""),
+        lambda data: data["players"][0].__setitem__("yahoo_player_id", ""),
+        lambda data: data["players"][0].__setitem__("yahoo_player_key", ""),
+        lambda data: data["players"][0].__setitem__("name", ""),
+        lambda data: data["players"][0].__setitem__("selected_position", ""),
+    ],
+)
+def test_actuals_rejects_empty_strings_like_the_worker(mutate):
+    data = _bundle()
+    mutate(data)
+    with pytest.raises(ValueError, match="string"):
+        parse_actuals(data, season=2024)

@@ -136,14 +136,12 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
 
     by_id = {str(row["yahoo_player_id"]): row for row in players}
     team_key = snapshot["team_key"]
+    if team_key not in _scoreboard_team_keys(matchups):
+        raise ValueError(f"actuals scoreboard does not include snapshot team_key {team_key}")
     user_actuals = [row for row in players if row["team_key"] == team_key]
     recommended = snapshot["report"]["optimal"]
     advice_lineup = snapshot["report"]["current"]
-    started = (
-        [row for row in user_actuals if is_starter(row.get("selected_position"))]
-        if user_actuals
-        else advice_lineup
-    )
+    started = [row for row in user_actuals if is_starter(row.get("selected_position"))]
 
     recommended_total = _sum_actuals(recommended, by_id)
     started_total = _sum_actuals(started, by_id)
@@ -280,6 +278,16 @@ def _source_accuracy(
             }
         )
     return rows
+
+
+def _scoreboard_team_keys(matchups: list[dict[str, Any]]) -> set[str]:
+    keys: set[str] = set()
+    for matchup in matchups:
+        for team in matchup.get("teams") or []:
+            key = team.get("team_key")
+            if key:
+                keys.add(key)
+    return keys
 
 
 def _user_matchup(matchups: list[dict[str, Any]], team_key: str) -> dict[str, Any] | None:

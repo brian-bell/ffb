@@ -72,7 +72,8 @@ or stale injury source state is warned before the report. `ffb ros` is another
 season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
 user roster is stored) groups that roster by bye. `ffb lineup` writes an
-immutable sit/start snapshot under `snapshots/lineup/`; `ffb retro` joins that
+immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
+week and refuses to replace it; `ffb retro` joins that
 advice to a closed `WeeklyActualsBundle` (fixture or `snapshots/actuals/`) and
 never stores actuals in DuckDB. `board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and

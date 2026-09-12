@@ -146,8 +146,8 @@ def _list(value: object, name: str) -> list[Any]:
 
 
 def _string(value: object, name: str) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"{name} must be a string")
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a nonempty string")
     return value
 
 

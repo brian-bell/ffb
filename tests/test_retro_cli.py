@@ -96,6 +96,35 @@ def _seed_lineup_store(tmp_path):
     return env
 
 
+def test_lineup_refuses_to_replace_an_existing_snapshot(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    first = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert first.exit_code == 0, first.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    original = cache.read_json(lineup_snapshot_key(2024, 1))
+    assert original["report"]["start"][0]["name"] == "Derrick Henry"
+
+    store = Store(env["FFB_DB_PATH"])
+    store.upsert_projections(
+        [
+            _weekly_row("12626", "Derrick Henry", "RB", "BAL", "3198", {"rush_yd": 40.0}),
+            _weekly_row("rb-low", "Slow Back", "RB", "KCC", "slow", {"rush_yd": 180.0}),
+        ]
+    )
+    store.close()
+    second = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert second.exit_code == 0, second.output
+    assert "already exists" in second.output
+    stored = cache.read_json(lineup_snapshot_key(2024, 1))
+    assert stored["generated_at"] == original["generated_at"]
+    assert stored["report"]["start"][0]["name"] == "Derrick Henry"
+    assert stored["report"]["optimal_total"] == original["report"]["optimal_total"]
+
+
 def test_lineup_writes_a_recommendation_snapshot(tmp_path):
     env = _seed_lineup_store(tmp_path)
     assert (
@@ -179,3 +208,24 @@ def test_retro_rejects_non_positive_week(tmp_path):
     result = runner.invoke(app, ["retro", "2024", "--week", "0"], env=_env(tmp_path))
     assert result.exit_code != 0
     assert "week" in result.output.lower()
+
+
+def test_retro_rejects_actuals_for_a_different_team(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
+    payload = json.loads(ACTUALS.read_text())
+    payload["matchups"][0]["teams"] = [
+        {"team_key": "1.l.other.t.1", "points": 10.0},
+        {"team_key": "1.l.other.t.2", "points": 8.0},
+    ]
+    for row in payload["players"]:
+        row["team_key"] = "1.l.other.t.1"
+    path = tmp_path / "other-league.json"
+    path.write_text(json.dumps(payload))
+    result = runner.invoke(app, ["retro", "2024", "--fixture", str(path)], env=env)
+    assert result.exit_code == 1
+    assert "team_key" in result.output
