@@ -1122,3 +1122,16 @@ body {
 }
 
 .lineup-reason { display: block; margin-top: 3px; color: var(--dr-muted); font-size: 10px; line-height: 1.3; white-space: normal; }
+
+/* Replay shares the live list, filters, and priority renderer. */
+.replay-dock { flex-shrink: 0; padding: 10px 14px; border-top: 1px solid var(--dr-line); background: var(--dr-chrome); }
+.replay-heading, .replay-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.replay-heading { justify-content: space-between; }
+.replay-dock button { border: 1px solid var(--dr-muted); border-radius: 6px; background: var(--dr-screen); color: var(--dr-ink); padding: 8px 10px; font: inherit; font-size: 12px; min-height: 36px; }
+.replay-dock button:disabled { opacity: .4; }
+.replay-dock p { font-size: 12px; margin: 4px 0; }
+.replay-dock p:empty { display: none; }
+.replay-dock input[type=range] { width: 100%; accent-color: var(--dr-accent); }
+[data-replay-settings] { margin-top: 12px; }
+[data-replay-settings] input { max-width: 100%; }
+[data-replay-import-error], [data-replay-error] { color: var(--reach); }
