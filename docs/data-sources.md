@@ -121,8 +121,11 @@ the sit/start lineup report.
   `player_id` through the crosswalk's `sleeper_id`. Unmatched records stay in
   the dedicated `injuries` table but cannot reach the board or lineup report. A
   `sleeper_id` that nflverse assigned to two `mfl_id`s stays unmatched rather
-  than guessed. `ffb lineup` left-joins the same matched slice and will not
-  start Out, Doubtful, IR, PUP, or NFI players.
+  than guessed. `ffb lineup` left-joins the same matched slice for the stored
+  current week only — a historical `--week` skips the snapshot rather than
+  back-apply it — and will not start Out, Doubtful, IR, PUP, or NFI players.
+  Those designations count as zero in current totals so delta matches the
+  sit/start advice.
 - **Mapping** — direct `Questionable`, `Doubtful`, `Out`, `IR`, and `PUP` tokens
   map to their uppercase canonical values. A blank direct token falls back only
   to `Injured Reserve` → `IR`, `Physically Unable to Perform` → `PUP`, or

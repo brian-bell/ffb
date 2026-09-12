@@ -63,10 +63,13 @@ slices share the projections table and are keyed by `scope` (`season` or
 `consensus.py` scores each requested source independently and averages per
 player; rankings and the board keep requesting the season slice. `ffb lineup`
 reads `scope=week{N}` consensus plus stored `selected_position` for
-`is_user_team`, then left-joins matched Sleeper injury status. Out, doubtful,
-IR, PUP, and NFI players are shown but never assigned as optimal starters.
-Questionable remains eligible and is labeled. `board.py` merges consensus, ADP,
-and byes, selects the requested player pool, then derives VORP, tiers, and ranks.
+`is_user_team`, then left-joins matched Sleeper injury status only when `N` is
+the stored current week. Out, doubtful, IR, PUP, and NFI players are shown but
+never assigned as optimal starters, and their current-lineup contribution is
+zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
+or stale injury source state is warned before the report. `board.py` merges
+consensus, ADP, and byes, selects the requested player pool, then derives VORP,
+tiers, and ranks.
 
 This ordering matters: the default draftable filter runs before all derived
 values, so replacement baselines and ranks describe the board that the user

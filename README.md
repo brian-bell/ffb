@@ -71,8 +71,9 @@ Without stored league state, the CLI uses the confirmed 10-team Yahoo fallback
 in `src/ffb/config.py`. After a current-week fixture is stored and weekly
 projections are ingested, `ffb lineup` compares the user team's
 `selected_position` to optimal weekly starters. Current and optimal rows show
-Sleeper Q/O/D/IR flags; Out, doubtful, and IR-list players are not started.
-It never writes back to Yahoo.
+Sleeper Q/O/D/IR flags on the stored current week. Out, doubtful, and IR-list
+players are not started and count as zero in current totals. It never writes
+back to Yahoo.
 
 ## Draft tracker
 

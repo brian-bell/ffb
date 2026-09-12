@@ -374,8 +374,17 @@ def lineup(
         sources=active_sources,
         cfg=league.scoring,
     )
-    injuries = store.injury_rows(season)
+    status = _service(store).status(season)
+    current_week = context["current_week"]
+    apply_injuries = chosen_week == current_week
+    injuries = store.injury_rows(season) if apply_injuries else []
     store.close()
+    _warn_source_states(status, include_adp=False, wanted={"injuries"})
+    if not apply_injuries:
+        console.print(
+            f"[yellow]Injury flags omitted for week {chosen_week}; "
+            f"Sleeper status is current-week only (week {current_week}).[/yellow]"
+        )
     if not roster_rows:
         console.print(
             f"[yellow]No roster players for {user['name']} in week {chosen_week}.[/yellow]"
@@ -577,11 +586,12 @@ def _export_board(
     console.print("[green]Wrote[/green] " + ", ".join(str(path) for path in written))
 
 
-def _warn_source_states(status: dict, *, include_adp: bool) -> None:
-    wanted = {"crosswalk", "sleeper", "espn"}
-    if include_adp:
-        # The board consumes ADP and schedule byes; warn when either is off.
-        wanted.update(("ffc", "schedule", "injuries"))
+def _warn_source_states(status: dict, *, include_adp: bool, wanted: set[str] | None = None) -> None:
+    if wanted is None:
+        wanted = {"crosswalk", "sleeper", "espn"}
+        if include_adp:
+            # The board consumes ADP and schedule byes; warn when either is off.
+            wanted.update(("ffc", "schedule", "injuries"))
     for source in status["sources"]:
         if source["name"] not in wanted:
             continue

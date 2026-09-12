@@ -405,6 +405,10 @@ def test_out_starter_is_sat_for_healthy_backup():
     assert [row["name"] for row in report["sit"]] == ["Out Starter"]
     assert report["sit"][0]["injury"]["status"] == "OUT"
     assert report["start"][0].get("injury") is None
+    assert report["current"][0]["points"] == 22.0
+    assert report["current_total"] == 0.0
+    assert report["optimal_total"] == 6.0
+    assert report["delta"] == 6.0
 
 
 @pytest.mark.parametrize("status", ["DOUBTFUL", "IR", "PUP", "NFI"])
@@ -492,6 +496,10 @@ def test_out_starter_is_not_retained_when_the_slot_has_no_replacement():
     assert report["optimal"] == []
     assert [row["name"] for row in report["sit"]] == ["Out QB"]
     assert report["undecidable"] == []
+    assert report["current"][0]["points"] == 16.0
+    assert report["current_total"] == 0.0
+    assert report["optimal_total"] == 0.0
+    assert report["delta"] == 0.0
     qb = next(row for row in report["aligned"] if row["slot"] == "QB")
     assert qb["current"]["name"] == "Out QB"
     assert qb["optimal"] is None
@@ -524,3 +532,26 @@ def test_unavailable_bench_is_not_a_close_call():
 
     assert report["close_calls"] == []
     assert report["start"] == []
+
+
+def test_questionable_starter_still_counts_in_current_total():
+    players = attach_injuries(
+        attach_weekly_points(
+            [
+                _roster(
+                    yahoo_player_id="q",
+                    full_name="Questionable Starter",
+                    selected_position="RB",
+                    player_key="q",
+                    matched=True,
+                )
+            ],
+            [_consensus("q", 14.0)],
+        ),
+        [_injury("q", "QUESTIONABLE")],
+    )
+    report = compare_lineup(players, {"RB": 1})
+
+    assert report["current_total"] == 14.0
+    assert report["optimal_total"] == 14.0
+    assert report["delta"] == 0.0

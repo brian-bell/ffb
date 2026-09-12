@@ -181,6 +181,13 @@ def _display_points(points: float) -> float:
     return round(float(points), 1)
 
 
+def _counted_points(row: dict[str, Any]) -> float:
+    """Points that contribute to lineup totals: unavailable starters count as 0."""
+    if is_unavailable(row):
+        return 0.0
+    return float(row["points"] or 0.0)
+
+
 def _points_sort_key(player: dict[str, Any]) -> tuple[int, float, int, str]:
     points = player.get("points")
     non_starter = 0 if is_starter(player.get("selected_position")) else 1
@@ -336,8 +343,8 @@ def compare_lineup(
     optimal_ids = {_identity(row) for row in optimal}
     start = [row for row in optimal if _identity(row) not in current_ids]
     sit = [row for row in current if _identity(row) not in optimal_ids]
-    current_total = round(sum(row["points"] or 0.0 for row in current), 2)
-    optimal_total = round(sum(row["points"] or 0.0 for row in optimal), 2)
+    current_total = round(sum(_counted_points(row) for row in current), 2)
+    optimal_total = round(sum(_counted_points(row) for row in optimal), 2)
     missing = [
         _row(player, player.get("selected_position") or "BN")
         for player in players
