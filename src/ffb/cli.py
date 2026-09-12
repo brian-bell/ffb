@@ -344,6 +344,7 @@ def lineup(
         )
         raise typer.Exit(code=1)
     user = user_teams[0]
+    store.refresh_league_roster_identities(season, chosen_week)
     roster_rows = [
         row
         for row in store.league_roster_rows(season, week=chosen_week)
@@ -621,22 +622,18 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
     table.add_column("Pts", justify="right", style="green")
     table.add_column("Optimal")
     table.add_column("Pts", justify="right", style="green")
-    current = list(report["current"])
-    optimal = list(report["optimal"])
-    rows = max(len(current), len(optimal))
-    for index in range(rows):
-        left = current[index] if index < len(current) else None
-        right = optimal[index] if index < len(optimal) else None
-        slot = (left or right or {}).get("slot") or "—"
+    for pair in report["aligned"]:
+        left = pair["current"]
+        right = pair["optimal"]
         table.add_row(
-            slot,
+            pair["slot"],
             left["name"] if left else "—",
             _num(left["points"]) if left else "—",
             right["name"] if right else "—",
             _num(right["points"]) if right else "—",
         )
     console.print(table)
-    if report["start"] or report["sit"]:
+    if report["start"] or report["sit"] or report["undecidable"]:
         for row in report["start"]:
             console.print(
                 f"[green]Start[/green] {row['name']} ({row['slot']}, {_num(row['points'])})"
@@ -644,6 +641,10 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
         for row in report["sit"]:
             console.print(
                 f"[red]Sit[/red] {row['name']} ({row['selected_position']}, {_num(row['points'])})"
+            )
+        for row in report["undecidable"]:
+            console.print(
+                f"[yellow]Undecidable[/yellow] {row['name']} ({row['slot']}; no weekly projection)"
             )
     else:
         console.print("[green]Stored lineup matches the weekly optimum.[/green]")

@@ -2,6 +2,7 @@
 
 from ffb.lineup import (
     CLOSE_CALL_POINTS,
+    align_lineup_slots,
     attach_weekly_points,
     compare_lineup,
     projection_key,
@@ -174,7 +175,69 @@ def test_missing_weekly_points_are_excluded_from_optimal_and_listed():
 
     assert [row["name"] for row in report["missing_projections"]] == ["Rookie Bench"]
     assert [row["name"] for row in report["optimal"]] == ["Derrick Henry"]
+    assert [row["name"] for row in report["sit"]] == ["Rookie Bench"]
     assert report["current_total"] == 0.0
+
+
+def test_unprojected_starter_is_not_sat_when_no_replacement_is_assigned():
+    players = attach_weekly_points(
+        [
+            _roster(
+                yahoo_player_id="42025",
+                full_name="Rookie QB",
+                primary_position="QB",
+                eligible_positions=["QB"],
+                selected_position="QB",
+                player_key="yahoo:42025",
+                matched=False,
+            )
+        ],
+        [],
+    )
+    report = compare_lineup(players, {"QB": 1, "RB": 1})
+
+    assert report["sit"] == []
+    assert report["start"] == []
+    assert [row["name"] for row in report["undecidable"]] == ["Rookie QB"]
+    qb = next(row for row in report["aligned"] if row["slot"] == "QB")
+    assert qb["current"]["name"] == "Rookie QB"
+    assert qb["optimal"]["name"] == "Rookie QB"
+    rb = next(row for row in report["aligned"] if row["slot"] == "RB")
+    assert rb["current"] is None
+    assert rb["optimal"] is None
+
+
+def test_aligned_rows_pair_by_slot_when_optimal_qb_is_vacant():
+    players = attach_weekly_points(
+        [
+            _roster(
+                yahoo_player_id="qb1",
+                full_name="Unprojected QB",
+                primary_position="QB",
+                eligible_positions=["QB"],
+                selected_position="QB",
+                player_key="yahoo:qb1",
+                matched=False,
+            ),
+            _roster(
+                yahoo_player_id="rb1",
+                full_name="Projected RB",
+                selected_position="RB",
+                player_key="rb1",
+                matched=True,
+            ),
+        ],
+        [_consensus("rb1", 12.0)],
+    )
+    report = compare_lineup(players, {"QB": 1, "RB": 1})
+    aligned = align_lineup_slots(report["current"], report["optimal"], {"QB": 1, "RB": 1})
+
+    assert [row["slot"] for row in aligned] == ["QB", "RB"]
+    assert aligned[0]["current"]["name"] == "Unprojected QB"
+    assert aligned[0]["optimal"] is None or aligned[0]["optimal"]["name"] == "Unprojected QB"
+    assert aligned[1]["current"]["name"] == "Projected RB"
+    assert aligned[1]["optimal"]["name"] == "Projected RB"
+    assert aligned[1]["optimal"]["name"] != aligned[0]["current"]["name"]
 
 
 def test_equal_weekly_points_keep_the_current_starter():

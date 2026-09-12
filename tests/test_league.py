@@ -94,3 +94,33 @@ def test_replace_league_state_keeps_earlier_rosters_and_resolves_yahoo_ids(store
     store.replace_league_state(parse_bundle(changed, season=2024))
     assert store.league_roster_rows(2024) == []
     assert len(store.league_roster_rows(2024, week=0)) == 1
+
+
+def test_refresh_league_roster_identities_heals_yahoo_fallback_after_late_crosswalk(
+    store, crosswalk_rows
+):
+    data = _bundle()
+    data["rosters"][0]["players"] = [
+        {
+            "yahoo_player_id": "29279",
+            "yahoo_player_key": "1.p.29279",
+            "name": "Derrick Henry",
+            "nfl_team": "BAL",
+            "primary_position": "RB",
+            "eligible_positions": ["RB"],
+            "selected_position": "RB",
+        }
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    stuck = store.league_roster_rows(2024)[0]
+    assert stuck["player_key"] == "yahoo:29279"
+    assert stuck["matched"] is False
+
+    store.upsert_crosswalk(crosswalk_rows)
+    assert store.refresh_league_roster_identities(2024) == 1
+
+    healed = store.league_roster_rows(2024)[0]
+    assert healed["player_key"] == "12626"
+    assert healed["matched"] is True
+    assert healed["full_name"] == "Derrick Henry"
+    assert store.refresh_league_roster_identities(2024) == 0

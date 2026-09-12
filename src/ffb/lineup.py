@@ -134,7 +134,7 @@ def _points_sort_key(player: dict[str, Any]) -> tuple[int, float, int, str]:
 
 
 def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
-    return {
+    row = {
         "slot": slot,
         "name": player.get("name") or "",
         "position": player.get("position"),
@@ -147,6 +147,9 @@ def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
         "yahoo_player_id": player.get("yahoo_player_id"),
         "matched": bool(player.get("matched")),
     }
+    if player.get("undecidable"):
+        row["undecidable"] = True
+    return row
 
 
 def _expand_current(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> list[dict]:
@@ -181,10 +184,82 @@ def _assign_optimal(players: list[dict[str, Any]], roster_slots: dict[str, int])
         slot = _claim_slot(player, open_counts)
         if slot is not None:
             assigned.append((slot, player))
+    return _rows_in_slot_order(assigned, roster_slots)
+
+
+def _rows_in_slot_order(
+    assigned: list[tuple[str, dict[str, Any]]], roster_slots: dict[str, int]
+) -> list[dict[str, Any]]:
     slot_order = _slot_fill_order(starting_slot_counts(roster_slots))
     order = {slot: index for index, slot in enumerate(slot_order)}
     assigned.sort(key=lambda item: (order.get(item[0], 99), item[1].get("name") or ""))
     return [_row(player, slot) for slot, player in assigned]
+
+
+def _group_by_slot(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["slot"], []).append(row)
+    return grouped
+
+
+def align_lineup_slots(
+    current: list[dict[str, Any]],
+    optimal: list[dict[str, Any]],
+    roster_slots: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Pair current vs optimal occupants by slot, padding vacant sides."""
+    counts = starting_slot_counts(roster_slots)
+    current_by = _group_by_slot(current)
+    optimal_by = _group_by_slot(optimal)
+    extras = sorted(
+        slot
+        for slot in set(current_by) | set(optimal_by)
+        if slot not in counts and slot not in NON_STARTING_SLOTS
+    )
+    aligned: list[dict[str, Any]] = []
+    for slot in _slot_fill_order(counts) + extras:
+        left = current_by.get(slot, [])
+        right = optimal_by.get(slot, [])
+        for index in range(max(counts.get(slot, 0), len(left), len(right))):
+            aligned.append(
+                {
+                    "slot": slot,
+                    "current": left[index] if index < len(left) else None,
+                    "optimal": right[index] if index < len(right) else None,
+                }
+            )
+    return aligned
+
+
+def _retain_unfilled_current(
+    current: list[dict[str, Any]],
+    optimal: list[dict[str, Any]],
+    roster_slots: dict[str, int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep an unprojected starter when their selected slot has no replacement."""
+    open_counts = dict(starting_slot_counts(roster_slots))
+    for row in optimal:
+        if row["slot"] in open_counts:
+            open_counts[row["slot"]] -= 1
+    optimal_ids = {_identity(row) for row in optimal}
+    undecidable: list[dict[str, Any]] = []
+    kept = list(optimal)
+    for row in current:
+        if _identity(row) in optimal_ids:
+            continue
+        slot = row["slot"]
+        if open_counts.get(slot, 0) <= 0:
+            continue
+        open_counts[slot] -= 1
+        retained = {**row, "undecidable": True}
+        kept.append(retained)
+        undecidable.append(retained)
+        optimal_ids.add(_identity(row))
+    return (
+        _rows_in_slot_order([(row["slot"], row) for row in kept], roster_slots),
+        undecidable,
+    )
 
 
 def compare_lineup(
@@ -195,7 +270,9 @@ def compare_lineup(
 ) -> dict[str, Any]:
     """Compare stored starters to a greedy weekly-point assignment."""
     current = _expand_current(players, roster_slots)
-    optimal = _assign_optimal(players, roster_slots)
+    optimal, undecidable = _retain_unfilled_current(
+        current, _assign_optimal(players, roster_slots), roster_slots
+    )
     current_ids = {_identity(row) for row in current}
     optimal_ids = {_identity(row) for row in optimal}
     start = [row for row in optimal if _identity(row) not in current_ids]
@@ -211,8 +288,10 @@ def compare_lineup(
     return {
         "current": current,
         "optimal": optimal,
+        "aligned": align_lineup_slots(current, optimal, roster_slots),
         "start": start,
         "sit": sit,
+        "undecidable": undecidable,
         "current_total": current_total,
         "optimal_total": optimal_total,
         "delta": round(optimal_total - current_total, 2),

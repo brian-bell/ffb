@@ -816,6 +816,63 @@ class Store:
             row["eligible_positions"] = json.loads(row.pop("eligible_positions_json"))
         return rows
 
+    def refresh_league_roster_identities(self, season: int, week: int | None = None) -> int:
+        """Re-resolve stored Yahoo roster ids against the current crosswalk.
+
+        League sync freezes ``player_key`` / ``matched`` at write time. A later
+        crosswalk refresh must heal ``yahoo:*`` fallbacks (and un-match vanished
+        ids) so sit/start can join weekly consensus without another league sync.
+        """
+        rows = self.league_roster_rows(season, week)
+        if not rows:
+            return 0
+        resolved = self.resolve_batch("yahoo", [row["yahoo_player_id"] for row in rows])
+        changed = 0
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            for row in rows:
+                match = resolved.get(row["yahoo_player_id"])
+                if match:
+                    player_key = match["player_key"]
+                    matched = True
+                    full_name = match["full_name"]
+                    nfl_team = match["team"]
+                    position = match["position"]
+                else:
+                    player_key = f"yahoo:{row['yahoo_player_id']}"
+                    matched = False
+                    full_name = row["full_name"]
+                    nfl_team = row["nfl_team"]
+                    position = row["primary_position"]
+                if row["player_key"] == player_key and bool(row["matched"]) is matched:
+                    continue
+                changed += 1
+                self.conn.execute(
+                    """
+                    UPDATE league_rosters
+                    SET player_key = ?, matched = ?, full_name = ?,
+                        nfl_team = ?, primary_position = ?
+                    WHERE season = ? AND week = ? AND team_key = ?
+                          AND yahoo_player_id = ?
+                    """,
+                    [
+                        player_key,
+                        matched,
+                        full_name,
+                        nfl_team,
+                        position,
+                        row["season"],
+                        row["week"],
+                        row["team_key"],
+                        row["yahoo_player_id"],
+                    ],
+                )
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        self.conn.execute("COMMIT")
+        return changed
+
     def adp_rows(self, season: int, source: str = "ffc") -> list[dict[str, Any]]:
         """Return stored ADP rows for a season/source as plain dicts."""
         cursor = self.conn.execute(

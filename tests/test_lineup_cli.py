@@ -162,3 +162,97 @@ def test_lineup_rejects_non_positive_week(tmp_path):
     result = runner.invoke(app, ["lineup", "2024", "--week", "0"], env=_env(tmp_path))
     assert result.exit_code != 0
     assert "week" in result.output.lower()
+
+
+def test_lineup_reresolves_roster_after_late_crosswalk(tmp_path):
+    env = _env(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.close()
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    from ffb.sources.crosswalk import parse_crosswalk
+
+    store.upsert_crosswalk(
+        parse_crosswalk(json.loads(XWALK.read_text()))
+        + [
+            {
+                "player_key": "rb-low",
+                "sleeper_id": None,
+                "espn_id": None,
+                "yahoo_id": "55501",
+                "gsis_id": None,
+                "full_name": "Slow Back",
+                "position": "RB",
+                "team": "KCC",
+            }
+        ]
+    )
+    henry = next(row for row in store.league_roster_rows(2024) if row["yahoo_player_id"] == "29279")
+    assert henry["matched"] is False
+    assert henry["player_key"] == "yahoo:29279"
+    store.upsert_projections(
+        [
+            _weekly_row("12626", "Derrick Henry", "RB", "BAL", "3198", {"rush_yd": 180.0}),
+            _weekly_row("rb-low", "Slow Back", "RB", "KCC", "slow", {"rush_yd": 40.0}),
+        ]
+    )
+    store.close()
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Derrick Henry" in result.output
+    assert "18.0" in " ".join(result.output.split())
+    assert "Start" in result.output
+
+
+def test_lineup_table_keeps_vacant_optimal_under_the_same_slot(tmp_path):
+    env = _env(tmp_path)
+    payload = json.loads(FIXTURE.read_text())
+    payload["settings"]["roster_slots"] = [
+        {"position": "QB", "count": 1, "is_starting": True},
+        {"position": "RB", "count": 1, "is_starting": True},
+        {"position": "BN", "count": 1, "is_starting": False},
+    ]
+    payload["rosters"][0]["players"] = [
+        {
+            "yahoo_player_id": "42025",
+            "yahoo_player_key": "1.p.42025",
+            "name": "Rookie QB",
+            "nfl_team": "CHI",
+            "primary_position": "QB",
+            "eligible_positions": ["QB"],
+            "selected_position": "QB",
+        },
+        {
+            "yahoo_player_id": "29279",
+            "yahoo_player_key": "1.p.29279",
+            "name": "Derrick Henry",
+            "nfl_team": "BAL",
+            "primary_position": "RB",
+            "eligible_positions": ["RB"],
+            "selected_position": "RB",
+        },
+    ]
+    fixture_path = tmp_path / "vacant.json"
+    fixture_path.write_text(json.dumps(payload))
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    from ffb.sources.crosswalk import parse_crosswalk
+
+    store.upsert_crosswalk(parse_crosswalk(json.loads(XWALK.read_text())))
+    store.upsert_projections(
+        [_weekly_row("12626", "Derrick Henry", "RB", "BAL", "3198", {"rush_yd": 180.0})]
+    )
+    store.close()
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(fixture_path)], env=env)
+    assert synced.exit_code == 0, synced.output
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Sit" not in result.output
+    assert "Rookie QB" in result.output
+    qb_line = next(line for line in result.output.splitlines() if "QB" in line and "Rookie" in line)
+    assert "Derrick Henry" not in qb_line
