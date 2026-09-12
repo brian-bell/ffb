@@ -34,7 +34,7 @@ queries, and transaction boundaries. The main stored domains are:
 | Domain | Tables | Purpose |
 | --- | --- | --- |
 | Identity | `crosswalk`, `players` | Canonical and fallback player identities |
-| Source data | `projections`, `adp`, `team_byes`, `schedule_games`, `injuries` | Normalized raw values used at read time |
+| Source data | `projections`, `adp`, `team_byes`, `schedule_games`, `injuries`, `headlines`, `headline_mentions` | Normalized raw values used at read time |
 | Source health | `season_source_state` | Attempts, successes, counts, snapshots, and errors |
 | League context | `league_settings`, `league_teams`, `league_rosters` | Validated fixture-backed league state |
 
@@ -49,11 +49,12 @@ DuckDB ADP ───────────────────────
 DuckDB team byes ──────────────────────────────┤
 DuckDB schedule games ─────────────────────────┤
 DuckDB injuries ───────────────────────────────┤
+DuckDB headlines ──────────────────────────────┤
 stored/fallback league context ────────────────┘
                                                 ↓
                                   player-pool selection
                                                 ↓
-                      VORP → tiers → ranks  |  ROS report
+                      VORP → tiers → ranks  |  ROS report  |  news digest
                                                 ↓
                               terminal / Markdown / CSV / JSON
 ```
@@ -71,7 +72,11 @@ zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
 or stale injury source state is warned before the report. `ffb ros` is another
 season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
-user roster is stored) groups that roster by bye. `board.py` merges consensus,
+user roster is stored) groups that roster by bye. `ffb digest` is a read-time
+headline report: stored ESPN/RSS articles plus Sleeper injury labels for the
+user roster and unrostered mentions. Haiku/Sonnet add flags and Tuesday-brief
+prose when an Anthropic key is present; headlines never enter scoring,
+consensus, VORP, or sit/start math. `board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
 ranks.
 

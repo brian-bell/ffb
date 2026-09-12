@@ -31,6 +31,8 @@ uv run ffb ros 2026
 uv run ffb season sync 2026 --source ffc
 uv run ffb season sync 2026 --source schedule
 uv run ffb season sync 2026 --source injuries
+uv run ffb season sync 2026 --source news
+uv run ffb digest 2026
 uv run ffb season status 2026 --json
 ```
 

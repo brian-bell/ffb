@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
+from ffb.sources import crosswalk, espn, espn_news, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -26,6 +26,8 @@ def _env(tmp_path):
         ffc.snapshot_key(2024): "ffc_adp_sample.json",
         schedule.snapshot_key(2024): "schedule_sample.json",
         sleeper_players.snapshot_key(): "sleeper_players_injury_sample.json",
+        espn_news.snapshot_key(): "espn_news_sample.json",
+        espn_news.rss_snapshot_key(): "espn_news_rss_sample.json",
     }
     for key, filename in fixtures.items():
         payload = json.loads((FIXTURES / filename).read_text())
