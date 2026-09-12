@@ -23,14 +23,16 @@ def consensus_rows(
     season: int,
     position: str | None = None,
     scope: str = "season",
-    week: int | None = None,
     cfg: ScoringConfig = DEFAULT_PPR,
     sources: list[str] | None = None,
+    *,
+    week: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return consensus rows sorted by consensus points descending.
 
-    ``week`` selects the ``week{{N}}`` projection slice and overrides ``scope``.
-    Rankings and the board keep calling this with the season default.
+    ``week`` is keyword-only and selects the ``week{{N}}`` projection slice,
+    overriding ``scope``. Rankings and the board keep calling this with the
+    season default.
 
     ``sources`` restricts which sources contribute (``None`` = every source
     stored). Callers pass the active set so output depends on the request, not on
