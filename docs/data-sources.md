@@ -107,7 +107,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 
 ### 2. Sleeper — player injury/status map
 
-`src/ffb/sources/sleeper_players.py`. The draft board's injury authority.
+`src/ffb/sources/sleeper_players.py`. Injury authority for the draft board and
+the sit/start lineup report.
 
 - **Endpoint** — `GET https://api.sleeper.app/v1/players/nfl`, unauthenticated.
   Sleeper permits the full map at most once per day. Missing-only and offline
@@ -118,8 +119,10 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 - **Response and identity** — an object keyed by Sleeper `player_id`. Each usable
   record preserves raw `injury_status` and roster `status`, then resolves
   `player_id` through the crosswalk's `sleeper_id`. Unmatched records stay in
-  the dedicated `injuries` table but cannot reach the board. A `sleeper_id`
-  that nflverse assigned to two `mfl_id`s stays unmatched rather than guessed.
+  the dedicated `injuries` table but cannot reach the board or lineup report. A
+  `sleeper_id` that nflverse assigned to two `mfl_id`s stays unmatched rather
+  than guessed. `ffb lineup` left-joins the same matched slice and will not
+  start Out, Doubtful, IR, PUP, or NFI players.
 - **Mapping** — direct `Questionable`, `Doubtful`, `Out`, `IR`, and `PUP` tokens
   map to their uppercase canonical values. A blank direct token falls back only
   to `Injured Reserve` → `IR`, `Physically Unable to Perform` → `PUP`, or

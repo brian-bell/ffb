@@ -1,9 +1,10 @@
 """Sit/start lineup: optimal weekly starters vs stored ``selected_position``.
 
 Pure compute over roster rows and weekly consensus dicts. The CLI loads league
-state and ``scope=week{{N}}`` consensus; this module never touches DuckDB.
-Unmatched defenses join projections as ``def:<canonical-team>``. Unmatched
-skill players are never guessed by name.
+state, ``scope=week{{N}}`` consensus, and stored Sleeper injuries; this module
+never touches DuckDB. Unmatched defenses join projections as
+``def:<canonical-team>``. Unmatched skill players are never guessed by name.
+Out/Doubtful/IR-list designations are shown and excluded from the optimum.
 """
 
 from __future__ import annotations
@@ -15,6 +16,16 @@ from ffb.vorp import BENCH_SLOT, FLEX_SLOTS
 
 NON_STARTING_SLOTS = frozenset({BENCH_SLOT, "IR", "IL"})
 CLOSE_CALL_POINTS = 1.5
+UNAVAILABLE_STATUSES = frozenset({"OUT", "DOUBTFUL", "IR", "PUP", "NFI"})
+INJURY_BADGES = {
+    "QUESTIONABLE": "Q",
+    "DOUBTFUL": "D",
+    "OUT": "OUT",
+    "IR": "IR",
+    "PUP": "PUP",
+    "NFI": "NFI",
+    "UNKNOWN": "?",
+}
 _DEDICATED_ORDER = ("QB", "RB", "WR", "TE", "K", "DEF")
 
 
@@ -56,6 +67,52 @@ def attach_weekly_points(
             }
         )
     return attached
+
+
+def attach_injuries(
+    players: list[dict[str, Any]],
+    injury_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Left-join matched Sleeper status onto roster players by canonical key."""
+    by_key = {
+        row["player_key"]: {"status": row["status"], "fetched_at": row.get("fetched_at")}
+        for row in injury_rows
+        if row.get("matched") and row.get("status")
+    }
+    attached: list[dict[str, Any]] = []
+    for player in players:
+        key = player.get("projection_key") or player.get("player_key")
+        attached.append({**player, "injury": by_key.get(key)})
+    return attached
+
+
+def is_unavailable(player: dict[str, Any]) -> bool:
+    """True for designations that should not be started (Out/IR/Doubtful/lists)."""
+    injury = player.get("injury")
+    if not isinstance(injury, dict):
+        return False
+    return injury.get("status") in UNAVAILABLE_STATUSES
+
+
+def injury_badge(player: dict[str, Any]) -> str | None:
+    """Compact Q/O/D/IR label for a lineup row, or ``None`` when healthy/unknown."""
+    injury = player.get("injury")
+    if not isinstance(injury, dict):
+        return None
+    status = injury.get("status")
+    if not status:
+        return None
+    return INJURY_BADGES.get(status, str(status))
+
+
+def injury_as_of(players: list[dict[str, Any]]) -> str | None:
+    """Newest Sleeper snapshot timestamp among attached injury rows."""
+    stamps = [
+        player["injury"]["fetched_at"]
+        for player in players
+        if isinstance(player.get("injury"), dict) and player["injury"].get("fetched_at")
+    ]
+    return max(stamps) if stamps else None
 
 
 def can_fill(player: dict[str, Any], slot: str) -> bool:
@@ -147,6 +204,8 @@ def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
         "yahoo_player_id": player.get("yahoo_player_id"),
         "matched": bool(player.get("matched")),
     }
+    if player.get("injury") is not None:
+        row["injury"] = player["injury"]
     if player.get("undecidable"):
         row["undecidable"] = True
     return row
@@ -179,7 +238,7 @@ def _assign_optimal(players: list[dict[str, Any]], roster_slots: dict[str, int])
     open_counts = dict(starting_slot_counts(roster_slots))
     assigned: list[tuple[str, dict[str, Any]]] = []
     for player in sorted(players, key=_points_sort_key):
-        if player.get("points") is None:
+        if player.get("points") is None or is_unavailable(player):
             continue
         slot = _claim_slot(player, open_counts)
         if slot is not None:
@@ -246,7 +305,7 @@ def _retain_unfilled_current(
     undecidable: list[dict[str, Any]] = []
     kept = list(optimal)
     for row in current:
-        if _identity(row) in optimal_ids:
+        if _identity(row) in optimal_ids or is_unavailable(row):
             continue
         slot = row["slot"]
         if open_counts.get(slot, 0) <= 0:
@@ -297,6 +356,7 @@ def compare_lineup(
         "delta": round(optimal_total - current_total, 2),
         "missing_projections": missing,
         "close_calls": close_calls,
+        "injury_as_of": injury_as_of(players),
     }
 
 
@@ -308,7 +368,11 @@ def _close_calls(
     optimal_ids = {_identity(row) for row in optimal}
     flagged: list[dict[str, Any]] = []
     for player in players:
-        if _identity(player) in optimal_ids or player.get("points") is None:
+        if (
+            _identity(player) in optimal_ids
+            or player.get("points") is None
+            or is_unavailable(player)
+        ):
             continue
         for starter in optimal:
             if starter["points"] is None or not can_fill(player, starter["slot"]):
