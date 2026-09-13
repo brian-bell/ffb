@@ -73,9 +73,12 @@ season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
 user roster is stored) groups that roster by bye. `ffb lineup` writes an
 immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
-week and refuses to replace it; `ffb retro` joins that
-advice to a closed `WeeklyActualsBundle` (fixture or `snapshots/actuals/`) and
-never stores actuals in DuckDB. `board.py` merges consensus,
+week and refuses to replace it, skips past weeks as post-hoc, and replaces or
+backfills only with `--force`; `ffb retro --fixture` likewise refuses to
+replace differing locked actuals without `--force`; `ffb retro` joins that
+advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, or a
+one-time pull from the Worker's `GET /api/actuals`) and never stores actuals in
+DuckDB. `board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
 ranks.
 

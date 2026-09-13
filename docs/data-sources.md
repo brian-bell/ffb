@@ -393,8 +393,11 @@ affirmative.
 the current roster week. `league_context.py` selects complete fixture scoring and
 roster components independently, falling back to placeholders safely.
 `actuals.py` validates a sibling closed `WeeklyActualsBundle` (scoreboard +
-player points). The Worker stores accepted payloads in KV; the CLI snapshots
-them under `snapshots/actuals/` and never writes actuals to DuckDB. `ffb lineup`
+player points). The Worker stores accepted payloads in KV; `sources/tracker.py`
+is the thin authed fetch (`GET /api/actuals`, configured by `FFB_TRACKER_URL`
+and `FFB_TRACKER_API_KEY`) the CLI uses when no local snapshot exists. The CLI
+snapshots accepted bundles under `snapshots/actuals/` and never writes actuals
+to DuckDB. `ffb lineup`
 snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
 by `yahoo_player_id`.
 

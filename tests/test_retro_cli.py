@@ -200,7 +200,7 @@ def test_retro_requires_actuals_bundle(tmp_path):
     assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
     result = runner.invoke(app, ["retro", "2024"], env=env)
     assert result.exit_code == 1
-    assert "/api/actuals" in result.output
+    assert "FFB_TRACKER_URL" in result.output
     assert "--fixture" in result.output
 
 
@@ -229,3 +229,175 @@ def test_retro_rejects_actuals_for_a_different_team(tmp_path):
     result = runner.invoke(app, ["retro", "2024", "--fixture", str(path)], env=env)
     assert result.exit_code == 1
     assert "team_key" in result.output
+
+
+def _mock_tracker(monkeypatch, handler):
+    import httpx
+
+    from ffb import cli
+
+    monkeypatch.setattr(
+        cli, "_tracker_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+
+def _tracker_env(tmp_path):
+    return {
+        **_seed_lineup_store(tmp_path),
+        "FFB_TRACKER_URL": "https://tracker.test",
+        "FFB_TRACKER_API_KEY": "sekrit",
+    }
+
+
+def _ready_lineup(env):
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
+
+
+def test_retro_pulls_actuals_from_tracker_when_no_local_snapshot(tmp_path, monkeypatch):
+    import httpx
+
+    env = _tracker_env(tmp_path)
+    _ready_lineup(env)
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(200, json=json.loads(ACTUALS.read_text()))
+
+    _mock_tracker(monkeypatch, handler)
+    result = runner.invoke(app, ["retro", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert seen == {
+        "url": "https://tracker.test/api/actuals?season=2024&week=1",
+        "auth": "Bearer sekrit",
+    }
+    assert "Recommended 46.5" in " ".join(result.output.split())
+    assert "sekrit" not in result.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    assert cache.read_json(actuals_snapshot_key(2024, 1))["league"]["week"] == 1
+
+    # Second run replays the snapshot and never calls the Worker.
+    def explode(_request):
+        raise AssertionError("tracker must not be called when a snapshot exists")
+
+    _mock_tracker(monkeypatch, explode)
+    replay = runner.invoke(app, ["retro", "2024"], env=env)
+    assert replay.exit_code == 0, replay.output
+
+
+def test_retro_reports_when_tracker_has_no_actuals_for_week(tmp_path, monkeypatch):
+    import httpx
+
+    env = _tracker_env(tmp_path)
+    _ready_lineup(env)
+    _mock_tracker(monkeypatch, lambda _r: httpx.Response(404, json={"error": "not_found"}))
+    result = runner.invoke(app, ["retro", "2024"], env=env)
+    assert result.exit_code == 1
+    assert "tracker has no weekly actuals" in result.output.lower()
+    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1))
+
+
+def test_retro_rejects_invalid_tracker_payload_without_snapshotting(tmp_path, monkeypatch):
+    import httpx
+
+    env = _tracker_env(tmp_path)
+    _ready_lineup(env)
+    _mock_tracker(monkeypatch, lambda _r: httpx.Response(200, json={"schema_version": 2}))
+    result = runner.invoke(app, ["retro", "2024"], env=env)
+    assert result.exit_code == 1
+    assert "invalid" in result.output.lower()
+    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1))
+
+
+def test_retro_reports_tracker_http_failure(tmp_path, monkeypatch):
+    import httpx
+
+    env = _tracker_env(tmp_path)
+    _ready_lineup(env)
+    _mock_tracker(monkeypatch, lambda _r: httpx.Response(401, json={"error": "unauthorized"}))
+    result = runner.invoke(app, ["retro", "2024"], env=env)
+    assert result.exit_code == 1
+    assert "tracker fetch failed" in result.output.lower()
+    assert "sekrit" not in result.output
+
+
+def test_lineup_force_replaces_an_existing_snapshot(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    _ready_lineup(env)
+    cache = SnapshotCache(tmp_path / "snapshots")
+    original = cache.read_json(lineup_snapshot_key(2024, 1))
+    store = Store(env["FFB_DB_PATH"])
+    store.upsert_projections(
+        [
+            _weekly_row("12626", "Derrick Henry", "RB", "BAL", "3198", {"rush_yd": 40.0}),
+            _weekly_row("rb-low", "Slow Back", "RB", "KCC", "slow", {"rush_yd": 180.0}),
+        ]
+    )
+    store.close()
+    hint = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert "--force" in hint.output
+    forced = runner.invoke(app, ["lineup", "2024", "--force"], env=env)
+    assert forced.exit_code == 0, forced.output
+    assert "replaced" in forced.output.lower()
+    stored = cache.read_json(lineup_snapshot_key(2024, 1))
+    assert stored["generated_at"] != original["generated_at"]
+    assert stored["report"]["start"] != original["report"]["start"]
+
+
+def test_lineup_skips_snapshot_for_a_past_week_unless_forced(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    # Advance the league to week 2; week-1 rosters stay stored beside the new week.
+    payload = json.loads(FIXTURE.read_text())
+    payload["league"]["current_week"] = 2
+    for roster in payload["rosters"]:
+        roster["week"] = 2
+    path = tmp_path / "week2.json"
+    path.write_text(json.dumps(payload))
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(path)], env=env).exit_code
+        == 0
+    )
+    cache = SnapshotCache(tmp_path / "snapshots")
+    result = runner.invoke(app, ["lineup", "2024", "--week", "1"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "post-hoc" in result.output.lower()
+    assert not cache.has(lineup_snapshot_key(2024, 1))
+    forced = runner.invoke(app, ["lineup", "2024", "--week", "1", "--force"], env=env)
+    assert forced.exit_code == 0, forced.output
+    assert cache.has(lineup_snapshot_key(2024, 1))
+
+
+def test_retro_fixture_refuses_to_replace_different_actuals_unless_forced(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    _ready_lineup(env)
+    first = runner.invoke(app, ["retro", "2024", "--fixture", str(ACTUALS)], env=env)
+    assert first.exit_code == 0, first.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    original = cache.read_json(actuals_snapshot_key(2024, 1))
+
+    # Identical fixture replays quietly.
+    same = runner.invoke(app, ["retro", "2024", "--fixture", str(ACTUALS)], env=env)
+    assert same.exit_code == 0, same.output
+
+    payload = json.loads(ACTUALS.read_text())
+    henry = next(row for row in payload["players"] if row["name"] == "Derrick Henry")
+    henry["points"] = 1.0
+    path = tmp_path / "revised.json"
+    path.write_text(json.dumps(payload))
+    refused = runner.invoke(app, ["retro", "2024", "--fixture", str(path)], env=env)
+    assert refused.exit_code == 1, refused.output
+    assert "--force" in refused.output
+    assert cache.read_json(actuals_snapshot_key(2024, 1)) == original
+
+    forced = runner.invoke(app, ["retro", "2024", "--fixture", str(path), "--force"], env=env)
+    assert forced.exit_code == 0, forced.output
+    assert cache.read_json(actuals_snapshot_key(2024, 1))["players"] != original["players"]

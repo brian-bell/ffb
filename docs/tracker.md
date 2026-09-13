@@ -102,7 +102,9 @@ Sibling of any LeagueBundle ingest route. Grok (or a fixture) `POST`s a closed
 and stores the payload in KV as `actuals:v1:{season}:{week}`.
 `GET /api/actuals?season=&week=` reads it back. Live scores never belong in git.
 The tracker does not import Python; `ffb retro` consumes a local snapshot or
-`--fixture` of the same contract.
+`--fixture` of the same contract. When neither exists, the CLI pulls the blob
+from `GET /api/actuals` using `FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY`,
+validates it, and snapshots it under `snapshots/actuals/` before the retro runs.
 
 | Method and route | Purpose |
 | --- | --- |
