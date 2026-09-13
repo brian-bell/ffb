@@ -18,12 +18,17 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
 
 def name_mentioned(name: str, text: str) -> bool:
-    """True when every normalized name token appears as a token in ``text``."""
+    """True when the normalized name appears in ``text`` as a contiguous token run.
+
+    Order and adjacency matter: "Josh Allen" must not match a headline that
+    mentions Josh Jacobs and Keenan Allen.
+    """
     tokens = normalize_name(name).split()
     if not tokens:
         return False
-    haystack = set(normalize_name(text).split())
-    return all(token in haystack for token in tokens)
+    words = normalize_name(text).split()
+    width = len(tokens)
+    return any(words[i : i + width] == tokens for i in range(len(words) - width + 1))
 
 
 def _headline_text(headline: dict[str, Any]) -> str:

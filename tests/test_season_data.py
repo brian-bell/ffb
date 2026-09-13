@@ -66,7 +66,7 @@ def _fixture_fetchers():
 def test_expand_sources_includes_schedule():
     from ffb.season_data import expand_sources
 
-    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries", "news"]
+    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries"]
     assert expand_sources(["schedule"]) == ["schedule"]
     assert expand_sources(["injuries"]) == ["injuries"]
     assert expand_sources(["news"]) == ["news"]

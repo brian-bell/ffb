@@ -62,6 +62,14 @@ def test_name_mentioned_requires_all_name_tokens():
     assert name_mentioned("Henry", "King Henry scored") is True
 
 
+def test_name_mentioned_requires_contiguous_ordered_tokens():
+    assert name_mentioned("Josh Allen", "Josh Jacobs and Keenan Allen practiced fully") is False
+    assert name_mentioned("Allen Robinson", "Robinson, Allen listed as questionable") is False
+    assert name_mentioned("Josh Allen", "Bills QB Josh Allen Jr. threw four TDs") is True
+    # Hyphens collapse to a solid token by design (Amon-Ra), so no match here.
+    assert name_mentioned("Derrick Henry", "derrick-henry limited") is False
+
+
 def test_attach_headlines_uses_mentions_then_unique_name_hits():
     rss = _headline(
         native_id="US-EN-49800121",

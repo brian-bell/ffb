@@ -68,6 +68,16 @@ def test_parses_rss_items_without_athlete_ids():
     assert first["headline"] == "Derrick Henry limited at practice"
     assert first["athletes"] == []
     assert first["url"].endswith("henry-limited")
+    assert first["published_at"] == "2026-09-11T21:00:00Z"
+    assert rows[1]["published_at"] == "2026-09-11T20:00:00Z"
+
+
+def test_parse_rss_keeps_unparseable_pubdate_verbatim():
+    xml = (
+        "<rss><channel><item><title>t</title><guid>g</guid>"
+        "<pubDate>someday</pubDate></item></channel></rss>"
+    )
+    assert parse_rss({"xml": xml})[0]["published_at"] == "someday"
 
 
 def test_parse_rss_returns_empty_for_bad_xml():

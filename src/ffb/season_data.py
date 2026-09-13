@@ -25,8 +25,12 @@ from ffb.store import Store
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries", "news")
-ALL_SOURCES = ("crosswalk", *DEFAULT_SOURCES)
+DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries")
+# Opt-in sources: not synced by a bare ``season sync`` and not required for
+# ``complete`` until they have been synced at least once.
+OPTIONAL_SOURCES = ("news",)
+SYNCABLE_SOURCES = (*DEFAULT_SOURCES, *OPTIONAL_SOURCES)
+ALL_SOURCES = ("crosswalk", *SYNCABLE_SOURCES)
 SOURCE_KIND = {
     "crosswalk": "identity",
     "sleeper": "projections",
@@ -48,11 +52,12 @@ class SyncResult:
 
 
 def expand_sources(selectors: list[str] | None) -> list[str]:
-    selected = selectors or ["all"]
+    selected = selectors or ["default"]
     if "all" in selected and len(selected) > 1:
         raise ValueError("'all' cannot be combined with other source selectors")
     expansion = {
-        "all": DEFAULT_SOURCES,
+        "default": DEFAULT_SOURCES,
+        "all": SYNCABLE_SOURCES,
         "projections": ("sleeper", "espn"),
         "adp": ("ffc",),
         "sleeper": ("sleeper",),
@@ -404,7 +409,9 @@ class SeasonDataService:
             "version": 1,
             "season": season,
             "complete": all(
-                source["state"] == "ready" and not source["stale"] for source in sources
+                source["state"] == "ready" and not source["stale"]
+                for source in sources
+                if source["name"] not in OPTIONAL_SOURCES or source["state"] != "missing"
             ),
             "sources": sources,
             "league": {
@@ -415,6 +422,6 @@ class SeasonDataService:
         }
 
     def unmatched(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
-        if source is not None and source not in DEFAULT_SOURCES:
+        if source is not None and source not in SYNCABLE_SOURCES:
             raise ValueError(f"unknown unmatched source: {source}")
         return self.store.unmatched_rows(season, source)

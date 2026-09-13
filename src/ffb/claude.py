@@ -7,14 +7,35 @@ already-selected headlines and injury labels. Tests inject ``complete``.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 HAIKU_MODEL = "claude-haiku-4-5"
-SONNET_MODEL = "claude-sonnet-4-5"
+SONNET_MODEL = "claude-sonnet-5"
 ANTHROPIC_VERSION = "2023-06-01"
+MAX_ATTEMPTS = 3
+_RETRY_STATUSES = frozenset({408, 409, 429})
+_MAX_BACKOFF = 30.0
+_sleep = time.sleep
+
+
+def _retryable(response: httpx.Response) -> bool:
+    return response.status_code in _RETRY_STATUSES or response.status_code >= 500
+
+
+def _backoff(response: httpx.Response | None, attempt: int) -> float:
+    """Honor ``retry-after`` when present, else exponential backoff."""
+    if response is not None:
+        header = response.headers.get("retry-after")
+        try:
+            if header is not None:
+                return min(float(header), _MAX_BACKOFF)
+        except ValueError:
+            pass
+    return min(2.0**attempt, _MAX_BACKOFF)
 
 
 def api_key_from_env(env: dict[str, str] | None = None) -> str | None:
@@ -35,23 +56,36 @@ def complete_claude(
     api_key: str,
     timeout: float = 45.0,
 ) -> str:
-    """Send one Messages request and return concatenated text blocks."""
-    response = httpx.post(
-        ANTHROPIC_URL,
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": ANTHROPIC_VERSION,
-            "content-type": "application/json",
-        },
-        json={
-            "model": model,
-            "max_tokens": 1024,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        },
-        timeout=timeout,
-    )
-    response.raise_for_status()
+    """Send one Messages request and return concatenated text blocks.
+
+    Retries transport errors, 408/409/429, and 5xx up to ``MAX_ATTEMPTS`` times
+    (the same set the official SDK retries). Other 4xx raise immediately.
+    """
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+    }
+    body = {
+        "model": model,
+        "max_tokens": 1024,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+    }
+    for attempt in range(MAX_ATTEMPTS):
+        last = attempt == MAX_ATTEMPTS - 1
+        try:
+            response = httpx.post(ANTHROPIC_URL, headers=headers, json=body, timeout=timeout)
+        except httpx.TransportError:
+            if last:
+                raise
+            _sleep(_backoff(None, attempt))
+            continue
+        if _retryable(response) and not last:
+            _sleep(_backoff(response, attempt))
+            continue
+        response.raise_for_status()
+        break
     payload = response.json()
     blocks = payload.get("content") if isinstance(payload, dict) else None
     if not isinstance(blocks, list):

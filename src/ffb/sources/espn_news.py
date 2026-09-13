@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -151,6 +153,22 @@ def _rss_text(node: ET.Element | None) -> str:
     return text
 
 
+def _iso_pubdate(text: str) -> str | None:
+    """RFC 822 ``pubDate`` → ISO-8601 UTC so it sorts with ESPN's JSON timestamps.
+
+    Unparseable values are kept verbatim rather than dropped.
+    """
+    if not text:
+        return None
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def parse_rss(raw: Any) -> list[dict[str, Any]]:
     """Parse the JSON-wrapped ESPN NFL RSS feed; bad XML returns ``[]``."""
     if not isinstance(raw, dict):
@@ -181,7 +199,7 @@ def parse_rss(raw: Any) -> list[dict[str, Any]]:
                 "headline": headline,
                 "summary": _rss_text(item.find("description")),
                 "url": _rss_text(item.find("link")) or None,
-                "published_at": _rss_text(item.find("pubDate")) or None,
+                "published_at": _iso_pubdate(_rss_text(item.find("pubDate"))),
                 "athletes": [],
             }
         )

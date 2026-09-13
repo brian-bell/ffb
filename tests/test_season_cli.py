@@ -206,7 +206,7 @@ def test_offline_sync_reports_every_missing_snapshot_without_fetching(tmp_path, 
     result = runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env)
 
     assert result.exit_code == 1
-    assert result.output.lower().count("failed") == 7
+    assert result.output.lower().count("failed") == 6
     assert "offline snapshot missing" in result.output
 
 
@@ -240,7 +240,8 @@ def test_source_selectors_expand_and_deduplicate_without_syncing_adp(tmp_path):
 
 def test_status_json_includes_versioned_snapshot_provenance_and_separate_league(tmp_path):
     env = _env(tmp_path)
-    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    synced = runner.invoke(app, ["season", "sync", "2024", "--offline", "--source", "all"], env=env)
+    assert synced.exit_code == 0, synced.output
 
     result = runner.invoke(app, ["season", "status", "2024", "--json"], env=env)
 

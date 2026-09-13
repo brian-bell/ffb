@@ -378,7 +378,12 @@ consensus, VORP, sit/start, or ROS math.
     feed alone counts as a successful sync, so RSS is a real fallback when the
     unofficial JSON host is blocked. The source fails only when neither feed
     yields a headline.
-  - News is part of `season sync` `all`. Status `complete` requires it.
+  - News is opt-in: a bare `season sync` skips it, `--source all` or
+    `--source news` fetches it, and status `complete` ignores it until it has
+    been synced at least once (after which a failed or stale news sync does
+    count against completeness).
+  - RSS `pubDate` values are normalized to ISO-8601 UTC at parse time so they
+    sort with the JSON feed's timestamps.
 
 ---
 
