@@ -149,6 +149,27 @@ describe("Worker /api/league/bundle", () => {
     expect(noBoard.status).toBe(200);
   });
 
+  it("rejects oversized bodies before parsing", async () => {
+    const declared = await SELF.fetch(BUNDLE_URL, {
+      method: "POST",
+      headers: { ...bearer(), "content-type": "application/json", "content-length": "10485761" },
+      body: JSON.stringify(fixtureJson),
+    });
+    expect(declared.status).toBe(413);
+    expect(await declared.json()).toEqual({
+      error: "payload_too_large",
+      message: "body must be at most 10485760 bytes",
+    });
+
+    const padded = {
+      ...fixtureJson,
+      settings: { ...fixtureJson.settings, provider_settings: { blob: "x".repeat(10 * 1024 * 1024) } },
+    };
+    const actual = await postBundle(padded);
+    expect(actual.status).toBe(413);
+    expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBeNull();
+  });
+
   it("rejects invalid JSON without logging-shaped echo", async () => {
     const res = await postBundle("{not-json");
     expect(res.status).toBe(400);

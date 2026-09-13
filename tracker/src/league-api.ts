@@ -16,6 +16,17 @@ function json(body: unknown, status = 200, headers: HeadersInit = {}): Response 
   });
 }
 
+// KV values cap at 25 MiB and a real bundle is well under 1 MiB; bound the body
+// so an oversized payload gets a structured 413 instead of an unhandled put error.
+export const MAX_BUNDLE_BYTES = 10 * 1024 * 1024;
+
+function payloadTooLarge(): Response {
+  return json(
+    { error: "payload_too_large", message: `body must be at most ${MAX_BUNDLE_BYTES} bytes` },
+    413,
+  );
+}
+
 function methodNotAllowed(allow: string): Response {
   return json({ error: "method_not_allowed", message: "Method not allowed." }, 405, {
     Allow: allow,
@@ -38,9 +49,18 @@ export async function handleLeagueApi(
     return methodNotAllowed("GET, POST");
   }
 
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BUNDLE_BYTES) {
+    return payloadTooLarge();
+  }
+  const text = await request.text();
+  if (new TextEncoder().encode(text).byteLength > MAX_BUNDLE_BYTES) {
+    return payloadTooLarge();
+  }
+
   let payload: unknown;
   try {
-    payload = await request.json();
+    payload = JSON.parse(text);
   } catch {
     return json({ error: "invalid_json", message: "body must be JSON" }, 400);
   }
