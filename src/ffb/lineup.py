@@ -64,6 +64,9 @@ def attach_weekly_points(
                 "projection_key": key,
                 "points": None if consensus is None else consensus["consensus"],
                 "n": 0 if consensus is None else consensus["n"],
+                "source_points": (
+                    {} if consensus is None else dict(consensus.get("source_points") or {})
+                ),
             }
         )
     return attached

@@ -1,0 +1,72 @@
+{
+  "header": "NFL News",
+  "articles": [
+    {
+      "id": 49800111,
+      "headline": "Derrick Henry questionable for Week 1",
+      "description": "Ravens RB Derrick Henry is listed as questionable after a limited Friday practice.",
+      "published": "2026-09-11T18:00:00Z",
+      "type": "HeadlineNews",
+      "links": {"web": {"href": "https://www.espn.com/nfl/story/_/id/49800111/henry-questionable"}},
+      "categories": [
+        {
+          "type": "athlete",
+          "athleteId": 3043078,
+          "description": "Derrick Henry"
+        },
+        {
+          "type": "team",
+          "teamId": 33,
+          "description": "Baltimore Ravens"
+        }
+      ]
+    },
+    {
+      "id": "49800112",
+      "headline": "Rookie Wideout drawing waiver buzz",
+      "description": "Unrostered Rookie Wideout is the most-added name in several leagues.",
+      "published": "2026-09-11T19:00:00Z",
+      "type": "Story",
+      "links": {"web": {"href": "https://www.espn.com/nfl/story/_/id/49800112/rookie-wideout"}},
+      "categories": [
+        {
+          "type": "athlete",
+          "athleteId": 4500000,
+          "description": "Rookie Wideout"
+        }
+      ]
+    },
+    {
+      "id": 49800113,
+      "headline": "Unknown specialist signs",
+      "description": "A specialist not in the crosswalk signed a practice-squad deal.",
+      "published": "2026-09-11T20:00:00Z",
+      "type": "Story",
+      "links": {"api": {"href": "https://site.api.espn.com/ignored"}},
+      "categories": [
+        {
+          "type": "athlete",
+          "athleteId": 8888888,
+          "description": "Unknown Specialist"
+        }
+      ]
+    },
+    {
+      "id": 49800114,
+      "headline": "Week 1 schedule notes",
+      "description": "Kickoff times and weather for Sunday's slate.",
+      "published": "2026-09-11T21:00:00Z",
+      "type": "Story",
+      "categories": [{"type": "league", "description": "NFL"}]
+    },
+    {
+      "headline": "missing id is skipped",
+      "description": "no article id"
+    },
+    {
+      "id": 49800115,
+      "headline": "   ",
+      "description": "blank headline skipped"
+    }
+  ]
+}
