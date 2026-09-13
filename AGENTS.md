@@ -59,6 +59,9 @@ src/ffb/          Python package and CLI
   scoring.py      pure configurable scoring
   consensus.py    cross-source league-scored average
   board.py        ADP/byes/VORP/tiers → board serializers
+  league.py       LeagueBundle v1 validation; sources/yahoo.py is the live peer
+  lineup.py       weekly sit/start report
+  ros.py          rest-of-season report
   identity.py     canonical teams and DEF/DST identities
   names.py        normalized name matching for FFC
 tests/            deterministic pytest suite and committed API fixtures

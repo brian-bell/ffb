@@ -36,7 +36,7 @@ queries, and transaction boundaries. The main stored domains are:
 | Identity | `crosswalk`, `players` | Canonical and fallback player identities |
 | Source data | `projections`, `adp`, `team_byes`, `schedule_games`, `injuries` | Normalized raw values used at read time |
 | Source health | `season_source_state` | Attempts, successes, counts, snapshots, and errors |
-| League context | `league_settings`, `league_teams`, `league_rosters` | Validated fixture-backed league state |
+| League context | `league_settings`, `league_teams`, `league_rosters` | Validated fixture or live Yahoo league state |
 
 The DuckDB file is a disposable cache. Raw snapshots are the replay boundary;
 cross-version schema migration is deliberately unsupported.

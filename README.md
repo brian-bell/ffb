@@ -6,8 +6,9 @@ response; stores normalized rows in DuckDB; and produces league-scored rankings
 and a draft board. A separate Cloudflare Worker in `tracker/` consumes the
 exported `board.json` for live and mock drafts.
 
-The current Yahoo integration is fixture-backed. Live Yahoo OAuth and weekly
-management remain planned work; see [DESIGN.md](DESIGN.md) for product scope.
+League state comes from a validated fixture or the live Yahoo adapter, which
+stays inert until its one-time OAuth authorization stores a token. See
+[DESIGN.md](DESIGN.md) for product scope.
 
 ## Requirements and setup
 
@@ -64,11 +65,13 @@ Markdown, CSV, and the self-contained `board.json` v1 contract to `exports/`.
 
 ## League settings
 
-Until the live Yahoo adapter exists, league scoring, roster shape, teams, and
-current-week rosters can be loaded from a validated fixture:
+League scoring, roster shape, teams, and current-week rosters can be loaded
+from a validated fixture, or from live Yahoo once `FFB_YAHOO_*` is configured
+and authorized:
 
 ```sh
 uv run ffb league sync 2026 --fixture tests/fixtures/yahoo_league_minimal.json
+uv run ffb league sync 2026            # live Yahoo; --refresh refetches
 uv run ffb league show 2026 --rosters
 ```
 
@@ -130,6 +133,8 @@ without live data sources.
   source-specific gotchas
 - [Draft tracker](docs/tracker.md) — live and mock behavior, APIs, persistence,
   and UI invariants
+- [Starter priority](docs/starter-priority.md) — how the live Available list
+  ranks players by opportunity cost
 - [Operations](docs/operations.md) — rebuilds, environment overrides, testing,
   publishing, and deployment
 - [Design](DESIGN.md) — product direction and deferred weekly-management scope
