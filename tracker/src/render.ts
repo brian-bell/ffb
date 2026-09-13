@@ -5,7 +5,7 @@
 
 import type { Board, Player } from "./types";
 import { indexPlayerIdentities, normalizedPosition } from "./player-identity";
-import type { CandidatePriority } from "./starter-priority";
+import { lineupPriorityOrder, type CandidatePriority } from "./starter-priority";
 
 export interface PickAnnotation {
   overall_pick: number;
@@ -232,14 +232,8 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
   const lineupPriority = !history && !searching ? options.lineupPriority : undefined;
   if (lineupPriority) {
     const tiers = new Map([...new Set(visiblePlayers.map(p => p.tier))].map((tier, i) => [tier, i]));
-    const score = (p: Player): number => p.rank + 5 * (options.byeConflicts?.get(p.key) ?? 0);
-    rows = [...rows].sort((a, b) => {
-      const left = lineupPriority.get(a.key), right = lineupPriority.get(b.key);
-      return (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0)
-        || (left?.group ?? 3) - (right?.group ?? 3)
-        || (right?.gain ?? 0) - (left?.gain ?? 0)
-        || score(a) - score(b) || a.rank - b.rank;
-    });
+    const order = lineupPriorityOrder(lineupPriority, options.byeConflicts);
+    rows = [...rows].sort((a, b) => (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0) || order(a, b));
   }
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
