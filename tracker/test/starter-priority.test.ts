@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderBoard } from "../src/render";
-import { liveStarterPriority } from "../src/starter-priority";
+import { expectedBestAtNextPick, liveStarterPriority, lineupPriorityOrder, survivalProbability } from "../src/starter-priority";
 import type { Board, Player } from "../src/types";
 import fixture from "./fixtures/board.json";
 import type { DraftState } from "../src/draft-store";
@@ -71,12 +71,6 @@ describe("live lineup priority", () => {
     expect(order([owned], [clash, clear])).toEqual(["clear", "clash"]);
     expect(order([owned], [{ ...clash, points: 151 }, clear])).toEqual(["clash", "clear"]);
   });
-  it("transitions to eligible flex depth before surplus specialists", () => {
-    const owned = [player("wr", "WR", 200), player("te", "TE", 180), player("flex", "RB", 150), player("qb", "QB", 300)];
-    const candidates = [player("backup-qb", "QB", 250), player("depth-wr", "WR", 100, 100)];
-    expect(order(owned, candidates, { WR: 1, TE: 1, "W/R/T": 1, QB: 1, BN: 3 })).toEqual(["depth-wr", "backup-qb"]);
-    expect(setup(owned, candidates).priority.summary).toContain("Building depth");
-  });
   it("counts only unique own identities, normalizes DST and preserves input", () => {
     const { board, draft } = setup([player("def", "DEF", 100)], [], { DEF: 1, QB: 1, BN: 2 });
     draft.picks[0]!.player_pos = "DST";
@@ -97,7 +91,7 @@ describe("live lineup priority", () => {
     const priority = liveStarterPriority(state([owned]), board)!;
     expect(priority.summary).not.toContain("TE 1");
     expect(priority.summary).toContain("roster projections incomplete");
-    expect(priority.candidates.get("wr")).toMatchObject({ gain: null, group: 1 });
+    expect(priority.candidates.get("wr")).toMatchObject({ gain: null, score: null, need: 0 });
   });
   it("preserves search, history, tier boundaries and the original scarcity values", () => {
     const low = { ...player("low", "WR", 100, 1), tier: 1, vorp: 44 };
@@ -119,5 +113,113 @@ describe("live lineup priority", () => {
     const history = renderBoard(board, "ALL", { ...options, mode: "drafted", picked });
     expect(history.indexOf("<b>low")).toBeLessThan(history.indexOf("<b>high"));
     expect(history).not.toContain("lineup-reason");
+  });
+});
+
+// Two-team snake, user in slot 0: own picks 1, 4, 5, 8.
+const teams = [
+  { id: 1, name: "Brian", draft_slot: 0, is_user: true },
+  { id: 2, name: "Other", draft_slot: 1, is_user: false },
+];
+function withAdp(p: Player, adp: number | null, adp_stdev: number | null = 0.5): Player {
+  return { ...p, adp, adp_stdev };
+}
+function draftAt(owned: Player[], current: number, rounds = 4): DraftState {
+  const draft = state(owned);
+  return { ...draft, teams, draft: { name: "Live", rounds, team_count: 2 },
+    next: { overall_pick: current, round: 1, round_pick: 1, team_id: 1, team_name: "Brian", is_user: true, direction: "forward" } };
+}
+function ranked(owned: Player[], candidates: Player[], slots: Record<string, number>, current = owned.length + 1, rounds = 4) {
+  const board = { ...fixture, roster_slots: slots, players: [...owned, ...candidates] } as Board;
+  const priority = liveStarterPriority(draftAt(owned, current, rounds), board)!;
+  const keys = [...candidates].sort(lineupPriorityOrder(priority.candidates, priority.byeConflicts)).map(p => p.key);
+  return { priority, keys };
+}
+
+describe("opportunity-cost live ranking", () => {
+  it("survival follows ADP spread against the next own pick", () => {
+    expect(survivalProbability(10, 2, 10)).toBeCloseTo(0.5);
+    expect(survivalProbability(5, 1, 4)).toBeCloseTo(0.8413, 3);
+    expect(survivalProbability(null, null, 5)).toBe(1);
+    // Missing spread falls back to max(3, 10% of ADP).
+    expect(survivalProbability(50, null, 55)).toBeCloseTo(0.1587, 3);
+    expect(survivalProbability(10, 0, 13)).toBeCloseTo(0.1587, 3);
+  });
+  it("expected best alternative weights each value by reaching it", () => {
+    expect(expectedBestAtNextPick([{ value: 100, survival: 0.5 }, { value: 60, survival: 1 }])).toBeCloseTo(80);
+    expect(expectedBestAtNextPick([{ value: 60, survival: 1 }, { value: 100, survival: 0.5 }])).toBeCloseTo(80);
+    expect(expectedBestAtNextPick([])).toBe(0);
+  });
+  it("prefers the RB that will not last over a QB whose replacement will", () => {
+    const slots = { QB: 1, RB: 1, BN: 2 };
+    const { keys, priority } = ranked([], [
+      withAdp(player("qb-a", "QB", 330, 1), 30), withAdp(player("qb-b", "QB", 320, 2), 60),
+      withAdp(player("rb-a", "RB", 200, 3), 2), withAdp(player("rb-b", "RB", 190, 4), 1.5),
+    ], slots);
+    expect(keys.slice(0, 2)).toEqual(["rb-a", "rb-b"]);
+    // QB A will last, so waiting costs nothing.
+    expect(priority.candidates.get("qb-a")!.score).toBeCloseTo(0, 0);
+    expect(priority.candidates.get("rb-a")!.reason).toBe("RB starter · +200.0 lineup pts · likely gone by your next pick");
+    expect(priority.candidates.get("qb-b")!.reason).toContain("should last to your next pick");
+    expect(ranked([], [withAdp(player("coin", "RB", 100), 4, 2)], slots).priority.candidates.get("coin")!.reason)
+      .toContain("coin flip to last");
+  });
+  it("counts the candidate's own survival so a big drop-off that will last is not urgent", () => {
+    const slots = { QB: 1, RB: 1, BN: 2 };
+    const { keys, priority } = ranked([], [
+      withAdp(player("qb-a", "QB", 330, 1), 30), withAdp(player("qb-b", "QB", 200, 2), 60),
+      withAdp(player("rb-a", "RB", 200, 3), 3.5), withAdp(player("rb-b", "RB", 150, 4), 40),
+    ], slots);
+    // RB A: 200 − (0.16×200 + 0.84×150) ≈ 42; QB A: 330 − 330 = 0.
+    expect(priority.candidates.get("rb-a")!.score).toBeCloseTo(42, 0);
+    expect(priority.candidates.get("qb-a")!.score).toBe(0);
+    expect(keys[0]).toBe("rb-a");
+  });
+  it("never lets a pick leave more open starter slots than own picks remain", () => {
+    // Own picks 1, 4, 5, 8; two already made, two left for open K and DEF slots.
+    const owned = [player("rb1", "RB", 200), player("rb2", "RB", 150)];
+    const slots = { RB: 1, K: 1, DEF: 1, BN: 1 };
+    const { keys, priority } = ranked(owned, [
+      withAdp(player("upgrade", "RB", 250, 1), 6), withAdp(player("k", "K", 100, 30), null), withAdp(player("def", "DEF", 120, 20), null),
+    ], slots, 5);
+    expect(keys).toEqual(["def", "k", "upgrade"]);
+    expect(priority.candidates.get("upgrade")!.reason).toContain("would leave a starter slot unfilled");
+    // With a spare pick the upgrade is allowed again.
+    expect(ranked(owned, [withAdp(player("upgrade", "RB", 250, 1), 6), withAdp(player("k", "K", 100, 30), null)], { RB: 1, K: 1, BN: 1 }, 5).keys)
+      .toEqual(["upgrade", "k"]);
+  });
+  it("has no opportunity cost or survival phrase at the last own pick", () => {
+    const slots = { QB: 1, BN: 1 };
+    const { priority } = ranked([], [withAdp(player("qb-a", "QB", 330), 30), withAdp(player("qb-b", "QB", 320), 60)], slots, 8);
+    expect(priority.candidates.get("qb-a")).toMatchObject({ score: 330, survival: null, reason: "QB starter · +330.0 lineup pts" });
+  });
+  it("gives discounted depth value so a contested RB outranks a second DEF", () => {
+    const owned = [player("qb", "QB", 300), player("rb", "RB", 250), player("def", "DEF", 120)];
+    const slots = { QB: 1, RB: 1, DEF: 1, BN: 4 };
+    const { keys, priority } = ranked(owned, [
+      withAdp(player("def2", "DEF", 110, 1), null), withAdp(player("rb4", "RB", 200, 50), 4.5),
+    ], slots, 4);
+    expect(keys).toEqual(["rb4", "def2"]);
+    expect(priority.candidates.get("rb4")!.reason).toMatch(/^RB depth · \+50\.0 \(bench\) · likely gone/);
+    // An empty DEF slot with a real drop-off to the next DEF still leads.
+    const first = ranked([player("qb", "QB", 300), player("rb", "RB", 250)], [
+      withAdp(player("def1", "DEF", 140, 60), 3), withAdp(player("def-late", "DEF", 60, 70), null),
+      withAdp(player("rb4", "RB", 200, 50), null), withAdp(player("rb5", "RB", 190, 51), null),
+    ], slots, 4);
+    expect(first.keys[0]).toBe("def1");
+  });
+  it("gives depth no value once the bench is full and falls back to rank", () => {
+    const owned = [player("rb", "RB", 250), player("bench", "RB", 150)];
+    const { keys, priority } = ranked(owned, [player("wr", "WR", 180, 9), player("te", "TE", 100, 3)], { RB: 1, BN: 1 }, 4);
+    expect(priority.candidates.get("wr")).toMatchObject({ score: 0, reason: "Depth · no projected lineup gain" });
+    expect(keys).toEqual(["te", "wr"]);
+  });
+  it("breaks equal scores by bye clash then rank and puts unprojected rows last", () => {
+    const owned = { ...player("owned", "WR", 200), bye: 8 };
+    const slots = { WR: 2, BN: 1 };
+    const clash = { ...player("clash", "WR", 150, 1), bye: 8 };
+    const clear = { ...player("clear", "WR", 150.04, 2), bye: 9 };
+    const unknown = player("unknown", "WR", null, 0);
+    expect(ranked([owned], [unknown, clash, clear], slots, 8).keys).toEqual(["clear", "clash", "unknown"]);
   });
 });

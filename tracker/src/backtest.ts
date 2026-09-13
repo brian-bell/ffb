@@ -1,9 +1,10 @@
 // Offline draft-recommendation backtest: score rankers against a saved draft.
 // Pure compute over board.json and a saved DraftState; no I/O, no D1, no KV.
+import { nextPick } from "./draft";
 import type { DraftState, RecordedPick } from "./draft-store";
 import { indexPlayerIdentities } from "./player-identity";
 import { projectedLineup } from "./roster-fit";
-import { liveStarterPriority, lineupPriorityOrder } from "./starter-priority";
+import { liveStarterPriority, lineupPriorityOrder, type PriorityOptions } from "./starter-priority";
 import { availablePlayers, marketOrder } from "./suggestions";
 import type { Board, Player } from "./types";
 
@@ -19,6 +20,8 @@ export interface RankerContext {
 export interface Ranker {
   name: string;
   order(context: RankerContext): readonly Player[];
+  /** Optional per-turn note explaining a recommended player. */
+  explain?(context: RankerContext, player: Player): string;
 }
 
 export interface PickComparison {
@@ -30,6 +33,7 @@ export interface PickComparison {
   /** Projected starting-lineup gain of each choice given the roster actually held then. */
   actualGain: number | null;
   recommendedGain: number | null;
+  recommendedReason?: string;
 }
 
 export interface RankerResult {
@@ -48,6 +52,12 @@ export interface BacktestReport {
   actualTotal: number;
   actualRoster: Player[];
   rankers: RankerResult[];
+}
+
+/** The same saved draft seen from another team's seat. */
+export function asUserTeam(saved: DraftState, teamId: number): DraftState {
+  if (!saved.teams?.some(team => team.id === teamId)) throw new Error(`No team ${teamId} in saved draft.`);
+  return { ...saved, teams: saved.teams.map(team => ({ ...team, is_user: team.id === teamId })) };
 }
 
 function boardPlayer(board: Board, pick: RecordedPick): Player | null {
@@ -70,8 +80,9 @@ function pickFor(turn: RecordedPick, player: Player): RecordedPick {
   return { ...turn, player_key: player.key, player_name: player.name, player_pos: player.pos, player_team: player.team };
 }
 
-function stateAt(saved: DraftState, picks: RecordedPick[]): DraftState {
-  return { ...saved, picks, next: null, complete: false, revision: picks.length };
+function stateAt(saved: DraftState, picks: RecordedPick[], turn: RecordedPick): DraftState {
+  const next = nextPick(saved.teams!, saved.draft!.rounds, turn.overall_pick);
+  return { ...saved, picks, next, complete: false, revision: picks.length };
 }
 
 /**
@@ -94,13 +105,15 @@ export function backtestDraft(saved: DraftState, board: Board, rankers: readonly
     saved.picks.forEach((pick, index) => {
       if (!own(pick)) return;
       const history = saved.picks.slice(0, index);
-      const context: RankerContext = { board, draft: stateAt(saved, history), available: availablePlayers(board.players, history.map(p => ({ key: p.player_key, name: p.player_name, pos: p.player_pos, team: p.player_team }))) };
+      const context: RankerContext = { board, draft: stateAt(saved, history, pick), available: availablePlayers(board.players, history.map(p => ({ key: p.player_key, name: p.player_name, pos: p.player_pos, team: p.player_team }))) };
       const recommended = ranker.order(context)[0] ?? null;
+      const recommendedReason = recommended && ranker.explain ? ranker.explain(context, recommended) : undefined;
       const actual = boardPlayer(board, pick);
       picks.push({
         overall_pick: pick.overall_pick, round: pick.round, actual, recommended,
         agreed: actual !== null && recommended !== null && actual.key === recommended.key,
         actualGain: gainOf(board, held, actual), recommendedGain: gainOf(board, held, recommended),
+        ...(recommendedReason === undefined ? {} : { recommendedReason }),
       });
       if (actual) held = [...held, actual];
     });
@@ -117,7 +130,7 @@ export function backtestDraft(saved: DraftState, board: Board, rankers: readonly
         continue;
       }
       const available = availablePlayers(board.players, replayed.map(p => ({ key: p.player_key, name: p.player_name, pos: p.player_pos, team: p.player_team })));
-      const choice = ranker.order({ board, draft: stateAt(saved, [...replayed]), available })[0];
+      const choice = ranker.order({ board, draft: stateAt(saved, [...replayed], pick), available })[0];
       if (!choice) continue;
       taken.add(choice.key);
       followedRoster.push(choice);
@@ -148,19 +161,27 @@ export const marketRanker: Ranker = {
 };
 
 /** The live Available ordering: board order until the first own pick, then
- * projected lineup gain groups with bye-clash softened board rank. */
-export const liveLineupRanker: Ranker = {
-  name: "live",
-  order: ({ board, draft, available }) => {
-    const user = draft.teams?.find(team => team.is_user);
-    const priority = liveStarterPriority(draft, board);
-    const owned = draft.picks.some(pick => pick.team_id === user?.id);
-    if (!priority || !owned) {
-      const bye = priority?.byeConflicts;
-      return [...available].sort((a, b) => (a.rank + 5 * (bye?.get(a.key) ?? 0)) - (b.rank + 5 * (bye?.get(b.key) ?? 0)) || a.rank - b.rank);
-    }
-    return [...available].sort(lineupPriorityOrder(priority.candidates, priority.byeConflicts));
-  },
-};
+ * opportunity-cost score with bye-clash softened board rank. */
+export function liveLineupRanker(options: PriorityOptions = {}, name = "live"): Ranker {
+  return {
+    name,
+    order: ({ board, draft, available }) => {
+      const user = draft.teams?.find(team => team.is_user);
+      const priority = liveStarterPriority(draft, board, options);
+      const owned = draft.picks.some(pick => pick.team_id === user?.id);
+      if (!priority || !owned) {
+        const bye = priority?.byeConflicts;
+        return [...available].sort((a, b) => (a.rank + 5 * (bye?.get(a.key) ?? 0)) - (b.rank + 5 * (bye?.get(b.key) ?? 0)) || a.rank - b.rank);
+      }
+      return [...available].sort(lineupPriorityOrder(priority.candidates, priority.byeConflicts));
+    },
+    explain: ({ board, draft }, player) => {
+      const candidate = liveStarterPriority(draft, board, options)?.candidates.get(player.key);
+      if (!candidate) return "";
+      const survival = candidate.survival === null ? "" : ` · survive ${(candidate.survival * 100).toFixed(0)}%`;
+      return `score ${candidate.score?.toFixed(1) ?? "—"}${survival} · ${candidate.reason}`;
+    },
+  };
+}
 
-export const builtinRankers: readonly Ranker[] = [boardRankRanker, marketRanker, liveLineupRanker];
+export const builtinRankers: readonly Ranker[] = [boardRankRanker, marketRanker, liveLineupRanker()];

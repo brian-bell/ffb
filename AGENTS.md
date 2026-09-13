@@ -7,8 +7,10 @@ independent TypeScript Cloudflare Worker that consumes exported `board.json` v1
 and stores live and mock draft state in D1.
 
 Read [docs/architecture.md](docs/architecture.md) before changing a boundary,
-[docs/data-sources.md](docs/data-sources.md) before changing ingestion, and
-[docs/tracker.md](docs/tracker.md) for tracker contracts and invariants.
+[docs/data-sources.md](docs/data-sources.md) before changing ingestion,
+[docs/tracker.md](docs/tracker.md) for tracker contracts and invariants, and
+[docs/starter-priority.md](docs/starter-priority.md) before changing live draft
+rankings.
 
 ## Build, test, and run
 
@@ -39,6 +41,7 @@ npm run typecheck
 npm test
 npm run test:browser
 npm run build:client
+npm run backtest -- --board ../exports/board.json   # draft ranking changes
 ```
 
 Run `make test-backend-e2e` for changes that can affect ingestion fixtures,
@@ -58,6 +61,9 @@ src/ffb/          Python package and CLI
   scoring.py      pure configurable scoring
   consensus.py    cross-source league-scored average
   board.py        ADP/byes/VORP/tiers → board serializers
+  league.py       LeagueBundle v1 validation; sources/yahoo.py is the live peer
+  lineup.py       weekly sit/start report
+  ros.py          rest-of-season report
   actuals.py      closed weekly scoreboard/actuals contract
   retro.py        sit/start snapshot vs actuals
   identity.py     canonical teams and DEF/DST identities

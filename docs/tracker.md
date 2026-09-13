@@ -67,30 +67,50 @@ weighted slot assignment measures each candidate’s increase to the best total
 projected starting lineup. A player occupies at most one slot; bench contributes
 no starting points. Dedicated starters and flex upgrades compete on their usable
 point gain, so a first WR can precede a second TE while an exceptional TE or a
-second TE that improves flex can still lead. Each available row explains its
-starter/flex contribution or depth role. These are season projection gains,
-not weekly forecasts or estimates of the cost of waiting until the next pick.
+second TE that improves flex can still lead.
 
 Before the user’s first pick, Available retains published board order, including
 after opponent picks and replay rewinds. Raw season points do not override the
-opening scarcity ranking. Once the user has a pick, positive lineup gains lead,
-ordered largest first. An unprojected player who can
-fill an open starting slot follows measured gains, then RB/WR/TE depth in
-positions supported by the league, then other depth. If any own pick lacks a
-current board projection, the entire roster falls back to open-slot matching
-and board rank, with an explicit incomplete-projection message; no numeric gain
-is invented. Missing and ambiguous identities retain their pick position for
+opening scarcity ranking. Once the user has a pick, rows are ordered by one
+continuous opportunity-cost score in projected season points.
+[starter-priority.md](starter-priority.md) documents the model, reason strings,
+fallbacks, and a worked example; in brief:
+
+- **Value now** is the lineup gain plus a depth share of the player’s remaining,
+  non-starting points (`DEPTH_WEIGHT`, 0.25). A full starter counts all points.
+  While no bench slot remains, depth is worth nothing.
+- **Survival** is the chance the player is still available at the user’s own
+  pick after the one they are about to make, from board ADP and `adp_stdev`
+  (fallback spread `max(3, 10% of ADP)`). A player without ADP is treated as
+  uncontested.
+- **Score** is value now minus the expected best value now among available
+  players at the same position, the candidate included, at that pick, each
+  weighted by surviving while every better player is gone. A player sure to
+  last scores about zero. At the last own pick the cost is zero.
+- A pick that would leave more open starting slots than own picks remain sorts
+  after every pick that keeps the roster completable.
+
+Scores are rounded to 0.1 points. Rows explain their starter/flex gain or bench
+depth value plus the survival phrase (“likely gone by your next pick”, “coin
+flip to last”, or “should last to your next pick”), omitted at the last pick or
+without value. These are season projections from a pre-draft ADP snapshot, not
+weekly forecasts or a model of this league’s draft pace. Unprojected players
+follow all scored rows: open starter fillers, then RB/WR/TE depth in positions
+supported by the league, then other depth. If any own pick lacks a current
+board projection, the entire roster falls back to open-slot matching and board
+rank, with an explicit incomplete-projection message; no numeric gain is
+invented. Missing and ambiguous identities retain their pick position for
 occupancy. Unknown candidate projections are labeled on the row.
 
 Original board ranks, VORP, and tiers remain visible as static scarcity context.
-For equal lineup gains (and within fallback/depth groups), each same-position
-bye overlap adds five board-rank places as a soft tiebreak. Unknown byes are
-neutral, and a “Bye clash” badge explains overlaps. Bye penalties never erase a
-larger measured lineup gain. Positional views preserve tier groups, applying
-lineup ordering within each tier. Search relevance and newest-first history
+For equal scores (and within unscored groups), each same-position bye overlap
+adds five board-rank places as a soft tiebreak. Unknown byes are neutral, and a
+“Bye clash” badge explains overlaps. Bye penalties never erase a higher score.
+Positional views preserve tier groups, applying lineup ordering within each
+tier. Search relevance and newest-first history
 remain unchanged. Only unique own picks count, and the Need summary and gains
 recompute after picks and undo. Once starters are filled, the summary announces
-depth building, while any remaining positive lineup upgrades still lead.
+depth building while scores continue to rank upgrades and depth.
 Mock drafts retain their saved league shape and existing strategy.
 
 ## Mock draft
@@ -211,7 +231,8 @@ when Worker routes, APIs, D1 behavior, or the board boundary change.
 `tracker/src/backtest.ts` scores draft rankers against a completed saved draft
 without network, D1, or KV. A ranker is any `{ name, order(context) }` that
 returns the available pool best-first given the board and the draft state at
-the user's turn. `backtestDraft(saved, board, rankers)` reports two things per
+the user's turn, with an optional `explain(context, player)` note for the
+per-turn report. `backtestDraft(saved, board, rankers)` reports two things per
 ranker:
 
 - **Per-turn comparison.** At each recorded own pick, given the actual history
@@ -226,27 +247,36 @@ ranker:
 
 Built-in rankers are `board` (published rank), `market` (ADP order, as mock
 suggestions use), and `live` (the live Available ordering, sharing
-`lineupPriorityOrder` with the renderer). Output is deterministic for a given
-board and draft. Run it locally against an exported board:
+`liveStarterPriority` and `lineupPriorityOrder` with the renderer; its per-turn
+lines print the score, survival, and row reason). Output is deterministic for a
+given board and draft. Run it locally against an exported board:
 
 ```sh
 cd tracker
 npm run backtest -- --board ../exports/board.json --draft ../drafts/mcffl-2026.json
+npm run backtest -- --delta 0.1,0.25   # sweep DEPTH_WEIGHT as live@N rankers
+npm run backtest -- --all-teams           # replay from every team's seat
 npm run backtest -- --json    # machine-readable report
 ```
 
 The saved league draft has no frozen projections, so results depend on the
 board you pass; the September 6, 2026 export is the one the draft was made
-with. The saved pick order is Brian's own record and may contain errors. Any replacement ranker must beat `live` on the followed total for that
-draft before it ships.
+with. The saved pick order is Brian's own record and may contain errors.
+`--all-teams` reruns the same comparison with each team in turn as the user
+(`asUserTeam`), keeping every other team's recorded picks, and prints followed
+totals by draft slot. Results for the September 6 board are in
+[starter-priority.md](starter-priority.md#validation). A replacement ranker
+should not lower `live`'s followed total for Brian's seat or across every
+seat by more than noise.
 
 ## Saved draft replay
 
 Board settings offers **Replay MCFFL 2026 Draft**, using the completed 150-pick
 archive bundled into the client at build time. Resetting the live draft only
-deletes its live picks and teams; the bundled archive remains replayable. Replay uses the normal live-board client, current
-`GET /api/board` data, and current recommendation code. Only a prefix of the saved
-pick list is presented as draft state. No replay action writes live or mock D1
+deletes its live picks and teams; the bundled archive remains replayable. Replay
+uses the normal live-board client, current `GET /api/board` data, and current
+recommendation code. Only a prefix of the saved pick list is presented as draft
+state. No replay action writes live or mock D1
 state, and the shared write function refuses all writes while replay is active.
 
 The replay controls step backward/forward, jump to just before the next own
@@ -257,8 +287,8 @@ the archive. Refresh and reload use the current published board.
 
 Replay state is held in sessionStorage for this tab and survives reload when
 storage is available. It falls back to memory if storage fails. Exiting replay
-reloads the live draft without changing it. Saved replay sessions must contain a valid
-ordered snake draft with unique players, contiguous picks, and one user team.
+reloads the live draft without changing it. Saved replay sessions must contain
+a valid ordered snake draft with unique players, contiguous picks, and one user team.
 The saved JSON contains teams and picks, not credentials or a board snapshot.
 The completed MCFFL 2026 draft is preserved in
 [`drafts/mcffl-2026.json`](../drafts/mcffl-2026.json) for repeatable replay.
