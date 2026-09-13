@@ -17,6 +17,7 @@ from rich.table import Table
 from ffb import board as board_mod
 from ffb import config, paths
 from ffb import ros as ros_mod
+from ffb.actuals import parse_actuals
 from ffb.consensus import consensus_rows
 from ffb.league import FixtureLeagueSource
 from ffb.league_context import load_league_context
@@ -26,9 +27,18 @@ from ffb.lineup import (
     compare_lineup,
     injury_badge,
 )
+from ffb.retro import (
+    actuals_snapshot_key,
+    build_lineup_snapshot,
+    lineup_snapshot_key,
+    parse_lineup_snapshot,
+    retro_report,
+    snapshot_now,
+)
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import yahoo
+from ffb.sources.tracker import TrackerConfig, TrackerConfigError, fetch_actuals
 from ffb.store import SchemaMismatchError, Store
 from ffb.yahoo_auth import YahooAuthError
 
@@ -327,6 +337,11 @@ def lineup(
     week: int | None = typer.Option(
         None, "--week", help="Weekly projection slice. Defaults to stored current week."
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Replace an existing sit/start snapshot, or write one for a past week.",
+    ),
 ) -> None:
     """Compare the user team's stored lineup to optimal weekly starters."""
     if week is not None and week < 1:
@@ -393,8 +408,168 @@ def lineup(
         raise typer.Exit(code=1)
     players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
     report = compare_lineup(players, league.roster_slots)
+    cache = SnapshotCache(paths.snapshot_dir())
+    advice_key = lineup_snapshot_key(season, chosen_week)
+    exists = cache.has(advice_key)
+    post_hoc = chosen_week < current_week
+    if exists and not force:
+        console.print(
+            f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged. "
+            f"Re-run with --force to replace it.[/dim]"
+        )
+    elif post_hoc and not force:
+        console.print(
+            f"[yellow]Week {chosen_week} is already past (current week {current_week}); "
+            f"post-hoc advice is not snapshotted. Re-run with --force to write it anyway.[/yellow]"
+        )
+    else:
+        if exists:
+            console.print(f"[yellow]Replaced the week {chosen_week} sit/start snapshot.[/yellow]")
+        if len(active_sources) < len(_SOURCE_COLUMNS):
+            console.print(
+                f"[yellow]Snapshot uses {len(active_sources)} projection source(s): "
+                f"{', '.join(active_sources)}.[/yellow]"
+            )
+        cache.put_json(
+            advice_key,
+            build_lineup_snapshot(
+                season=season,
+                week=chosen_week,
+                generated_at=snapshot_now(),
+                team_key=user["team_key"],
+                team_name=user["name"],
+                roster_slots=league.roster_slots,
+                players=players,
+                report=report,
+            ),
+            mode=0o600,
+        )
     _render_lineup(report, week=chosen_week, team_name=user["name"])
     _report_scoring_provenance(league)
+
+
+@app.command()
+def retro(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    week: int | None = typer.Option(
+        None, "--week", help="Week to score. Defaults to the actuals bundle or stored week."
+    ),
+    fixture: Path | None = typer.Option(  # noqa: B008
+        None, "--fixture", help="WeeklyActualsBundle JSON. Stored under snapshots/actuals/."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Replace already-locked weekly actuals with the fixture."
+    ),
+) -> None:
+    """Compare a snapshotted sit/start run to ingested weekly actuals."""
+    if week is not None and week < 1:
+        raise typer.BadParameter("week must be a positive integer")
+    cache = SnapshotCache(paths.snapshot_dir())
+    bundle = None
+    if fixture is not None:
+        try:
+            bundle = parse_actuals(json.loads(fixture.read_text()), season=season)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            console.print(f"[red]Invalid weekly actuals fixture:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
+        chosen_week = week if week is not None else bundle.league["week"]
+        if bundle.league["week"] != chosen_week:
+            console.print(
+                f"[red]Actuals week {bundle.league['week']} does not match requested "
+                f"week {chosen_week}.[/red]"
+            )
+            raise typer.Exit(code=1)
+        key = actuals_snapshot_key(season, chosen_week)
+        if cache.has(key) and not force:
+            stored = cache.read_json(key)
+            if stored != bundle.data:
+                console.print(
+                    f"[red]Weekly actuals for {season} week {chosen_week} are already locked "
+                    f"and differ from the fixture.[/red] Re-run with --force to replace them."
+                )
+                raise typer.Exit(code=1)
+        else:
+            if cache.has(key):
+                console.print(f"[yellow]Replaced the week {chosen_week} actuals snapshot.[/yellow]")
+            cache.put_json(key, bundle.data, mode=0o600)
+    else:
+        chosen_week = week
+        if chosen_week is None:
+            store = _open_store()
+            context = store.league_context(season)
+            store.close()
+            if context is None:
+                console.print(
+                    f"[red]No weekly actuals for {season}. Pass --fixture PATH or POST "
+                    f"a WeeklyActualsBundle to /api/actuals.[/red]"
+                )
+                raise typer.Exit(code=1)
+            chosen_week = context["current_week"]
+        key = actuals_snapshot_key(season, chosen_week)
+        if cache.has(key):
+            try:
+                bundle = parse_actuals(cache.read_json(key), season=season)
+            except ValueError as exc:
+                console.print(f"[red]Stored weekly actuals are invalid:[/red] {exc}")
+                raise typer.Exit(code=1) from exc
+        else:
+            bundle = _pull_actuals_from_tracker(cache, season=season, week=chosen_week)
+
+    advice_key = lineup_snapshot_key(season, chosen_week)
+    if not cache.has(advice_key):
+        console.print(
+            f"[red]No sit/start snapshot for {season} week {chosen_week}. "
+            f"Run: ffb lineup {season} --week {chosen_week}[/red]"
+        )
+        raise typer.Exit(code=1)
+    try:
+        advice = parse_lineup_snapshot(cache.read_json(advice_key))
+    except ValueError as exc:
+        console.print(f"[red]Stored sit/start snapshot is invalid:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        report = retro_report(advice, bundle)
+    except ValueError as exc:
+        console.print(f"[red]Weekly actuals do not match the sit/start snapshot:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    _render_retro(report)
+
+
+def _tracker_client() -> httpx.Client:
+    return httpx.Client()
+
+
+def _pull_actuals_from_tracker(cache: SnapshotCache, *, season: int, week: int):
+    """Fetch the Worker's stored bundle, validate it, then snapshot it locally."""
+    try:
+        cfg = TrackerConfig.from_env()
+    except TrackerConfigError as exc:
+        console.print(
+            f"[red]No weekly actuals for {season} week {week}.[/red] Pass --fixture PATH, "
+            f"or {exc} after POSTing a WeeklyActualsBundle to /api/actuals."
+        )
+        raise typer.Exit(code=1) from exc
+    try:
+        with _tracker_client() as client:
+            payload = fetch_actuals(client, cfg, season, week)
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
+        raise typer.Exit(code=1) from exc
+    if payload is None:
+        console.print(
+            f"[red]Tracker has no weekly actuals for {season} week {week}.[/red] "
+            f"POST a WeeklyActualsBundle to /api/actuals or pass --fixture PATH."
+        )
+        raise typer.Exit(code=1)
+    try:
+        bundle = parse_actuals(payload, season=season)
+    except ValueError as exc:
+        console.print(f"[red]Tracker returned invalid weekly actuals:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    cache.put_json(actuals_snapshot_key(season, week), bundle.data, mode=0o600)
+    console.print(f"[dim]Pulled week {week} actuals from the tracker and snapshotted them.[/dim]")
+    return bundle
 
 
 @app.command()
@@ -814,6 +989,64 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
         console.print(
             f"[yellow]⚠ {len(report['missing_projections'])} rostered player(s) "
             f"have no weekly projection: {names}{more}[/yellow]"
+        )
+
+
+def _render_retro(report: dict) -> None:
+    """Print recommended vs started actuals, sit/start hits, and source accuracy."""
+    week = report["week"]
+    console.print(f"[yellow]Week {week} retro[/yellow] — {report['team_name']}")
+    console.print(
+        f"Recommended {report['recommended_total']:.1f}   "
+        f"Started {report['started_total']:.1f}   "
+        f"Δ {report['delta']:+.1f}"
+    )
+    matchup = report.get("matchup")
+    if matchup:
+        console.print(f"Scoreboard {matchup['user_points']:.1f}–{matchup['opponent_points']:.1f}")
+    if report["start_hits"] or report["start_misses"] or report["sit_hits"] or report["sit_misses"]:
+        for row in report["start_hits"]:
+            console.print(
+                f"[green]Start hit[/green] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+        for row in report["start_misses"]:
+            console.print(
+                f"[red]Start miss[/red] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+        for row in report["sit_hits"]:
+            console.print(
+                f"[green]Sit hit[/green] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+        for row in report["sit_misses"]:
+            console.print(
+                f"[red]Sit miss[/red] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+    else:
+        console.print("[green]No sit/start swaps in the advice snapshot.[/green]")
+    if report["source_accuracy"]:
+        table = Table(title=f"Week {week} source accuracy")
+        table.add_column("Source")
+        table.add_column("n", justify="right")
+        table.add_column("MAE", justify="right")
+        table.add_column("Bias", justify="right")
+        for row in report["source_accuracy"]:
+            table.add_row(
+                row["source"],
+                str(row["n"]),
+                f"{row['mae']:.1f}",
+                f"{row['bias']:+.1f}",
+            )
+        console.print(table)
+    if report["missing_actuals"]:
+        names = ", ".join(row["name"] for row in report["missing_actuals"][:8])
+        more = "…" if len(report["missing_actuals"]) > 8 else ""
+        console.print(
+            f"[yellow]⚠ {len(report['missing_actuals'])} advised player(s) "
+            f"have no weekly actuals: {names}{more}[/yellow]"
         )
 
 
