@@ -1108,11 +1108,6 @@ body {
 .list[data-mode="my-team"] .rowA.drafted { opacity: 1; text-decoration: none; }
 
 /* Board metrics retain full labels and a shared header/row grid. */
-.board-guide { flex: none; padding: 8px 14px; color: var(--dr-muted); font-size: 12px; line-height: 1.45; }
-.board-guide summary { cursor: pointer; color: var(--dr-ink); }
-.board-guide summary:focus-visible { outline: 2px solid var(--dr-accent); outline-offset: 3px; }
-.board-guide[open] { max-height: 180px; overflow-y: auto; }
-.board-guide p { margin: 8px 0 0; }
 @media (max-width: 600px) {
   .colhead, .rowA { grid-template-columns: 22px minmax(0, 1fr) 64px 54px 40px; }
   .colhead .h-nm, .rowA .nm { grid-column: 2 / -1; }
