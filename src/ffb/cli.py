@@ -873,7 +873,9 @@ def _apply_digest_llm(report: dict) -> None:
             )
         )
         report["llm"]["sonnet"] = bool(report["narrative"])
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
+        # ValueError covers a non-JSON body (json.JSONDecodeError) and any
+        # malformed payload; the digest must still print headlines and labels.
         report["llm"]["error"] = f"LLM request failed: {exc}"
 
 

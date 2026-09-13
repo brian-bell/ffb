@@ -53,7 +53,7 @@ def test_news_ingest_resolves_athlete_ids_and_keeps_unmatched(tmp_path):
     assert by_native["8888888"]["player_key"] == "espn:8888888"
 
 
-def test_news_ingest_rejects_empty_espn_payload(tmp_path):
+def test_news_ingest_rejects_when_both_feeds_are_empty(tmp_path):
     store = _store(tmp_path)
     cache = SnapshotCache(tmp_path / "snapshots")
     with pytest.raises(ValueError, match="no usable"):
@@ -62,8 +62,74 @@ def test_news_ingest_rejects_empty_espn_payload(tmp_path):
             cache,
             2024,
             fetch=lambda: {"articles": []},
-            fetch_rss=lambda: json.loads((FIXTURES / "espn_news_rss_sample.json").read_text()),
+            fetch_rss=lambda: {"xml": "<rss/>"},
         )
+    assert store.headline_rows(2024) == []
+    store.close()
+
+
+def test_news_ingest_falls_back_to_rss_when_espn_json_is_empty(tmp_path):
+    store = _store(tmp_path)
+    cache = SnapshotCache(tmp_path / "snapshots")
+    result = ensure_news_ingested(
+        store,
+        cache,
+        2024,
+        fetch=lambda: {"articles": []},
+        fetch_rss=lambda: json.loads((FIXTURES / "espn_news_rss_sample.json").read_text()),
+    )
+    assert result.n_rows == 2
+    assert result.matched == 0
+    assert {row["source"] for row in store.headline_rows(2024)} == {"espn_rss"}
+    assert not cache.has(snapshot_key())
+    store.close()
+
+
+def test_news_ingest_falls_back_to_rss_when_espn_json_fetch_fails(tmp_path):
+    store = _store(tmp_path)
+    cache = SnapshotCache(tmp_path / "snapshots")
+
+    def blocked():
+        raise ConnectionError("site.web.api.espn.com blocked")
+
+    result = ensure_news_ingested(
+        store,
+        cache,
+        2024,
+        fetch=blocked,
+        fetch_rss=lambda: json.loads((FIXTURES / "espn_news_rss_sample.json").read_text()),
+    )
+    assert result.n_rows == 2
+    assert len(store.headline_rows(2024, source="espn_rss")) == 2
+    assert store.headline_rows(2024, source="espn") == []
+    store.close()
+
+
+def test_news_ingest_keeps_known_espn_when_refresh_fetch_fails(tmp_path):
+    store = _store(tmp_path)
+    cache = SnapshotCache(tmp_path / "snapshots")
+    ensure_news_ingested(
+        store,
+        cache,
+        2024,
+        fetch=lambda: json.loads((FIXTURES / "espn_news_sample.json").read_text()),
+        fetch_rss=lambda: json.loads((FIXTURES / "espn_news_rss_sample.json").read_text()),
+    )
+
+    def blocked():
+        raise ConnectionError("blocked")
+
+    with pytest.raises(ValueError, match="no usable"):
+        ensure_news_ingested(
+            store,
+            cache,
+            2024,
+            refresh=True,
+            fetch=blocked,
+            fetch_rss=blocked,
+        )
+    assert len(store.headline_rows(2024, source="espn")) == 4
+    assert len(store.headline_rows(2024, source="espn_rss")) == 2
     store.close()
 
 

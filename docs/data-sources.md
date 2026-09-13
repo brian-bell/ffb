@@ -373,9 +373,11 @@ consensus, VORP, sit/start, or ROS math.
   `FFB_ANTHROPIC_API_KEY`.
 - **Snapshot keys** — `espn/news_nfl` and `espn/news_nfl_rss`.
 - **Gotchas**
-  - An empty/bad ESPN JSON refresh is rejected so it cannot wipe a known-good
-    headline cache. RSS is additive; a RSS failure leaves ESPN headlines in
-    place.
+  - The two feeds are independent. An empty, malformed, or blocked ESPN JSON
+    pull is skipped and its stored slice kept; the same holds for RSS. Either
+    feed alone counts as a successful sync, so RSS is a real fallback when the
+    unofficial JSON host is blocked. The source fails only when neither feed
+    yields a headline.
   - News is part of `season sync` `all`. Status `complete` requires it.
 
 ---

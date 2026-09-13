@@ -390,29 +390,46 @@ def ensure_news_ingested(
     fetch: Callable[[], Any] | None = None,
     fetch_rss: Callable[[], Any] | None = None,
 ) -> Reconciliation:
-    """Replay or fetch ESPN/RSS headlines, resolve athlete ids, and mirror them."""
+    """Replay or fetch ESPN/RSS headlines, resolve athlete ids, and mirror them.
+
+    The two feeds are independent. The unofficial ESPN JSON host is often
+    blocked, so RSS is the public fallback: either feed alone is enough, and a
+    feed that fails or comes back empty leaves its stored slice untouched. Only
+    when neither feed yields a headline does the source fail.
+    """
     selected_policy = (
         SnapshotPolicy(policy)
         if policy is not None
         else (SnapshotPolicy.REFRESH if refresh else SnapshotPolicy.MISSING_ONLY)
     )
-    raw = cache.get_json(
-        espn_news.snapshot_key(),
-        fetch or espn_news.fetch_news,
-        refresh=refresh,
-        policy=selected_policy,
-        is_valid=lambda data: bool(espn_news.parse_news(data)),
-    )
-    rows = espn_news.parse_news(raw)
-    if not rows:
-        raise ValueError("ESPN news returned no usable headlines")
-    metadata = cache.metadata(espn_news.snapshot_key())
-    snapshot_time = fetched_at or (metadata.modified_at if metadata else None)
-    if snapshot_time is None:
-        raise ValueError("ESPN news snapshot has no fetched timestamp")
-    stamped = [{**row, "fetched_at": snapshot_time} for row in rows]
-    mentions, matched_headlines, unmatched_athletes = _resolve_headline_mentions(store, stamped)
-    store.replace_headlines(stamped, mentions, season, "espn")
+
+    stamped: list[dict[str, Any]] = []
+    matched_headlines = 0
+    unmatched_athletes = 0
+    try:
+        raw = cache.get_json(
+            espn_news.snapshot_key(),
+            fetch or espn_news.fetch_news,
+            refresh=refresh,
+            policy=selected_policy,
+            is_valid=lambda data: bool(espn_news.parse_news(data)),
+        )
+    except Exception as exc:  # noqa: BLE001 - RSS below may still stand alone
+        log.info("processing source=news step=espn skipped error=%s", exc)
+    else:
+        rows = espn_news.parse_news(raw)
+        if not rows:
+            log.info("processing source=news step=espn skipped reason=empty-or-invalid")
+        else:
+            metadata = cache.metadata(espn_news.snapshot_key())
+            snapshot_time = fetched_at or (metadata.modified_at if metadata else None)
+            if snapshot_time is None:
+                raise ValueError("ESPN news snapshot has no fetched timestamp")
+            stamped = [{**row, "fetched_at": snapshot_time} for row in rows]
+            mentions, matched_headlines, unmatched_athletes = _resolve_headline_mentions(
+                store, stamped
+            )
+            store.replace_headlines(stamped, mentions, season, "espn")
 
     rss_rows: list[dict[str, Any]] = []
     try:
@@ -436,6 +453,9 @@ def ensure_news_ingested(
                 raise ValueError("ESPN RSS snapshot has no fetched timestamp")
             rss_rows = [{**row, "fetched_at": rss_time} for row in parsed_rss]
             store.replace_headlines(rss_rows, [], season, "espn_rss")
+
+    if not stamped and not rss_rows:
+        raise ValueError("ESPN news and RSS returned no usable headlines")
 
     recon = Reconciliation(source="news", n_rows=len(stamped) + len(rss_rows))
     recon.matched = matched_headlines

@@ -106,6 +106,23 @@ def test_digest_skips_llm_without_a_key(tmp_path):
     assert "game-time call" not in result.output
 
 
+def test_digest_survives_non_http_llm_failure(tmp_path, monkeypatch):
+    env = _seed(tmp_path)
+    _sync_league_and_news(tmp_path, env)
+
+    def broken_complete(*, model, system, user, api_key):
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr("ffb.cli.complete_claude", broken_complete)
+
+    result = runner.invoke(app, ["digest", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    assert "Derrick Henry" in result.output
+    assert "LLM request failed" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_digest_warns_when_news_mentions_are_stale(tmp_path):
     env = _seed(tmp_path)
     _sync_league_and_news(tmp_path, env)
