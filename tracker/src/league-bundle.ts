@@ -331,10 +331,28 @@ function utcTimestamp(value: unknown, name: string): void {
   if (offset !== "Z" && offset !== "+00:00" && offset !== "-00:00") {
     throw new LeagueBundleError(`${name} must be UTC`);
   }
+  // `new Date` rolls invalid dates over (Feb 30 -> Mar 2); Python parse_bundle
+  // rejects them, so round-trip the fields and require an exact match.
   const parsed = new Date(`${datetime.replace(" ", "T")}${offset}`);
-  if (Number.isNaN(parsed.getTime())) {
+  const [datePart, timePart] = datetime.split(/[T ]/);
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute, second] = timePart.split(":").map(Number);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() + 1 !== month ||
+    parsed.getUTCDate() !== day ||
+    parsed.getUTCHours() !== hour ||
+    parsed.getUTCMinutes() !== minute ||
+    parsed.getUTCSeconds() !== Math.floor(second)
+  ) {
     throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
   }
+}
+
+/** Epoch millis of a validated UTC `synced_at`, for ordering stored bundles. */
+export function syncedAtMillis(bundle: LeagueBundle): number {
+  return Date.parse(bundle.synced_at.replace(" ", "T"));
 }
 
 function sameSet(left: Set<string>, right: Set<string>): boolean {

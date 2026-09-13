@@ -107,6 +107,48 @@ describe("Worker /api/league/bundle", () => {
     expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBe(previous);
   });
 
+  it("rejects a bundle older than the stored one and keeps the newer value", async () => {
+    expect((await postBundle(fixtureJson)).status).toBe(200);
+    const previous = await env.BOARD.get(LEAGUE_BUNDLE_KEY);
+
+    const stale = await postBundle({ ...fixtureJson, synced_at: "2026-07-22T11:59:59Z" });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({
+      error: "stale_bundle",
+      message: "bundle.synced_at 2026-07-22T11:59:59Z is older than stored 2026-07-22T12:00:00Z",
+    });
+    expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBe(previous);
+
+    const same = await postBundle(fixtureJson);
+    expect(same.status).toBe(200);
+
+    const newer = await postBundle({ ...fixtureJson, synced_at: "2026-07-22T12:00:00+00:00" });
+    expect(newer.status).toBe(200);
+    expect(JSON.parse((await env.BOARD.get(LEAGUE_BUNDLE_KEY))!).synced_at).toBe(
+      "2026-07-22T12:00:00+00:00",
+    );
+  });
+
+  it("rejects a bundle whose season differs from the published board", async () => {
+    const wrongSeason = await postBundle({
+      ...fixtureJson,
+      league: { ...fixtureJson.league, season: 2025 },
+    });
+    expect(wrongSeason.status).toBe(409);
+    expect(await wrongSeason.json()).toEqual({
+      error: "season_mismatch",
+      message: "bundle season 2025 does not match published board season 2024",
+    });
+    expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBeNull();
+
+    await env.BOARD.delete(BOARD_KEY);
+    const noBoard = await postBundle({
+      ...fixtureJson,
+      league: { ...fixtureJson.league, season: 2025 },
+    });
+    expect(noBoard.status).toBe(200);
+  });
+
   it("rejects invalid JSON without logging-shaped echo", async () => {
     const res = await postBundle("{not-json");
     expect(res.status).toBe(400);

@@ -31,7 +31,10 @@ object remain valid.
 JSON. Auth is the same bearer key as other `/api/*` data routes. A valid body
 replaces KV `league:bundle:current` and returns counts only. Extra keys,
 incomplete roster coverage, and other `parse_bundle` failures return 400
-`invalid_bundle` and leave the previous value in place. `GET /api/league/bundle`
+`invalid_bundle` and leave the previous value in place. A bundle whose
+`synced_at` is older than the stored one returns 409 `stale_bundle`, and a
+bundle whose season differs from the published board returns 409
+`season_mismatch`; neither replaces the stored value. `GET /api/league/bundle`
 returns the last accepted bundle so the CLI can fetch it later.
 
 ## Live draft
