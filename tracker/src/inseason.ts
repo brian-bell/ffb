@@ -154,9 +154,21 @@ export function weekFromKey(key: string, season: number, kind: InseasonKind): nu
   return /^[1-9]\d*$/.test(rest) ? Number(rest) : null;
 }
 
+// RFC 3339 UTC, as the producer contracts (parse_bundle, parse_actuals) accept
+// it: `T` or space separator, optional fraction, and an explicit `Z`, `+00:00`,
+// or `-00:00` designator. Naive or non-UTC offsets are rejected.
+const UTC_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]00:00)$/;
+
+/** Epoch millis of a UTC timestamp in any accepted spelling, or NaN. */
+export function utcMillis(text: string): number {
+  const match = UTC_TIMESTAMP.exec(text);
+  if (!match) return Number.NaN;
+  return Date.parse(`${match[1]}T${match[2]}Z`);
+}
+
 /** Epoch millis of a validated `generated_at`, for ordering stored envelopes. */
 export function generatedAtMillis(envelope: { generated_at: string }): number {
-  return Date.parse(envelope.generated_at);
+  return utcMillis(envelope.generated_at);
 }
 
 class Invalid extends Error {}
@@ -216,8 +228,8 @@ function positiveInt(value: unknown, label: string): number {
 
 function utcTimestamp(value: unknown, label: string): string {
   const text = str(value, label);
-  if (!text.endsWith("Z") || Number.isNaN(Date.parse(text))) {
-    fail(`${label} must be a UTC ISO-8601 timestamp ending in Z`);
+  if (Number.isNaN(utcMillis(text))) {
+    fail(`${label} must be an RFC 3339 UTC timestamp (Z or +00:00)`);
   }
   return text;
 }

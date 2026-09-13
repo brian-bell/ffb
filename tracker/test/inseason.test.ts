@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { ACTUALS_KEY_PREFIX } from "../src/actuals";
 import { BOARD_KEY } from "../src/board";
-import { INSEASON_KEY_PREFIX, inseasonKey, parseEnvelope, weekFromKey } from "../src/inseason";
+import { INSEASON_KEY_PREFIX, generatedAtMillis, inseasonKey, parseEnvelope, weekFromKey } from "../src/inseason";
 import { LEAGUE_BUNDLE_KEY } from "../src/league-bundle";
 import boardFixture from "./fixtures/board.json";
 import leagueBundle from "./fixtures/league-bundle.json";
@@ -62,9 +62,31 @@ describe("parseEnvelope", () => {
   it("rejects extra envelope keys, bad versions, and bad timestamps", () => {
     expect(parseEnvelope({ ...lineupFixture, extra: 1 }).ok).toBe(false);
     expect(parseEnvelope({ ...lineupFixture, schema_version: 2 }).ok).toBe(false);
-    expect(parseEnvelope({ ...lineupFixture, generated_at: "2026-09-20T14:05:12+00:00" }).ok).toBe(false);
+    expect(parseEnvelope({ ...lineupFixture, generated_at: "2026-09-20T14:05:12+02:00" }).ok).toBe(false);
     expect(parseEnvelope({ ...lineupFixture, week: 0 }).ok).toBe(false);
     expect(parseEnvelope({ ...lineupFixture, team_name: 7 }).ok).toBe(false);
+  });
+
+  it("accepts every UTC spelling the producer contracts allow", () => {
+    // parse_bundle / parse_actuals accept RFC 3339 `+00:00` (and a space
+    // separator), and the CLI copies those timestamps into the context.
+    const lineup = clone(lineupFixture) as { context: Record<string, unknown>; generated_at: string; report: Record<string, unknown> };
+    lineup.context.league_synced_at = "2026-09-12T00:00:00+00:00";
+    lineup.context.snapshot_generated_at = "2026-09-12 14:05:12-00:00";
+    lineup.report.injury_as_of = "2026-09-12T08:00:00.250+00:00";
+    lineup.generated_at = "2026-09-20T14:05:12.000+00:00";
+    expect(parseEnvelope(lineup, "lineup")).toMatchObject({ ok: true });
+    expect(generatedAtMillis(lineup)).toBe(Date.parse("2026-09-20T14:05:12Z"));
+
+    const retro = clone(retroFixture) as { context: Record<string, unknown> };
+    retro.context.actuals_synced_at = "2026-09-16T16:00:00+00:00";
+    expect(parseEnvelope(retro, "retro")).toMatchObject({ ok: true });
+
+    for (const bad of ["2026-09-16T16:00:00", "2026-09-16T16:00:00+02:00", "2026-09-16T16:00:00-05:00", "not a time+00:00"]) {
+      const rejected = clone(retroFixture) as { context: Record<string, unknown> };
+      rejected.context.actuals_synced_at = bad;
+      expect(parseEnvelope(rejected, "retro"), bad).toMatchObject({ ok: false, message: expect.stringContaining("actuals_synced_at") });
+    }
   });
 
   it("closes the per-kind context keys", () => {
@@ -151,6 +173,14 @@ describe("Worker POST /api/inseason/{kind}", () => {
     expect(notJson.status).toBe(400);
     expect(await notJson.json()).toMatchObject({ error: "invalid_json" });
     expect(await env.BOARD.get(inseasonKey(2024, "lineup", 1))).toBeNull();
+  });
+
+  it("orders stored documents by instant, not by timestamp spelling", async () => {
+    expect((await post("ros", { ...rosFixture, generated_at: "2026-09-16T11:06:20+00:00" })).status).toBe(200);
+    const equal = await post("ros", rosFixture);
+    expect(equal.status).toBe(200);
+    const older = await post("ros", { ...rosFixture, generated_at: "2026-09-16T11:06:19+00:00" });
+    expect(older.status).toBe(409);
   });
 
   it("rejects an older generated_at with stale_report but accepts an equal one", async () => {
