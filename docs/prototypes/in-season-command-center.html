@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>In-season command center · prototype</title>
+  <style>
+    :root {
+      --screen:#0f141b;--chrome:#0b0f15;--panel:#121923;--panel2:#171f2a;
+      --line:#273241;--soft:#1a222d;--ink:#e8eef4;--muted:#8a98a8;
+      --faint:#586575;--accent:#f5a623;--accent-bg:#2a1e08;--good:#34d17a;
+      --good-bg:#0b2418;--reach:#ff6b6b;--blue:#69b7ff;--blue-bg:#0c1d2e;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+      --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}html{background:var(--chrome)}
+    body{margin:0;color:var(--ink);background:var(--screen);font-family:var(--sans);line-height:1.45;-webkit-font-smoothing:antialiased}
+    button{font:inherit;cursor:pointer}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}[hidden]{display:none!important}
+    .eyebrow{color:var(--muted);font:800 9.5px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase}
+    .mono{font-family:var(--mono)}
+
+    /* ---- prototype chrome (not product) ---- */
+    .proto{border-bottom:1px dashed #2f3a48;background:#0b0f15;color:var(--muted);font:600 11px/1.4 var(--mono)}
+    .proto-in{width:min(1280px,calc(100% - 32px));margin:auto;padding:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+    .proto b{color:var(--good)}.proto .tag{padding:4px 7px;border:1px solid #246943;border-radius:999px;background:var(--good-bg);color:var(--good);font-size:9px;letter-spacing:.08em}
+    .scen{display:flex;gap:5px;flex-wrap:wrap;margin-left:auto}
+    .scen button{padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:#131a24;color:var(--muted);font:700 10px/1 var(--mono)}
+    .scen button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+
+    /* ---- header strip ---- */
+    .topbar{position:sticky;top:0;z-index:20;border-bottom:1px solid var(--line);background:#0b0f15ee;backdrop-filter:blur(14px)}
+    .topbar-in{width:min(1280px,calc(100% - 32px));min-height:56px;margin:auto;display:flex;align-items:center;gap:18px}
+    .brand{font-weight:800;letter-spacing:-.02em;white-space:nowrap}.brand b{color:var(--good)}
+    .weekpick{display:flex;align-items:center;gap:4px;font:800 13px/1 var(--mono)}
+    .weekpick button{width:30px;height:30px;border:1px solid var(--line);border-radius:7px;background:#131a24;color:var(--ink)}
+    .weekpick button:disabled{opacity:.35;cursor:not-allowed}.weekpick span{min-width:74px;text-align:center}
+    .team{color:var(--muted);font-size:13px}.team b{color:var(--ink)}
+    .oldest{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted);font:650 11px/1 var(--mono)}
+    .oldest i{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+    .oldest.ok i{background:var(--good)}
+
+    /* ---- grid ---- */
+    main{width:min(1280px,calc(100% - 32px));margin:0 auto;padding:22px 0 60px}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-areas:"lineup lineup news" "retro ros news";gap:14px}
+    .card{position:relative;display:flex;flex-direction:column;min-height:240px;padding:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);text-align:left;overflow:hidden;transition:border-color .12s}
+    .card:hover{border-color:#3a4859}.card[aria-expanded=true]{border-color:var(--accent)}
+    .card.lineup{grid-area:lineup}.card.news{grid-area:news}.card.retro{grid-area:retro}.card.ros{grid-area:ros}
+    .card.stale{box-shadow:inset 4px 0 var(--accent)}
+    .card.waiting,.card.missing{border-style:dashed;background:transparent}
+    .card.waiting{border-color:#2b5a85}.card.missing{border-color:#33404f}
+    .chead{display:flex;align-items:center;gap:10px;padding:12px 16px 8px}
+    .chead h2{margin:0;font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+    .chead .horizon{color:var(--faint);font:650 10px/1 var(--mono)}
+    .badge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font:750 10px/1 var(--mono);white-space:nowrap}
+    .badge i{width:7px;height:7px;border-radius:50%;background:currentColor}
+    .badge.fresh{color:var(--good);background:var(--good-bg)}
+    .badge.stale{color:var(--accent);background:var(--accent-bg)}
+    .badge.degraded{color:var(--accent);background:var(--accent-bg);border:1px solid #5a4212}
+    .badge.waiting{color:var(--blue);background:var(--blue-bg)}
+    .badge.missing{color:var(--muted);background:#151c25}
+    .reason{padding:0 16px 8px;color:var(--muted);font-size:11.5px}
+    .reason.warn{color:#f0c674}
+    .head{display:flex;align-items:baseline;gap:10px;padding:2px 16px 10px}
+    .head b{font:800 30px/1 var(--mono);letter-spacing:-.03em}.head b.good{color:var(--good)}.head b.bad{color:var(--reach)}.head b.plain{color:var(--ink)}
+    .head span{color:var(--muted);font-size:12px}
+    .rows{flex:1;margin:0;padding:0 8px 6px;list-style:none}
+    .row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;min-height:34px;padding:0 8px;border-top:1px solid var(--soft);font-size:12.5px}
+    .row:first-child{border-top:0}
+    .row .k{min-width:44px;color:var(--faint);font:750 9.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase}
+    .row .k.start{color:var(--good)}.row .k.sit{color:var(--reach)}.row .k.close{color:var(--accent)}.row .k.hit{color:var(--good)}.row .k.miss{color:var(--reach)}
+    .row .k.flag{color:var(--accent)}.row .k.bye{color:var(--blue)}
+    .row .v{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row .v small{color:var(--muted)}
+    .row .n{color:var(--muted);font:650 11px/1 var(--mono);white-space:nowrap}.row .n.good{color:var(--good)}.row .n.bad{color:var(--reach)}
+    .cfoot{display:flex;justify-content:space-between;gap:10px;padding:8px 16px 12px;border-top:1px solid var(--soft);color:var(--faint);font:650 10px/1.3 var(--mono)}
+    .cfoot .more{color:var(--muted)}
+    .empty{flex:1;display:grid;place-items:center;padding:28px 20px;text-align:center;color:var(--muted);font-size:12.5px}
+    .empty code{display:block;margin-top:10px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#0d131b;color:var(--ink);font:650 11px/1.4 var(--mono)}
+    .excerpt{padding:0 16px 10px;color:#bac4ce;font-size:12.5px}
+
+    /* ---- detail panel ---- */
+    .scrim{position:fixed;inset:0;z-index:30;background:#0006}
+    .panel{position:fixed;top:0;right:0;bottom:0;z-index:31;width:min(680px,92vw);display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);box-shadow:-30px 0 80px #0009}
+    .phead{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+    .phead h2{margin:0;font-size:16px;letter-spacing:-.01em}.phead .badge{margin-left:0}
+    .phead .close{margin-left:auto;width:32px;height:32px;border:1px solid var(--line);border-radius:8px;background:#131a24;color:var(--muted)}
+    .pbody{flex:1;overflow:auto;padding:16px 20px 40px}
+    .pbody h3{margin:18px 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}.pbody h3:first-child{margin-top:0}
+    .pbody p{margin:0 0 8px;color:#c9d4df;font-size:13px}
+    .pbody p.note{color:var(--muted);font-size:12px}
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    th,td{padding:7px 8px;border-bottom:1px solid var(--soft);text-align:left;vertical-align:top}
+    th{color:var(--faint);font:750 9.5px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase}
+    td.num,th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+    td .sub{display:block;color:var(--muted);font-size:11px}
+    td.good{color:var(--good)}td.bad{color:var(--reach)}td.warn{color:var(--accent)}
+    .prov{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 6px;color:var(--muted);font:650 11px/1.5 var(--mono)}
+    .prov b{color:var(--ink)}
+    .hl{margin:4px 0 0;padding-left:16px;color:var(--muted);font-size:12px}.hl li{margin:2px 0}.hl a{color:var(--blue)}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:3px 7px;border:1px solid var(--line);border-radius:999px;background:#131a24;color:var(--muted);font:700 10px/1 var(--mono)}
+    .chip.warn{border-color:#5a4212;color:var(--accent)}
+    .filters{display:flex;gap:6px;margin-bottom:8px}.filters button{padding:5px 9px;border:1px solid var(--line);border-radius:999px;background:#131a24;color:var(--muted);font:700 10px/1 var(--mono)}.filters button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+
+    @media(max-width:1100px){.grid{grid-template-columns:1fr 1fr;grid-template-areas:"lineup lineup" "news retro" "ros ros"}}
+    @media(max-width:760px){.grid{grid-template-columns:1fr;grid-template-areas:"lineup" "news" "retro" "ros"}.oldest{display:none}.topbar-in{gap:10px}.team{display:none}}
+  </style>
+</head>
+<body>
+  <div class="proto"><div class="proto-in"><span class="tag">PROTOTYPE</span><span>docs/specs/in-season-command-center.md · route <b>/command</b> · static fixture data, no Worker</span>
+    <div class="scen" role="group" aria-label="Scenario" data-scenarios></div></div></div>
+
+  <header class="topbar"><div class="topbar-in">
+    <div class="brand">FFB <b>COMMAND</b></div>
+    <div class="weekpick" aria-label="Week"><button type="button" data-week-prev aria-label="Previous week">‹</button><span data-week>Week 2</span><button type="button" data-week-next aria-label="Next week">›</button></div>
+    <div class="team">Team <b data-team>—</b></div>
+    <div class="oldest" data-oldest><i></i><span data-oldest-text>—</span></div>
+  </div></header>
+
+  <main><section class="grid" data-grid aria-live="polite"></section></main>
+
+  <div class="scrim" data-scrim hidden></div>
+  <aside class="panel" data-panel role="dialog" aria-modal="true" aria-labelledby="panel-title" hidden>
+    <div class="phead"><h2 id="panel-title" data-panel-title></h2><span data-panel-badge></span><button type="button" class="close" data-panel-close aria-label="Close panel">✕</button></div>
+    <div class="pbody" data-panel-body></div>
+  </aside>
+
+<script>
+/* ====================================================================
+   Fixture: one GET /api/inseason?season=2026&week=2 response, plus
+   variants for each freshness state. Shapes follow the spec's publish
+   envelope and the existing report dicts.
+   ==================================================================== */
+const NOW = new Date("2026-09-20T15:40:00Z"); // Sun 11:40 ET, pre-kickoff
+
+const lineupReport = {
+  start: [
+    { name:"Bijan Robinson", position:"RB", team:"ATL", slot:"RB", points:19.4, selected_position:"BN" },
+    { name:"Zay Flowers", position:"WR", team:"BAL", slot:"W/R/T", points:13.8, selected_position:"BN" },
+  ],
+  sit: [
+    { name:"Rachaad White", position:"RB", team:"TB", slot:"RB", points:11.2, selected_position:"RB" },
+    { name:"Jameson Williams", position:"WR", team:"DET", slot:"W/R/T", points:10.9, selected_position:"W/R/T" },
+  ],
+  undecidable: [],
+  current_total: 128.6, optimal_total: 133.8, delta: 5.2,
+  missing_projections: [],
+  close_calls: [
+    { name:"Jaylen Waddle", points:13.1, versus:"Zay Flowers", slot:"W/R/T", delta:0.7 },
+    { name:"Jake Ferguson", points:9.6, versus:"Trey McBride", slot:"TE", delta:1.4 },
+  ],
+  injury_as_of: "2026-09-20T13:02:00Z",
+  optimal: [
+    { slot:"QB", name:"Jayden Daniels", points:22.1 }, { slot:"RB", name:"Bijan Robinson", points:19.4 },
+    { slot:"RB", name:"Kyren Williams", points:15.7 }, { slot:"WR", name:"CeeDee Lamb", points:17.9 },
+    { slot:"WR", name:"Nico Collins", points:15.2 }, { slot:"TE", name:"Trey McBride", points:11.0 },
+    { slot:"W/R/T", name:"Zay Flowers", points:13.8 }, { slot:"K", name:"Jake Bates", points:8.7 },
+    { slot:"DEF", name:"Baltimore", points:10.0 },
+  ],
+  current: [
+    { slot:"QB", name:"Jayden Daniels", points:22.1 }, { slot:"RB", name:"Rachaad White", points:11.2 },
+    { slot:"RB", name:"Kyren Williams", points:15.7 }, { slot:"WR", name:"CeeDee Lamb", points:17.9 },
+    { slot:"WR", name:"Nico Collins", points:15.2 }, { slot:"TE", name:"Trey McBride", points:11.0 },
+    { slot:"W/R/T", name:"Jameson Williams", points:10.9 }, { slot:"K", name:"Jake Bates", points:8.7 },
+    { slot:"DEF", name:"Baltimore", points:10.0 },
+  ],
+};
+
+const digestReport = {
+  week: 2, team_name: "Bell Curve",
+  injury_as_of: "2026-09-20T13:02:00Z", news_as_of: "2026-09-20T13:05:41Z",
+  llm: { haiku:true, sonnet:true, error:null },
+  narrative: "Bijan Robinson practiced in full all week and is a clear start. Rachaad White remains in a committee with Bucky Irving, and Tampa's offensive line lost two starters, so his floor is low. Jameson Williams is questionable with a hamstring and did not travel; treat him as out until inactives.",
+  roster: [
+    { name:"Jameson Williams", position:"WR", team:"DET", injury_status:"Questionable", flag:"OUT RISK", note:"Hamstring; did not travel with the team.", headlines:[{title:"Lions WR Williams (hamstring) stays home for Week 2 trip", source:"espn", url:"https://www.espn.com/nfl/story/_/id/1"}] },
+    { name:"Rachaad White", position:"RB", team:"TB", injury_status:null, flag:"USAGE", note:"Irving out-snapped him 58/42 in Week 1.", headlines:[{title:"Irving leads Bucs backfield in snaps, touches", source:"espn", url:"https://www.espn.com/nfl/story/_/id/2"}] },
+    { name:"Kyren Williams", position:"RB", team:"LAR", injury_status:"Probable", flag:null, note:null, headlines:[] },
+    { name:"Bijan Robinson", position:"RB", team:"ATL", injury_status:null, flag:null, note:"Full participant all week.", headlines:[] },
+  ],
+  watch: [
+    { name:"Bucky Irving", position:"RB", team:"TB", injury_status:null, flag:"ADD", note:"Lead back by snaps; unrostered in your league.", headlines:[{title:"Irving leads Bucs backfield in snaps, touches", source:"espn", url:"https://www.espn.com/nfl/story/_/id/2"}] },
+    { name:"Tyler Allgeier", position:"RB", team:"ATL", injury_status:null, flag:null, note:null, headlines:[] },
+  ],
+  other_headlines: [
+    { title:"Chiefs place Hollywood Brown on IR", source:"espn", url:"https://www.espn.com/nfl/story/_/id/3" },
+    { title:"Sleeper: Week 2 injury designations roundup", source:"sleeper", url:"http://insecure.example/no-link" },
+  ],
+};
+
+const retroReport = {
+  week: 1, team_name: "Bell Curve",
+  recommended_total: 121.4, started_total: 116.9, delta: 4.5,
+  matchup: { opponent:"Gridiron Gang", user_points:116.9, opponent_points:109.3, result:"W" },
+  start_hits: [ { name:"CeeDee Lamb", slot:"WR", projected:17.2, actual:21.6 }, { name:"Kyren Williams", slot:"RB", projected:15.1, actual:12.4 } ],
+  start_misses: [ { name:"Zay Flowers", slot:"W/R/T", projected:13.5, actual:16.1 } ],
+  sit_hits: [ { name:"Jake Ferguson", slot:"TE", projected:8.9, actual:5.2 } ],
+  sit_misses: [ { name:"Jameson Williams", slot:"W/R/T", projected:11.0, actual:11.6 } ],
+  missing_actuals: [],
+  source_accuracy: [ { source:"sleeper", n:14, mae:4.81, bias:-0.62 }, { source:"espn", n:14, mae:5.12, bias:1.05 }, { source:"consensus", n:14, mae:4.55, bias:0.21 } ],
+};
+
+const rosReport = {
+  playoff_weeks: [15,16,17],
+  usage_available: false,
+  players: [
+    { rank:1, name:"Bijan Robinson", position:"RB", team:"ATL", ros:214.3, n:2, bye:5, playoff:"@TB, NYG, @ARI", playoff_difficulty:14, rostered:true },
+    { rank:2, name:"CeeDee Lamb", position:"WR", team:"DAL", ros:203.8, n:2, bye:10, playoff:"@CAR, LAC, @WAS", playoff_difficulty:9, rostered:true },
+    { rank:3, name:"Jayden Daniels", position:"QB", team:"WAS", ros:298.1, n:2, bye:12, playoff:"@NYG, PHI, DAL", playoff_difficulty:6, rostered:true },
+    { rank:5, name:"Kyren Williams", position:"RB", team:"LAR", ros:171.0, n:2, bye:8, playoff:"DET, @SEA, ARI", playoff_difficulty:3, rostered:true },
+    { rank:7, name:"Nico Collins", position:"WR", team:"HOU", ros:168.4, n:2, bye:6, playoff:"ARI, LV, @LAC", playoff_difficulty:22, rostered:true },
+    { rank:11, name:"Trey McBride", position:"TE", team:"ARI", ros:141.2, n:2, bye:8, playoff:"@HOU, ATL, @LAR", playoff_difficulty:11, rostered:true },
+    { rank:19, name:"Zay Flowers", position:"WR", team:"BAL", ros:139.5, n:2, bye:7, playoff:"@CIN, NE, @GB", playoff_difficulty:8, rostered:true },
+    { rank:31, name:"Rachaad White", position:"RB", team:"TB", ros:112.7, n:2, bye:9, playoff:"ATL, @CAR, @MIA", playoff_difficulty:25, rostered:true },
+    { rank:4, name:"Ja'Marr Chase", position:"WR", team:"CIN", ros:209.9, n:2, bye:10, playoff:"BAL, @MIA, ARI", playoff_difficulty:12, rostered:false },
+    { rank:6, name:"Saquon Barkley", position:"RB", team:"PHI", ros:189.2, n:2, bye:9, playoff:"LV, @WAS, @BUF", playoff_difficulty:7, rostered:false },
+  ],
+  teams: [],
+  bye_plan: [
+    { bye:5, players:[ { name:"Bijan Robinson", position:"RB", team:"ATL", starter:true } ], thin_positions:[] },
+    { bye:6, players:[ { name:"Nico Collins", position:"WR", team:"HOU", starter:true } ], thin_positions:[] },
+    { bye:8, players:[ { name:"Kyren Williams", position:"RB", team:"LAR", starter:true }, { name:"Trey McBride", position:"TE", team:"ARI", starter:true }, { name:"Blake Corum", position:"RB", team:"LAR", starter:false } ], thin_positions:[] },
+    { bye:10, players:[ { name:"CeeDee Lamb", position:"WR", team:"DAL", starter:true }, { name:"Rico Dowdle", position:"RB", team:"DAL", starter:false } ], thin_positions:[] },
+  ],
+};
+rosReport.teams = [
+  { team:"LAR", games:3, avg_opp_def:9.8, difficulty:1, matchups:"DET, @SEA, ARI" },
+  { team:"WAS", games:3, avg_opp_def:9.1, difficulty:6, matchups:"@NYG, PHI, DAL" },
+  { team:"BAL", games:3, avg_opp_def:8.9, difficulty:8, matchups:"@CIN, NE, @GB" },
+  { team:"DAL", games:3, avg_opp_def:8.7, difficulty:9, matchups:"@CAR, LAC, @WAS" },
+  { team:"ATL", games:3, avg_opp_def:7.6, difficulty:14, matchups:"@TB, NYG, @ARI" },
+  { team:"HOU", games:3, avg_opp_def:6.2, difficulty:22, matchups:"ARI, LV, @LAC" },
+  { team:"TB", games:3, avg_opp_def:5.9, difficulty:25, matchups:"ATL, @CAR, @MIA" },
+];
+
+function env(kind, week, generated_at, report, context) {
+  return { schema_version:1, kind, season:2026, week, generated_at, team_name:"Bell Curve", context, report };
+}
+const base = {
+  season:2026, week:2, server_now:NOW.toISOString(),
+  league:{ synced_at:"2026-09-20T12:22:00Z", current_week:2 },
+  actuals_available:{ "1":true }, weeks:[1,2],
+  cards:{
+    lineup: { envelope: env("lineup", 2, "2026-09-20T14:05:12Z", lineupReport, { league_synced_at:"2026-09-20T12:22:00Z", projection_sources:["sleeper","espn"], snapshot_generated_at:"2026-09-20T14:05:12Z" }) },
+    digest: { envelope: env("digest", 2, "2026-09-20T14:06:40Z", digestReport, { sources:["espn","sleeper"] }) },
+    retro:  { envelope: env("retro", 1, "2026-09-16T11:04:00Z", retroReport, { actuals_synced_at:"2026-09-16T10:30:00Z" }) },
+    ros:    { envelope: env("ros", 2, "2026-09-16T11:06:20Z", rosReport, { projection_sources:["sleeper","espn"], playoff_weeks_requested:[15,16,17] }) },
+  },
+};
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const scenarios = {
+  "Sunday, all fresh": () => clone(base),
+  "Roster changed": () => { const v = clone(base); v.league.synced_at = "2026-09-20T15:10:00Z"; return v; },
+  "Degraded": () => {
+    const v = clone(base);
+    v.cards.lineup.envelope.report.missing_projections = [{ name:"Blake Corum", position:"RB" }, { name:"Rico Dowdle", position:"RB" }];
+    v.cards.digest.envelope.report.llm = { haiku:false, sonnet:false, error:"LLM skipped (no ANTHROPIC_API_KEY / FFB_ANTHROPIC_API_KEY)." };
+    v.cards.digest.envelope.report.narrative = null;
+    for (const p of v.cards.digest.envelope.report.roster.concat(v.cards.digest.envelope.report.watch)) { p.flag = null; p.note = null; }
+    v.cards.retro.envelope.report.missing_actuals = [{ yahoo_player_id:"31234", name:"Jake Bates" }];
+    return v;
+  },
+  "Wednesday, aged": () => {
+    const v = clone(base);
+    v.server_now = "2026-09-26T13:30:00Z";
+    v.cards.lineup.envelope.generated_at = "2026-09-20T14:05:12Z";
+    v.cards.ros.envelope.generated_at = "2026-09-16T11:06:20Z";
+    v.cards.digest.envelope.generated_at = "2026-09-20T14:06:40Z";
+    return v;
+  },
+  "Week 1, nothing yet": () => {
+    const v = clone(base); v.week = 1; v.weeks = [1]; v.league.current_week = 1; v.actuals_available = {};
+    v.cards.lineup.envelope = null; v.cards.digest.envelope = null; v.cards.retro.envelope = null;
+    v.cards.ros.envelope.week = 1; return v;
+  },
+  "Week 3, waiting on actuals": () => {
+    const v = clone(base); v.week = 3; v.weeks = [1,2,3]; v.league.current_week = 3; v.server_now = "2026-09-30T11:00:00Z";
+    v.league.synced_at = "2026-09-30T10:40:00Z"; v.actuals_available = { "2":false };
+    v.cards.lineup.envelope = null; v.cards.digest.envelope = null; v.cards.retro.envelope = null;
+    v.cards.ros.envelope.week = 2; v.cards.ros.envelope.generated_at = "2026-09-23T11:06:20Z"; return v;
+  },
+};
+
+/* ====================================================================
+   cardFreshness(kind, view, now) — pure, mirrors the spec's rule table.
+   First match wins.
+   ==================================================================== */
+const DAY = 86400e3;
+function ageMs(iso, now) { return now - new Date(iso).getTime(); }
+function cardFreshness(kind, view, now) {
+  const W = view.week;
+  const card = view.cards[kind];
+  const e = card && card.envelope;
+  const age = e ? ageMs(e.generated_at, now) : null;
+  const R = e ? e.report : null;
+  if (kind === "lineup") {
+    if (!e) return { state:"missing", reason:`Not published for week ${W}` };
+    if (view.league && view.league.synced_at > e.context.league_synced_at) return { state:"stale", reason:"Roster changed after this lineup was built" };
+    const d = view.cards.digest.envelope;
+    if (d && d.report.injury_as_of && R.injury_as_of && d.report.injury_as_of > R.injury_as_of) return { state:"stale", reason:"Newer injury report available" };
+    if (age > 5 * DAY) return { state:"stale", reason:"Built more than 5 days ago" };
+    const n = R.missing_projections.length + R.undecidable.length;
+    if (n) return { state:"degraded", reason:`${n} player${n === 1 ? " has" : "s have"} no projection` };
+    return { state:"fresh", reason:"" };
+  }
+  if (kind === "digest") {
+    if (!e) return { state:"missing", reason:`Not published for week ${W}` };
+    if (age > 5 * DAY) return { state:"stale", reason:"Headlines are more than 5 days old" };
+    if (R.llm && R.llm.error) return { state:"degraded", reason:"LLM skipped — headlines only" };
+    return { state:"fresh", reason:"" };
+  }
+  if (kind === "retro") {
+    if (W === 1) return { state:"waiting", reason:"No prior week to grade" };
+    const have = !!view.actuals_available[String(W - 1)];
+    if (!e && !have) return { state:"waiting", reason:`Waiting for week ${W - 1} actuals` };
+    if (!e) return { state:"missing", reason:"Actuals are in; retro not published" };
+    if (R.missing_actuals.length) return { state:"degraded", reason:`${R.missing_actuals.length} player${R.missing_actuals.length === 1 ? " has" : "s have"} no actuals` };
+    return { state:"fresh", reason:"" };
+  }
+  if (kind === "ros") {
+    if (!e) return { state:"missing", reason:"Not published" };
+    if (age > 8 * DAY) return { state:"stale", reason:"Built more than 8 days ago" };
+    return { state:"fresh", reason:"" };
+  }
+  return { state:"fresh", reason:"" };
+}
+
+/* ====================================================================
+   Rendering. All report text goes through textContent (never innerHTML
+   with report values).
+   ==================================================================== */
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return n;
+}
+function fmtAge(iso, now) {
+  const m = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60); if (h < 36) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+function fmtTime(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-US", { timeZone:"America/New_York", weekday:"short", hour:"numeric", minute:"2-digit" }) + " ET";
+}
+const pts = (n) => n == null ? "—" : n.toFixed(1);
+const signed = (n) => (n > 0 ? "+" : "") + n.toFixed(1);
+const KIND_LABEL = { lineup:"Lineup", digest:"News", retro:"Retro", ros:"Rest of season" };
+const HORIZON = { lineup:"this week", digest:"this week", retro:"last week", ros:"season" };
+const RUN_CMD = { lineup:(w)=>`ffb lineup 2026 --week ${w} --publish`, digest:(w)=>`ffb digest 2026 --week ${w} --publish`, retro:(w)=>`ffb retro 2026 --week ${w-1} --publish`, ros:()=>`ffb ros 2026 --publish` };
+
+function badge(f, e, now) {
+  const b = el("span", { class:`badge ${f.state}` }, el("i"));
+  const label = f.state === "fresh" ? `fresh · ${fmtAge(e.generated_at, now)}` : f.state === "stale" || f.state === "degraded" ? `${f.state} · ${fmtAge(e.generated_at, now)}` : f.state;
+  b.append(label); return b;
+}
+function row(k, kcls, v, sub, n, ncls) {
+  return el("li", { class:"row" }, el("span", { class:`k ${kcls||""}`, text:k }), el("span", { class:"v" }, v, sub ? el("small", { text:" " + sub }) : null), el("span", { class:`n ${ncls||""}`, text:n || "" }));
+}
+
+function cardShell(kind, f, e, now, ...body) {
+  const c = el("button", { type:"button", class:`card ${kind} ${f.state}`, "data-kind":kind, "aria-expanded":"false", "aria-haspopup":"dialog" });
+  const head = el("div", { class:"chead" }, el("h2", { text:KIND_LABEL[kind] }), el("span", { class:"horizon", text:HORIZON[kind] }));
+  head.append(e ? badge(f, e, now) : el("span", { class:`badge ${f.state}` }, el("i"), f.state));
+  c.append(head);
+  if (f.reason) c.append(el("div", { class:`reason ${f.state === "stale" || f.state === "degraded" ? "warn" : ""}`, text:f.reason }));
+  c.append(...body);
+  return c;
+}
+function emptyBody(kind, f, view) {
+  const msg = f.state === "waiting" ? "Upstream data does not exist yet." : "Nothing published for this week.";
+  const b = el("div", { class:"empty" }, el("div", {}, msg, f.state === "missing" ? el("code", { text:RUN_CMD[kind](view.week) }) : null));
+  return b;
+}
+
+function renderLineup(view, now) {
+  const f = cardFreshness("lineup", view, now); const e = view.cards.lineup.envelope;
+  if (!e) return cardShell("lineup", f, null, now, emptyBody("lineup", f, view));
+  const R = e.report;
+  const rows = el("ul", { class:"rows" });
+  for (const p of R.start) rows.append(row("start", "start", p.name, `${p.position} · ${p.slot} · now ${p.selected_position}`, pts(p.points), "good"));
+  for (const p of R.sit) rows.append(row("sit", "sit", p.name, `${p.position} · ${p.slot}`, pts(p.points), "bad"));
+  for (const p of R.undecidable) rows.append(row("?", "close", p.name, p.position, "no proj"));
+  for (const c of R.close_calls.slice(0, 2)) rows.append(row("close", "close", c.name, `vs ${c.versus} at ${c.slot}`, `−${c.delta.toFixed(1)}`));
+  const headline = el("div", { class:"head" },
+    el("b", { class:R.delta > 0 ? "good" : "plain", text:R.delta > 0 ? `+${R.delta.toFixed(1)}` : "0.0" }),
+    el("span", { text:`to optimal · ${pts(R.current_total)} now → ${pts(R.optimal_total)} optimal` }));
+  const foot = el("div", { class:"cfoot" },
+    el("span", { text:`Retro grades the ${fmtTime(e.context.snapshot_generated_at)} snapshot` }),
+    el("span", { class:"more", text:`${R.close_calls.length} close call${R.close_calls.length === 1 ? "" : "s"} ›` }));
+  return cardShell("lineup", f, e, now, headline, rows, foot);
+}
+
+function renderDigest(view, now) {
+  const f = cardFreshness("digest", view, now); const e = view.cards.digest.envelope;
+  if (!e) return cardShell("digest", f, null, now, emptyBody("digest", f, view));
+  const R = e.report;
+  const flagged = R.roster.filter(p => p.flag || p.injury_status);
+  const headline = el("div", { class:"head" }, el("b", { class:flagged.length ? "plain" : "good", text:String(flagged.length) }), el("span", { text:`roster player${flagged.length === 1 ? "" : "s"} flagged` }));
+  const rows = el("ul", { class:"rows" });
+  for (const p of flagged.slice(0, 4)) rows.append(row(p.flag || p.injury_status, p.flag ? "flag" : "", p.name, `${p.position} · ${p.team}`, p.injury_status || ""));
+  const first = R.narrative ? R.narrative.split(/(?<=\.)\s/)[0] : null;
+  const excerpt = first ? el("div", { class:"excerpt", text:first }) : el("div", { class:"excerpt", text:"No narrative. Headlines and injury designations only." });
+  const foot = el("div", { class:"cfoot" }, el("span", { text:`news ${fmtTime(R.news_as_of)} · injuries ${fmtTime(R.injury_as_of)}` }), el("span", { class:"more", text:`${R.watch.length} on watch ›` }));
+  return cardShell("digest", f, e, now, headline, rows, excerpt, foot);
+}
+
+function renderRetro(view, now) {
+  const f = cardFreshness("retro", view, now); const e = view.cards.retro.envelope;
+  if (!e) return cardShell("retro", f, null, now, emptyBody("retro", f, view));
+  const R = e.report;
+  const m = R.matchup;
+  const headline = el("div", { class:"head" }, el("b", { class:R.delta > 0 ? "bad" : "good", text:signed(-R.delta) }),
+    el("span", { text:`started vs advice · ${m ? `${m.result} ${pts(m.user_points)}–${pts(m.opponent_points)} vs ${m.opponent}` : "no matchup"}` }));
+  const rows = el("ul", { class:"rows" });
+  for (const p of R.start_misses) rows.append(row("miss", "miss", p.name, `advised start · benched`, signed(p.actual - p.projected)));
+  for (const p of R.sit_misses) rows.append(row("miss", "miss", p.name, `advised sit · started`, signed(p.actual - p.projected)));
+  for (const p of R.start_hits.slice(0, 2)) rows.append(row("hit", "hit", p.name, `started as advised`, pts(p.actual), "good"));
+  const best = [...R.source_accuracy].sort((a, b) => a.mae - b.mae)[0];
+  const foot = el("div", { class:"cfoot" }, el("span", { text:`week ${e.week} · best source ${best ? `${best.source} MAE ${best.mae}` : "—"}` }), el("span", { class:"more", text:"all grades ›" }));
+  return cardShell("retro", f, e, now, headline, rows, foot);
+}
+
+function renderRos(view, now) {
+  const f = cardFreshness("ros", view, now); const e = view.cards.ros.envelope;
+  if (!e) return cardShell("ros", f, null, now, emptyBody("ros", f, view));
+  const R = e.report;
+  const roster = R.players.filter(p => p.rostered);
+  const hard = roster.filter(p => p.playoff_difficulty != null && p.playoff_difficulty <= 8).length;
+  const headline = el("div", { class:"head" }, el("b", { class:"plain", text:`${R.playoff_weeks.join("·")}` }), el("span", { text:`playoff weeks · ${hard} of ${roster.length} starters face a top-8 slate` }));
+  const rows = el("ul", { class:"rows" });
+  const next = R.bye_plan.find(b => b.bye >= view.week);
+  if (next) rows.append(row(`bye ${next.bye}`, "bye", next.players.map(p => p.name).join(", "), next.thin_positions.length ? `thin: ${next.thin_positions.join(", ")}` : "", `${next.players.length} out`));
+  for (const p of [...roster].sort((a, b) => (a.playoff_difficulty ?? 99) - (b.playoff_difficulty ?? 99)).slice(0, 3)) rows.append(row(`#${p.playoff_difficulty}`, "", p.name, `${p.position} · ${p.playoff}`, `ROS ${pts(p.ros)}`));
+  const foot = el("div", { class:"cfoot" }, el("span", { text:R.usage_available ? "usage trends on" : "usage_available: false" }), el("span", { class:"more", text:`${R.bye_plan.length} bye weeks ›` }));
+  return cardShell("ros", f, e, now, headline, rows, foot);
+}
+
+/* ---- detail panel bodies ---- */
+function provenance(pairs) { const p = el("div", { class:"prov" }); for (const [k, v] of pairs) p.append(el("span", {}, `${k} `, el("b", { text:v }))); return p; }
+function table(cols, rows) {
+  const t = el("table"); const tr = el("tr"); for (const c of cols) tr.append(el("th", { class:c.num ? "num" : "", text:c.h })); t.append(el("thead", {}, tr));
+  const tb = el("tbody"); for (const r of rows) { const x = el("tr"); cols.forEach((c, i) => { const v = r[i]; const td = el("td", { class:(c.num ? "num " : "") + (v && v.cls ? v.cls : "") }); if (v && v.node) td.append(v.node); else td.textContent = v == null ? "—" : (v.text != null ? v.text : v); x.append(td); }); tb.append(x); }
+  t.append(tb); return t;
+}
+function safeLink(h) {
+  const ok = typeof h.url === "string" && h.url.startsWith("https:");
+  const li = el("li");
+  if (ok) li.append(el("a", { href:h.url, target:"_blank", rel:"noopener noreferrer", text:h.title }), ` · ${h.source}`);
+  else li.append(el("span", { text:h.title }), ` · ${h.source}`);
+  return li;
+}
+
+function panelLineup(e) {
+  const R = e.report; const body = [];
+  body.push(provenance([["built", fmtTime(e.generated_at)], ["league synced", fmtTime(e.context.league_synced_at)], ["injuries", fmtTime(R.injury_as_of)], ["sources", e.context.projection_sources.join(", ")]]));
+  body.push(el("h3", { text:"Slots" }));
+  body.push(table([{h:"Slot"},{h:"Now"},{h:"Pts",num:true},{h:"Optimal"},{h:"Pts",num:true}], R.current.map((c, i) => { const o = R.optimal[i]; const diff = c.name !== o.name; return [c.slot, { text:c.name, cls:diff ? "bad" : "" }, pts(c.points), { text:o.name, cls:diff ? "good" : "" }, pts(o.points)]; })));
+  body.push(el("p", { class:"note", text:`Current ${pts(R.current_total)} · optimal ${pts(R.optimal_total)} · delta +${R.delta.toFixed(1)}` }));
+  body.push(el("h3", { text:"Close calls" }));
+  body.push(R.close_calls.length ? table([{h:"Bench"},{h:"Pts",num:true},{h:"Versus"},{h:"Slot"},{h:"Gap",num:true}], R.close_calls.map(c => [c.name, pts(c.points), c.versus, c.slot, c.delta.toFixed(1)])) : el("p", { class:"note", text:"None within the close-call window." }));
+  body.push(el("h3", { text:"Missing projections" }));
+  body.push(R.missing_projections.length ? el("div", { class:"chips" }, R.missing_projections.map(p => el("span", { class:"chip warn", text:`${p.name} · ${p.position}` }))) : el("p", { class:"note", text:"Every roster player has a weekly projection." }));
+  body.push(el("h3", { text:"Snapshot" }));
+  body.push(el("p", { class:"note", text:e.context.snapshot_generated_at ? `Retro will grade the sit/start snapshot written ${fmtTime(e.context.snapshot_generated_at)}. ffb lineup does not replace a locked snapshot without --force.` : "No snapshot was written for this run (post-hoc week without --force)." }));
+  return body;
+}
+function panelDigest(e) {
+  const R = e.report; const body = [];
+  body.push(provenance([["built", fmtTime(e.generated_at)], ["news", fmtTime(R.news_as_of)], ["injuries", fmtTime(R.injury_as_of)], ["sources", e.context.sources.join(", ")], ["llm", R.llm.error ? "skipped" : "haiku + sonnet"]]));
+  if (R.llm.error) body.push(el("p", { class:"note", text:R.llm.error }));
+  body.push(el("h3", { text:"Narrative" }));
+  body.push(el("p", { text:R.narrative || "No narrative (LLM skipped)." }));
+  const people = (list) => { const wrap = el("div"); for (const p of list) { const t = el("p", {}, el("b", { text:p.name }), ` ${p.position} · ${p.team}`, p.injury_status ? ` · ${p.injury_status}` : "", p.flag ? el("span", { class:"chip warn", text:p.flag, style:"margin-left:8px" }) : null); wrap.append(t); if (p.note) wrap.append(el("p", { class:"note", text:p.note })); if (p.headlines && p.headlines.length) wrap.append(el("ul", { class:"hl" }, p.headlines.map(safeLink))); } return wrap; };
+  body.push(el("h3", { text:"Roster" })); body.push(people(R.roster));
+  body.push(el("h3", { text:"Watch list" })); body.push(people(R.watch));
+  body.push(el("h3", { text:"Other headlines" })); body.push(el("ul", { class:"hl" }, R.other_headlines.map(safeLink)));
+  return body;
+}
+function panelRetro(e) {
+  const R = e.report; const body = [];
+  body.push(provenance([["graded", fmtTime(e.generated_at)], ["actuals synced", fmtTime(e.context.actuals_synced_at)], ["week", String(e.week)]]));
+  body.push(el("p", { class:"note", text:"A hit means the started lineup followed the advice; a miss means it did not." }));
+  body.push(el("p", { text:`Advised lineup ${pts(R.recommended_total)} · started ${pts(R.started_total)} · left on bench ${signed(R.delta)}` }));
+  const grades = (title, list, cls) => { body.push(el("h3", { text:`${title} (${list.length})` })); body.push(list.length ? table([{h:"Player"},{h:"Slot"},{h:"Proj",num:true},{h:"Actual",num:true},{h:"Δ",num:true}], list.map(p => [p.name, p.slot, pts(p.projected), pts(p.actual), { text:signed(p.actual - p.projected), cls }])) : el("p", { class:"note", text:"None." })); };
+  grades("Start hits", R.start_hits, "good"); grades("Start misses", R.start_misses, "bad"); grades("Sit hits", R.sit_hits, "good"); grades("Sit misses", R.sit_misses, "bad");
+  body.push(el("h3", { text:"Source accuracy" }));
+  body.push(table([{h:"Source"},{h:"n",num:true},{h:"MAE",num:true},{h:"Bias",num:true}], R.source_accuracy.map(s => [s.source, String(s.n), s.mae.toFixed(2), signed(s.bias)])));
+  body.push(el("h3", { text:"Missing actuals" }));
+  body.push(R.missing_actuals.length ? el("div", { class:"chips" }, R.missing_actuals.map(p => el("span", { class:"chip warn", text:p.name }))) : el("p", { class:"note", text:"Every snapshotted player has actuals." }));
+  return body;
+}
+function panelRos(e) {
+  const R = e.report; const body = [];
+  body.push(provenance([["built", fmtTime(e.generated_at)], ["playoffs", e.context.playoff_weeks_requested.join(", ")], ["sources", e.context.projection_sources.join(", ")], ["usage", R.usage_available ? "on" : "unavailable"]]));
+  body.push(el("h3", { text:"Rest-of-season consensus" }));
+  const filters = el("div", { class:"filters" }); const holder = el("div"); let pos = "ALL";
+  const draw = () => { holder.replaceChildren(table([{h:"#",num:true},{h:"Player"},{h:"Pos"},{h:"Bye",num:true},{h:"ROS",num:true},{h:"Playoffs"},{h:"Diff",num:true}], R.players.filter(p => pos === "ALL" || p.position === pos).sort((a, b) => a.rank - b.rank).map(p => [String(p.rank), { node:el("span", {}, p.name, p.rostered ? el("span", { class:"chip", text:"yours", style:"margin-left:6px" }) : null) }, p.position, p.bye == null ? "—" : String(p.bye), pts(p.ros), p.playoff, p.playoff_difficulty == null ? "—" : String(p.playoff_difficulty)]))); for (const b of filters.children) b.setAttribute("aria-pressed", String(b.textContent === pos)); };
+  for (const p of ["ALL","QB","RB","WR","TE"]) { const b = el("button", { type:"button", text:p }); b.addEventListener("click", () => { pos = p; draw(); }); filters.append(b); }
+  draw(); body.push(filters, holder);
+  body.push(el("h3", { text:"Playoff schedule strength" }));
+  body.push(el("p", { class:"note", text:"Difficulty 1 is the hardest slate (highest average opponent defense projection)." }));
+  body.push(table([{h:"Diff",num:true},{h:"Team"},{h:"Games",num:true},{h:"Avg opp DEF",num:true},{h:"Matchups"}], R.teams.map(t => [String(t.difficulty), t.team, String(t.games), t.avg_opp_def == null ? "—" : t.avg_opp_def.toFixed(1), t.matchups])));
+  body.push(el("h3", { text:"Bye plan" }));
+  body.push(table([{h:"Bye",num:true},{h:"Players"},{h:"Thin"}], R.bye_plan.map(b => [String(b.bye), b.players.map(p => `${p.name}${p.starter ? "" : " (bench)"}`).join(", "), b.thin_positions.length ? { text:b.thin_positions.join(", "), cls:"warn" } : "—"])));
+  return body;
+}
+const PANELS = { lineup:panelLineup, digest:panelDigest, retro:panelRetro, ros:panelRos };
+
+/* ---- state + wiring ---- */
+let view = scenarios["Sunday, all fresh"]();
+let lastFocus = null;
+
+function renderAll() {
+  const now = new Date(view.server_now).getTime();
+  $("[data-week]").textContent = `Week ${view.week}`;
+  $("[data-week-prev]").disabled = view.week <= Math.min(...view.weeks);
+  $("[data-week-next]").disabled = view.week >= Math.max(...view.weeks);
+  const anyTeam = Object.values(view.cards).map(c => c.envelope && c.envelope.team_name).find(Boolean);
+  $("[data-team]").textContent = anyTeam || "—";
+  const grid = $("[data-grid]");
+  grid.replaceChildren(renderLineup(view, now), renderDigest(view, now), renderRetro(view, now), renderRos(view, now));
+  for (const c of grid.querySelectorAll(".card")) c.addEventListener("click", () => openPanel(c.dataset.kind, c));
+  const present = Object.entries(view.cards).filter(([, c]) => c.envelope).map(([k, c]) => [k, ageMs(c.envelope.generated_at, now)]).sort((a, b) => b[1] - a[1]);
+  const o = $("[data-oldest]");
+  if (present.length) { const [k, ms] = present[0]; $("[data-oldest-text]").textContent = `Oldest source: ${KIND_LABEL[k]}, ${fmtAge(view.cards[k].envelope.generated_at, now)}`; o.classList.toggle("ok", ms < 2 * DAY); }
+  else { $("[data-oldest-text]").textContent = "Nothing published"; o.classList.remove("ok"); }
+}
+function openPanel(kind, trigger) {
+  const e = view.cards[kind].envelope; if (!e) return;
+  const now = new Date(view.server_now).getTime();
+  lastFocus = trigger; trigger.setAttribute("aria-expanded", "true");
+  $("[data-panel-title]").textContent = `${KIND_LABEL[kind]} · week ${e.week}`;
+  const f = cardFreshness(kind, view, now);
+  $("[data-panel-badge]").replaceChildren(badge(f, e, now));
+  $("[data-panel-body]").replaceChildren(...PANELS[kind](e));
+  $("[data-scrim]").hidden = false; $("[data-panel]").hidden = false; $("[data-panel-close]").focus();
+}
+function closePanel() {
+  if ($("[data-panel]").hidden) return;
+  $("[data-scrim]").hidden = true; $("[data-panel]").hidden = true;
+  if (lastFocus) { lastFocus.setAttribute("aria-expanded", "false"); lastFocus.focus(); }
+}
+$("[data-panel-close]").addEventListener("click", closePanel);
+$("[data-scrim]").addEventListener("click", closePanel);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closePanel(); });
+$("[data-week-prev]").addEventListener("click", () => { view.week -= 1; closePanel(); renderAll(); });
+$("[data-week-next]").addEventListener("click", () => { view.week += 1; closePanel(); renderAll(); });
+
+const sc = $("[data-scenarios]");
+for (const name of Object.keys(scenarios)) {
+  const b = el("button", { type:"button", text:name, "aria-pressed":String(name === "Sunday, all fresh") });
+  b.addEventListener("click", () => { view = scenarios[name](); closePanel(); for (const x of sc.children) x.setAttribute("aria-pressed", "false"); b.setAttribute("aria-pressed", "true"); renderAll(); });
+  sc.append(b);
+}
+renderAll();
+</script>
+</body>
+</html>

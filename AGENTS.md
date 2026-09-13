@@ -24,6 +24,8 @@ uv run ffb board show 2026
 uv run ffb board export 2026
 uv run ffb lineup 2026
 uv run ffb retro 2026 --week 1 --fixture PATH
+uv run ffb lineup 2026 --publish          # POST to the tracker /command page
+uv run ffb league sync 2026 --from-tracker
 
 uv run pytest
 uv run ruff check .
@@ -66,6 +68,7 @@ src/ffb/          Python package and CLI
   ros.py          rest-of-season report
   actuals.py      closed weekly scoreboard/actuals contract
   retro.py        sit/start snapshot vs actuals
+  inseason.py     closed --publish envelope for the tracker command center
   identity.py     canonical teams and DEF/DST identities
   names.py        normalized name matching for FFC
 tests/            deterministic pytest suite and committed API fixtures
@@ -79,6 +82,7 @@ The main dependency paths are:
 CLI writes: cli → season_data → ingest → store
 CLI reads:  cli → consensus/board/lineup/retro → store + snapshots + pure compute
 Tracker:    board.json → KV → Worker/client; draft state → D1; actuals → KV
+Command:    lineup/digest/retro/ros --publish → POST /api/inseason → KV → /command
 ```
 
 ## Invariants
@@ -110,6 +114,10 @@ Tracker:    board.json → KV → Worker/client; draft state → D1; actuals →
 - Weekly actuals are a closed `WeeklyActualsBundle` stored in KV / snapshots,
   never DuckDB or git. `POST /api/actuals` is a sibling of any LeagueBundle
   ingest route.
+- In-season reports are computed only by the CLI. `--publish` sends the
+  rendered dict unchanged inside the closed `inseason.py` envelope; the Worker
+  validates, stores under `inseason:v1:{season}:{kind}:{week}`, and the
+  `/command` page derives freshness only through `cardFreshness`.
 - Preserve existing routes, output shapes, and user-visible behavior unless the
   task explicitly changes them.
 
