@@ -5,6 +5,7 @@ POSTed and checks it is the rendered report wrapped in the closed envelope.
 """
 
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -22,6 +23,7 @@ from .test_ros_cli import _seed_ros_store
 runner = CliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
 ACTUALS = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 ENVELOPE_KEYS = {
     "schema_version",
     "kind",
@@ -224,7 +226,9 @@ def test_ros_publish_rejects_position_filter(tmp_path, monkeypatch):
     posted = _capture(monkeypatch)
     result = runner.invoke(app, ["ros", "2024", "-p", "RB", "--publish"], env=env)
     assert result.exit_code == 2
-    assert "--publish" in result.output
+    # Rich colours the usage box on CI terminals, splitting option names with
+    # escape codes; compare the plain text.
+    assert "--publish" in _ANSI.sub("", result.output)
     assert posted == []
 
 
