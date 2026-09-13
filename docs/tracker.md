@@ -7,9 +7,13 @@ draft at `/`, and provides an isolated roster-aware simulation at `/mock`.
 ## Runtime model
 
 The immutable board blob lives in KV under `board:current`; the Worker streams
-it verbatim from authenticated `GET /api/board`. Draft state lives in D1. The
-static shell is public so the user can enter a shared API key, but every data or
-mutation route requires `Authorization: Bearer <TRACKER_API_KEY>`.
+it verbatim from authenticated `GET /api/board`. The last valid `LeagueBundle`
+v1 lives under `league:bundle:current` and is accepted by
+`POST /api/league/bundle`. That ingest path validates the closed Python
+`parse_bundle` contract, never writes DuckDB, and never reads or mutates live
+or mock draft tables. Draft state lives in D1. The static shell is public so
+the user can enter a shared API key, but every data or mutation route requires
+`Authorization: Bearer <TRACKER_API_KEY>`.
 
 The browser saves the key in `localStorage` with an in-memory fallback. Board
 version drift or malformed data produces an explicit recovery message instead
@@ -20,6 +24,19 @@ Sleeper snapshot's `fetched_at`. The shared live/mock renderer displays a short
 text badge plus a full accessible label on every viewport. `UNKNOWN` is rendered
 as neutral “Status”; old published and saved mock boards without the optional
 object remain valid.
+
+## League bundle ingest
+
+`POST /api/league/bundle` is a producer sink for the closed `LeagueBundle` v1
+JSON. Auth is the same bearer key as other `/api/*` data routes. A valid body
+replaces KV `league:bundle:current` and returns counts only. Extra keys,
+incomplete roster coverage, and other `parse_bundle` failures return 400
+`invalid_bundle` and leave the previous value in place. A bundle whose
+`synced_at` is older than the stored one returns 409 `stale_bundle`, and a
+bundle whose season differs from the published board returns 409
+`season_mismatch`; neither replaces the stored value. Bodies over 10 MiB
+return 413 `payload_too_large` before validation. `GET /api/league/bundle`
+returns the last accepted bundle so the CLI can fetch it later.
 
 ## Live draft
 
@@ -44,20 +61,37 @@ history remains legible after a board republish. The write API retains a
 validated `manual_player` path for a Yahoo pick missing from the board; the
 current UI intentionally uses board-row selection.
 
-The live Available board first targets 2 QB, 2 RB, 4 WR, 2 TE, and 2 DEF for
-Brian’s drafted roster. While any target is unmet, only positions below those
-counts receive priority; extra RB/WR/TE are not promoted for flex eligibility.
-After all twelve required picks are covered, priority shifts to one WR/TE and
-one RB/WR/TE FLEX beyond those counts. Surplus WR/TE fills the narrower slot
-first, and no player counts twice. These are draft targets, not starting slots.
-Only Brian’s picks count toward these needs. Players below the active targets precede other available players. Sharing a known bye with a drafted player at the same position adds a
-five-rank-place penalty per overlap within each priority group. Positional views
-keep tier groups intact. Unknown byes have no penalty. A “Bye clash” badge
-explains overlaps; original board ranks and VORP remain visible. Once all targets
-are filled, RB/WR/TE depth stays ahead of extra QB/DEF picks, ordered by rank with
-the same modest bye penalty.
-Search relevance and newest-first Drafted history are unchanged. A “Need”
-summary updates after picks and undo. Mock drafts retain their saved league shape.
+The live Available board evaluates Brian’s roster against the published board’s
+actual dedicated starting slots plus `W/T` and `W/R/T` flex slots. An exact
+weighted slot assignment measures each candidate’s increase to the best total
+projected starting lineup. A player occupies at most one slot; bench contributes
+no starting points. Dedicated starters and flex upgrades compete on their usable
+point gain, so a first WR can precede a second TE while an exceptional TE or a
+second TE that improves flex can still lead. Each available row explains its
+starter/flex contribution or depth role. These are season projection gains,
+not weekly forecasts or estimates of the cost of waiting until the next pick.
+
+Before the user’s first pick, Available retains published board order, including
+after opponent picks and replay rewinds. Raw season points do not override the
+opening scarcity ranking. Once the user has a pick, positive lineup gains lead,
+ordered largest first. An unprojected player who can
+fill an open starting slot follows measured gains, then RB/WR/TE depth in
+positions supported by the league, then other depth. If any own pick lacks a
+current board projection, the entire roster falls back to open-slot matching
+and board rank, with an explicit incomplete-projection message; no numeric gain
+is invented. Missing and ambiguous identities retain their pick position for
+occupancy. Unknown candidate projections are labeled on the row.
+
+Original board ranks, VORP, and tiers remain visible as static scarcity context.
+For equal lineup gains (and within fallback/depth groups), each same-position
+bye overlap adds five board-rank places as a soft tiebreak. Unknown byes are
+neutral, and a “Bye clash” badge explains overlaps. Bye penalties never erase a
+larger measured lineup gain. Positional views preserve tier groups, applying
+lineup ordering within each tier. Search relevance and newest-first history
+remain unchanged. Only unique own picks count, and the Need summary and gains
+recompute after picks and undo. Once starters are filled, the summary announces
+depth building, while any remaining positive lineup upgrades still lead.
+Mock drafts retain their saved league shape and existing strategy.
 
 ## Mock draft
 
@@ -93,6 +127,23 @@ Before each user decision, the store checkpoints pick count and RNG state. Undo
 removes the user's latest decision plus all CPU picks it caused and restores the
 checkpoint. Restart keeps the mock id, board, strategy, variance, and user slot
 while rebuilding the initial seeded prefix.
+
+## Weekly actuals ingest
+
+Sibling of any LeagueBundle ingest route. Grok (or a fixture) `POST`s a closed
+`WeeklyActualsBundle` v1 to `/api/actuals` with the same
+`Authorization: Bearer <TRACKER_API_KEY>` gate. The Worker validates exact keys
+and stores the payload in KV as `actuals:v1:{season}:{week}`.
+`GET /api/actuals?season=&week=` reads it back. Live scores never belong in git.
+The tracker does not import Python; `ffb retro` consumes a local snapshot or
+`--fixture` of the same contract. When neither exists, the CLI pulls the blob
+from `GET /api/actuals` using `FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY`,
+validates it, and snapshots it under `snapshots/actuals/` before the retro runs.
+
+| Method and route | Purpose |
+| --- | --- |
+| `POST /api/actuals` | Validate and store one week's scoreboard + player actuals |
+| `GET /api/actuals?season=&week=` | Read the stored actuals blob for that week |
 
 ## Roster safety and identity
 
@@ -154,3 +205,61 @@ The Playwright suite covers phone, minimum desktop, standard desktop, and short
 desktop viewports against committed fixtures. It does not read or mutate local
 Wrangler KV or D1 state. Run `make test-backend-e2e` from the repository root
 when Worker routes, APIs, D1 behavior, or the board boundary change.
+
+## Recommendation backtest
+
+`tracker/src/backtest.ts` scores draft rankers against a completed saved draft
+without network, D1, or KV. A ranker is any `{ name, order(context) }` that
+returns the available pool best-first given the board and the draft state at
+the user's turn. `backtestDraft(saved, board, rankers)` reports two things per
+ranker:
+
+- **Per-turn comparison.** At each recorded own pick, given the actual history
+  to that point, what the ranker would have recommended, whether it agreed with
+  the recorded pick, and the projected starting-lineup gain of each choice
+  against the roster actually held then.
+- **Followed replay.** The whole draft replayed with every own pick following
+  the ranker while every opponent pick stays as recorded. A recorded opponent
+  pick the ranker already took vanishes from that opponent rather than
+  displacing the user. The result is the final projected starting lineup
+  (`projectedLineup` over the board's roster slots; bench never scores).
+
+Built-in rankers are `board` (published rank), `market` (ADP order, as mock
+suggestions use), and `live` (the live Available ordering, sharing
+`lineupPriorityOrder` with the renderer). Output is deterministic for a given
+board and draft. Run it locally against an exported board:
+
+```sh
+cd tracker
+npm run backtest -- --board ../exports/board.json --draft ../drafts/mcffl-2026.json
+npm run backtest -- --json    # machine-readable report
+```
+
+The saved league draft has no frozen projections, so results depend on the
+board you pass; the September 6, 2026 export is the one the draft was made
+with. The saved pick order is Brian's own record and may contain errors. Any replacement ranker must beat `live` on the followed total for that
+draft before it ships.
+
+## Saved draft replay
+
+Board settings offers **Replay MCFFL 2026 Draft**, using the completed 150-pick
+archive bundled into the client at build time. Resetting the live draft only
+deletes its live picks and teams; the bundled archive remains replayable. Replay uses the normal live-board client, current
+`GET /api/board` data, and current recommendation code. Only a prefix of the saved
+pick list is presented as draft state. No replay action writes live or mock D1
+state, and the shared write function refuses all writes while replay is active.
+
+The replay controls step backward/forward, jump to just before the next own
+pick, seek to any saved pick, and refresh the current board. The original teams
+and picks remain fixed; a missing player retains its saved identity and position
+for the existing incomplete-projection fallback. The board is not frozen into
+the archive. Refresh and reload use the current published board.
+
+Replay state is held in sessionStorage for this tab and survives reload when
+storage is available. It falls back to memory if storage fails. Exiting replay
+reloads the live draft without changing it. Saved replay sessions must contain a valid
+ordered snake draft with unique players, contiguous picks, and one user team.
+The saved JSON contains teams and picks, not credentials or a board snapshot.
+The completed MCFFL 2026 draft is preserved in
+[`drafts/mcffl-2026.json`](../drafts/mcffl-2026.json) for repeatable replay.
+No file import or download is needed to replay it.

@@ -1,3 +1,5 @@
+import mcffl2026Draft from "../../drafts/mcffl-2026.json";
+import { replayState, nextOwnPickCursor, parseReplayDraft, readReplaySession, REPLAY_STORAGE_KEY } from "../src/draft-replay";
 import { liveStarterPriority } from "../src/starter-priority";
 import { wireDraftJingle } from "../src/draft-jingle";
 // Client boot: reads the key from the store, gates the board behind the key
@@ -83,6 +85,23 @@ const clearPickEl = $<HTMLButtonElement>("[data-clear-pick]");
 const undoPickEl = $<HTMLButtonElement>("[data-undo-pick]");
 const resetDraftEl = $<HTMLButtonElement>("[data-reset-draft]");
 
+const replayEl = $<HTMLElement>("[data-replay]");
+const replaySettingsEl = $<HTMLElement>("[data-replay-settings]");
+const replayProgressEl = $<HTMLElement>("[data-replay-progress]");
+const replayNextEl = $<HTMLElement>("[data-replay-next]");
+const replayCursorEl = $<HTMLInputElement>("[data-replay-cursor]");
+const replayPreviousEl = $<HTMLButtonElement>("[data-replay-previous]");
+const replayNextPickEl = $<HTMLButtonElement>("[data-replay-next-pick]");
+const replayOwnEl = $<HTMLButtonElement>("[data-replay-own]");
+const replayRefreshEl = $<HTMLButtonElement>("[data-replay-refresh]");
+const replayErrorEl = $<HTMLElement>("[data-replay-error]");
+const startReplayEl = $<HTMLButtonElement>("[data-start-replay]");
+const replayStartErrorEl = $<HTMLElement>("[data-replay-start-error]");
+let replayStorage: Storage | null = null;
+try { replayStorage = window.sessionStorage; } catch { /* memory-only replay */ }
+let replay = readReplaySession(replayStorage);
+let exitingReplay = false;
+
 // ---- app state ----
 let ui: UiState = initialState;
 let board: Board | null = null;
@@ -114,6 +133,7 @@ function applyUi(): void {
   screenEl.classList.toggle("locked", ui.locked);
   const settings = ui.modal === "settings";
   mockNavigationEl.hidden = !settings;
+  replaySettingsEl.hidden = !settings;
   if (ui.modal === "hidden") {
     lockEl.hidden = true;
   } else {
@@ -167,9 +187,11 @@ function renderList(resetScroll = true): void {
     picked: pool.picked,
     mode: boardView.mode,
     draftPicks: historyPicks,
-    starterPositions: priority?.positions,
+    // With no own roster, raw season-point gains would promote QBs over the
+    // published scarcity ranking. Begin with board order, then adapt to picks.
+    lineupPriority: draft?.picks.some(pick => pick.team_id === userTeam?.id) ? priority?.candidates : undefined,
     byeConflicts: priority?.byeConflicts,
-    selectable: Boolean(draft?.next) && !writing,
+    selectable: !replay && Boolean(draft?.next) && !writing,
     selectedKey: boardView.selectedKey,
     searchResults,
     window: { limit: boardView.visibleLimit },
@@ -242,12 +264,13 @@ function renderSelection(): void {
   selectedEl.innerHTML = player
     ? `<b>${escapeHtml(player.name)}</b> · ${escapeHtml(player.pos ?? "—")} · ${escapeHtml(player.team ?? "FA")}`
     : "No Player Selected.";
-  recordPickEl.disabled = !player || !draft?.next || writing;
+  recordPickEl.disabled = Boolean(replay) || !player || !draft?.next || writing;
   clearPickEl.disabled = !player || !draft?.next || writing;
 }
 
 function renderSettingsDraftAction(): void {
-  resetDraftEl.hidden = ui.modal !== "settings" || draft?.configured !== true;
+  resetDraftEl.hidden = Boolean(replay) || ui.modal !== "settings" || draft?.configured !== true;
+  startReplayEl.disabled = Boolean(replay) || writing || exitingReplay;
   resetDraftEl.disabled = writing;
 }
 
@@ -311,7 +334,8 @@ function renderDraft(renderListContent = true): void {
   screenEl.setAttribute("aria-hidden", String(showSetup));
   setupDraftEl.hidden = configured;
   clockEl.hidden = !configured;
-  pickPanelEl.hidden = !configured;
+  pickPanelEl.hidden = !configured || Boolean(replay);
+  renderReplayControls();
   renderPickTools();
   if (!configured) {
     if (renderListContent) renderList();
@@ -446,7 +470,16 @@ async function loadBoard(key: string): Promise<LoadResult> {
   return "ok";
 }
 
+function currentReplayDraft(): DraftState | null {
+  return replay ? replayState(replay.saved, replay.cursor) : null;
+}
+
 async function loadDraft(renderListContent = true): Promise<LoadResult> {
+  if (replay) {
+    draft = replayState(replay.saved, replay.cursor);
+    renderDraft(renderListContent);
+    return "ok";
+  }
   let res: Response;
   try {
     res = await fetch("/api/draft", { headers: keyHeader() });
@@ -456,8 +489,11 @@ async function loadDraft(renderListContent = true): Promise<LoadResult> {
   if (res.status === 401) return "unauthorized";
   if (!res.ok) return "network";
   try {
-    draft = (await res.json()) as DraftState;
-    const currentSetup = setupFromDraftState(draft);
+    const liveDraft = (await res.json()) as DraftState;
+    // Replay may have started while this live read was in flight.
+    const replayDraft = currentReplayDraft();
+    draft = replayDraft ?? liveDraft;
+    const currentSetup = replayDraft ? null : setupFromDraftState(liveDraft);
     if (currentSetup) setupStore.set(currentSetup);
     renderDraft(renderListContent);
     return "ok";
@@ -467,7 +503,7 @@ async function loadDraft(renderListContent = true): Promise<LoadResult> {
 }
 
 async function writeDraft(path: string, method: string, payload?: unknown): Promise<boolean> {
-  if (writing) return false;
+  if (replay || writing) return false; // Replay never sends live draft writes.
   const wasConfigured = draft?.configured === true;
   const wasUserTurn = draft?.next?.is_user === true;
   const selectedKeyBeforeWrite = boardView.selectedKey;
@@ -540,6 +576,95 @@ async function writeDraft(path: string, method: string, payload?: unknown): Prom
     }
   }
 }
+
+// ---- isolated replay: saved picks in this tab, current board from the usual API ----
+function persistReplay(): void {
+  try {
+    if (replay) replayStorage?.setItem(REPLAY_STORAGE_KEY, JSON.stringify(replay));
+    else replayStorage?.removeItem(REPLAY_STORAGE_KEY);
+  } catch { replayErrorEl.textContent = "Replay is available in this tab, but could not be saved for reload."; }
+}
+
+function renderReplayControls(): void {
+  replayEl.hidden = !replay;
+  if (!replay) return;
+  $<HTMLButtonElement>("[data-exit-replay]").disabled = exitingReplay;
+  replayRefreshEl.disabled = exitingReplay;
+  replayCursorEl.disabled = exitingReplay;
+  const { saved, cursor } = replay;
+  const upcoming = saved.picks[cursor];
+  replayProgressEl.textContent = `${cursor} / ${saved.picks.length} picks replayed`;
+  replayNextEl.textContent = upcoming
+    ? `Next: ${upcoming.round}.${String(upcoming.round_pick).padStart(2, "0")} · ${upcoming.team_name} → ${upcoming.player_name}`
+    : "End of saved picks";
+  replayCursorEl.max = String(saved.picks.length);
+  replayCursorEl.value = String(cursor);
+  replayPreviousEl.disabled = exitingReplay || cursor === 0;
+  replayNextPickEl.disabled = replayOwnEl.disabled = exitingReplay || cursor === saved.picks.length;
+  document.title = `Replay · ${saved.draft!.name}`;
+}
+
+function seekReplay(cursor: number): void {
+  if (!replay || exitingReplay) return;
+  draft = replayState(replay.saved, cursor);
+  replay = { ...replay, cursor };
+  boardView = { ...boardView, selectedKey: null, searchQuery: "" };
+  persistReplay();
+  renderDraft();
+}
+
+function startReplay(value: unknown): void {
+  // Check at entry, including during a pending live transition.
+  if (writing || exitingReplay) throw new Error("Wait for the current draft update to finish before starting a replay.");
+  const saved = parseReplayDraft(value);
+  replay = { saved, cursor: 0 };
+  setupOpen = false;
+  boardView = initialBoardView;
+  seekReplay(0);
+  dispatch({ type: "closeModal" });
+}
+
+startReplayEl.addEventListener("click", () => {
+  try { startReplay(mcffl2026Draft); }
+  catch (error) { replayStartErrorEl.textContent = (error as Error).message; }
+});
+replayPreviousEl.addEventListener("click", () => { if (replay) seekReplay(Math.max(0, replay.cursor - 1)); });
+replayNextPickEl.addEventListener("click", () => { if (replay) seekReplay(Math.min(replay.saved.picks.length, replay.cursor + 1)); });
+replayOwnEl.addEventListener("click", () => { if (replay) seekReplay(nextOwnPickCursor(replay.saved, replay.cursor)); });
+replayCursorEl.addEventListener("input", () => seekReplay(Number(replayCursorEl.value)));
+replayRefreshEl.addEventListener("click", async () => {
+  replayRefreshEl.disabled = true;
+  replayErrorEl.textContent = "";
+  try {
+    const result = await loadBoard(store.get() ?? "");
+    if (result === "ok") renderDraft();
+    else if (result === "unauthorized") { store.del(); dispatch({ type: "invalid" }); }
+    else replayErrorEl.textContent = "Could not refresh the board. Check board settings and try again.";
+  } finally { replayRefreshEl.disabled = false; }
+});
+$<HTMLButtonElement>("[data-exit-replay]").addEventListener("click", async () => {
+  if (!replay || exitingReplay) return;
+  // Keep the write guard and displayed prefix until the live fetch succeeds.
+  exitingReplay = true;
+  replayErrorEl.textContent = "";
+  renderDraft(false);
+  try {
+    const response = await fetch("/api/draft", { headers: keyHeader() });
+    if (!response.ok) throw new Error("Live draft unavailable");
+    const liveDraft = await response.json() as DraftState;
+    draft = liveDraft;
+    replay = null;
+    boardView = initialBoardView;
+    const currentSetup = setupFromDraftState(liveDraft);
+    if (currentSetup) setupStore.set(currentSetup);
+    persistReplay();
+  } catch {
+    replayErrorEl.textContent = "Could not load the live draft. Replay remains open; try exiting again.";
+  } finally {
+    exitingReplay = false;
+    renderDraft();
+  }
+});
 
 // ---- key submission ----
 async function submitKey(): Promise<void> {
@@ -696,7 +821,7 @@ listEl.addEventListener("click", (event) => {
     return;
   }
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-player-key]");
-  if (!button || !draft?.next || writing) return;
+  if (replay || !button || !draft?.next || writing) return;
   const key = decodeURIComponent(button.dataset.playerKey ?? "");
   if (!playerByKey(key)) return;
   boardView = nextBoardView(boardView, { type: "playerSelected", key });

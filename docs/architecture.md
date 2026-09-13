@@ -72,11 +72,18 @@ zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
 or stale injury source state is warned before the report. `ffb ros` is another
 season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
-user roster is stored) groups that roster by bye. `ffb digest` is a read-time
-headline report: stored ESPN/RSS articles plus Sleeper injury labels for the
-user roster and unrostered mentions. Haiku/Sonnet add flags and Tuesday-brief
-prose when an Anthropic key is present; headlines never enter scoring,
-consensus, VORP, or sit/start math. `board.py` merges consensus,
+user roster is stored) groups that roster by bye. `ffb lineup` writes an
+immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
+week and refuses to replace it, skips past weeks as post-hoc, and replaces or
+backfills only with `--force`; `ffb retro --fixture` likewise refuses to
+replace differing locked actuals without `--force`; `ffb retro` joins that
+advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, or a
+one-time pull from the Worker's `GET /api/actuals`) and never stores actuals in
+DuckDB. `ffb digest` is a read-time headline report: stored ESPN/RSS articles
+plus Sleeper injury labels for the user roster and unrostered mentions.
+Haiku/Sonnet add flags and Tuesday-brief prose when an Anthropic key is
+present; headlines never enter scoring, consensus, VORP, or sit/start math.
+`board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
 ranks.
 
@@ -141,8 +148,12 @@ and a coordinated tracker update.
 
 ## Tracker boundary
 
-The Worker streams the current board from KV key `board:current`. D1 stores
-mutable state separately:
+The Worker streams the current board from KV key `board:current`. The last
+valid `LeagueBundle` v1 is stored under a separate KV key,
+`league:bundle:current`, so a producer can POST league state without writing
+DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
+`WeeklyActualsBundle` v1 and stores it under `actuals:v1:{season}:{week}` in the
+same KV namespace, never DuckDB. D1 stores mutable draft state separately:
 
 - `drafts`, `teams`, and `picks` hold the one live manual draft;
 - `mock_boards`, `mock_drafts`, `mock_teams`, `mock_picks`, and

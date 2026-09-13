@@ -20,6 +20,8 @@ uv run ffb season status 2026
 uv run ffb rankings 2026 -p RB --show-sources
 uv run ffb board show 2026
 uv run ffb board export 2026
+uv run ffb lineup 2026
+uv run ffb retro 2026 --week 1 --fixture PATH
 
 uv run pytest
 uv run ruff check .
@@ -56,6 +58,8 @@ src/ffb/          Python package and CLI
   scoring.py      pure configurable scoring
   consensus.py    cross-source league-scored average
   board.py        ADP/byes/VORP/tiers → board serializers
+  actuals.py      closed weekly scoreboard/actuals contract
+  retro.py        sit/start snapshot vs actuals
   identity.py     canonical teams and DEF/DST identities
   names.py        normalized name matching for FFC
 tests/            deterministic pytest suite and committed API fixtures
@@ -67,8 +71,8 @@ The main dependency paths are:
 
 ```text
 CLI writes: cli → season_data → ingest → store
-CLI reads:  cli → consensus/board → store + pure compute
-Tracker:    board.json → KV → Worker/client; draft state → D1
+CLI reads:  cli → consensus/board/lineup/retro → store + snapshots + pure compute
+Tracker:    board.json → KV → Worker/client; draft state → D1; actuals → KV
 ```
 
 ## Invariants
@@ -97,6 +101,9 @@ Tracker:    board.json → KV → Worker/client; draft state → D1
   player-shape changes require a version bump and coordinated tracker changes.
 - The tracker never imports Python. Live and mock state are separate; mock code
   uses only `mock_*` tables, immutable board snapshots, and monotonic revisions.
+- Weekly actuals are a closed `WeeklyActualsBundle` stored in KV / snapshots,
+  never DuckDB or git. `POST /api/actuals` is a sibling of any LeagueBundle
+  ingest route.
 - Preserve existing routes, output shapes, and user-visible behavior unless the
   task explicitly changes them.
 
