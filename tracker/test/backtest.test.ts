@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backtestDraft, boardRankRanker, liveLineupRanker, marketRanker, type Ranker } from "../src/backtest";
+import { asUserTeam, backtestDraft, boardRankRanker, liveLineupRanker, marketRanker, type Ranker } from "../src/backtest";
 import { nextPick } from "../src/draft";
 import type { DraftState } from "../src/draft-store";
 import type { Board, Player } from "../src/types";
@@ -36,7 +36,7 @@ const saved: DraftState = {
 describe("draft recommendation backtest", () => {
   it("scores the recorded roster and holds opponents' picks fixed while following a ranker", () => {
     const before = JSON.stringify(saved);
-    const report = backtestDraft(saved, board, [boardRankRanker, liveLineupRanker]);
+    const report = backtestDraft(saved, board, [boardRankRanker, liveLineupRanker()]);
     expect(report.user).toBe("Brian");
     // Actual roster rb2, rb3, wr3: starters rb2 + wr3.
     expect(report.actualTotal).toBe(350);
@@ -52,7 +52,7 @@ describe("draft recommendation backtest", () => {
     expect(JSON.stringify(saved)).toBe(before);
   });
   it("compares each recorded own pick with the recommendation at that turn", () => {
-    const live = backtestDraft(saved, board, [liveLineupRanker]).rankers[0]!;
+    const live = backtestDraft(saved, board, [liveLineupRanker()]).rankers[0]!;
     expect(live.picks.map(p => [p.overall_pick, p.actual?.key, p.recommended?.key, p.agreed])).toEqual([
       [2, "rb2", "rb2", true], [3, "rb3", "wr1", false], [6, "wr3", "wr3", true],
     ]);
@@ -67,10 +67,20 @@ describe("draft recommendation backtest", () => {
     expect(result.followedTotal).toBe(180);
   });
   it("is deterministic and orders the market ranker by ADP", () => {
-    const a = backtestDraft(saved, board, [marketRanker, boardRankRanker, liveLineupRanker]);
-    const b = backtestDraft(saved, board, [marketRanker, boardRankRanker, liveLineupRanker]);
+    const a = backtestDraft(saved, board, [marketRanker, boardRankRanker, liveLineupRanker()]);
+    const b = backtestDraft(saved, board, [marketRanker, boardRankRanker, liveLineupRanker()]);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect(a.rankers[0]!.picks[0]!.recommended?.key).toBe("rb2");
+    expect(a.rankers[2]!.picks[1]!.recommendedReason).toContain("WR starter · +180.0 lineup pts");
+  });
+  it("rescores the same saved draft from another team's seat", () => {
+    const other = asUserTeam(saved, 1);
+    expect(other.teams!.filter(t => t.is_user).map(t => t.id)).toEqual([1]);
+    expect(saved.teams!.find(t => t.is_user)!.id).toBe(2);
+    const report = backtestDraft(other, board, [boardRankRanker]);
+    expect(report.user).toBe("Other");
+    expect(report.actualRoster.map(p => p.key)).toEqual(["rb1", "wr1", "wr2"]);
+    expect(() => asUserTeam(saved, 99)).toThrow();
   });
   it("rejects a draft without a user team or unconfigured state", () => {
     expect(() => backtestDraft({ configured: false, picks: [], revision: 0 }, board, [])).toThrow();

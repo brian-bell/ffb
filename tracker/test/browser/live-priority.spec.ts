@@ -84,7 +84,7 @@ test("usable WR contribution leads a second TE and explains both on phone and de
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(page.locator("[data-list] .rowA").first()).toContainText("First WR");
-    await expect(page.locator('[data-player-key="first-wr"]')).toContainText("WR starter · +180.0 lineup pts");
+    await expect(page.locator('[data-player-key="first-wr"]')).toContainText("WR starter · +180.0 lineup pts · likely gone by your next pick");
     await expect(page.locator('[data-player-key="second-te"]')).toContainText("W/R/T flex · +120.0 lineup pts");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/ffb-lineup-priority-${width}.png` });
