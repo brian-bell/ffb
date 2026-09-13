@@ -1,10 +1,11 @@
 // Pure board renderer (slice-6 §3c). DOM-free: takes the v1 board + a position
 // filter, returns an HTML string the client drops into the list mount. The
-// board is pre-sorted by VORP; optional starter priority groups available rows
-// while preserving their board ranks. Kept a pure function so it unit-tests without a DOM round-trip.
+// board is pre-sorted by VORP; optional lineup priority orders available rows
+// while preserving displayed ranks. Kept pure for DOM-free tests.
 
 import type { Board, Player } from "./types";
 import { indexPlayerIdentities, normalizedPosition } from "./player-identity";
+import { lineupPriorityOrder, type CandidatePriority } from "./starter-priority";
 
 export interface PickAnnotation {
   overall_pick: number;
@@ -27,8 +28,9 @@ export interface RenderOptions {
   selectable?: boolean;
   selectedKey?: string | null;
   searchResults?: readonly Player[];
-  /** Positions currently below the user’s draft targets. */
+  /** Optional position grouping for callers without candidate scores. */
   starterPositions?: ReadonlySet<string>;
+  lineupPriority?: ReadonlyMap<string, CandidatePriority>;
   byeConflicts?: ReadonlyMap<string, number>;
   /** Progressive loading: render only the first `limit` rows. */
   window?: { limit: number };
@@ -56,14 +58,21 @@ function barWidth(vorp: number | null, maxVorp: number): number {
   return Math.round((vorp / maxVorp) * 100);
 }
 
+/** Text labels travel with each value because rows are buttons, not table cells. */
+function metricValue(label: string, value: number | null): string {
+  return value == null
+    ? `<span class="sr-only">${label} unavailable</span><span aria-hidden="true">—</span>`
+    : `<span class="sr-only">${label}: </span>${fmt1(value)}`;
+}
+
 function vorpCell(p: Player, maxVorp: number): string {
   if (p.vorp == null) {
-    return '<div class="num vorp na"><span class="tnum">—</span></div>';
+    return `<div class="num vorp na"><span class="tnum">${metricValue("VORP", p.vorp)}</span></div>`;
   }
   const w = barWidth(p.vorp, maxVorp);
   return (
     `<div class="num vorp"><span class="bar" style="--w:${w}%"></span>` +
-    `<span class="tnum">${p.vorp.toFixed(1)}</span></div>`
+    `<span class="tnum">${metricValue("VORP", p.vorp)}</span></div>`
   );
 }
 
@@ -109,7 +118,7 @@ function metaLine(p: Player): string {
   return `${posLabel(p)} · ${team} · BYE ${bye}`;
 }
 
-function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null, byeConflicts = 0): string {
+function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = false, selectedKey?: string | null, byeConflicts = 0, reason?: string): string {
   const adpNa = p.adp == null ? " na" : "";
   const selected = selectable && p.key === selectedKey;
   const annotation = pick
@@ -122,9 +131,10 @@ function row(p: Player, maxVorp: number, pick?: PickAnnotation, selectable = fal
     open +
     annotation +
     `<span class="rk tnum">${p.rank}</span>` +
-    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}</span>` +
+    `<span class="nm"><b>${esc(p.name)}</b><i>${tierChip(p)}${injuryBadge(p)}${esc(metaLine(p))}</i>${byeConflicts > 0 ? `<span class="bye-clash" title="Shares bye week with ${byeConflicts} same-position player on your roster" aria-label="Shares bye week with ${byeConflicts} same-position player on your roster">Bye clash</span>` : ""}${reason ? `<span class="lineup-reason">${esc(reason)}</span>` : ""}</span>` +
+    `<span class="num points tnum${p.points == null ? " na" : ""}">${metricValue("Projected points", p.points)}</span>` +
     vorpCell(p, maxVorp) +
-    `<span class="num adp tnum${adpNa}">${fmt1(p.adp)}</span>` +
+    `<span class="num adp tnum${adpNa}">${metricValue("ADP", p.adp)}</span>` +
     deltaChip(p) +
     (selectable ? `</button>` : `</div>`)
   );
@@ -219,6 +229,12 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
     rows = [...rows].sort((a, b) => (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0) || score(a) - score(b));
   }
   if (prioritizing) rows = [...rows.filter(fillsStarter), ...rows.filter(p => !fillsStarter(p))];
+  const lineupPriority = !history && !searching ? options.lineupPriority : undefined;
+  if (lineupPriority) {
+    const tiers = new Map([...new Set(visiblePlayers.map(p => p.tier))].map((tier, i) => [tier, i]));
+    const order = lineupPriorityOrder(lineupPriority, options.byeConflicts);
+    rows = [...rows].sort((a, b) => (!all ? tiers.get(a.tier)! - tiers.get(b.tier)! : 0) || order(a, b));
+  }
   const tierCounts = new Map<number | null, number>();
   for (const player of rows) tierCounts.set(player.tier, (tierCounts.get(player.tier) ?? 0) + 1);
 
@@ -235,7 +251,7 @@ export function renderBoard(board: Board, filter: string, options: RenderOptions
       curTier = p.tier;
       html += tierDivider(filter, p.tier, tierCounts.get(p.tier) ?? 0);
     }
-    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey, history ? 0 : options.byeConflicts?.get(p.key));
+    html += row(p, maxVorp, picked.get(p.key), options.selectable === true && !history, options.selectedKey, history ? 0 : options.byeConflicts?.get(p.key), lineupPriority?.get(p.key)?.reason);
   }
   if (rows.length > limit) html += loadMoreSentinel(rows.length - limit);
   return html;

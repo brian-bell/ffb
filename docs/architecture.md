@@ -143,11 +143,12 @@ and a coordinated tracker update.
 
 ## Tracker boundary
 
-The Worker streams the current board from KV key `board:current`. Authenticated
-`POST /api/actuals` validates a closed `WeeklyActualsBundle` v1 and stores it
-under `actuals:v1:{season}:{week}` in the same KV namespace — a sibling of any
-LeagueBundle ingest route, not a DuckDB write. D1 stores mutable draft state
-separately:
+The Worker streams the current board from KV key `board:current`. The last
+valid `LeagueBundle` v1 is stored under a separate KV key,
+`league:bundle:current`, so a producer can POST league state without writing
+DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
+`WeeklyActualsBundle` v1 and stores it under `actuals:v1:{season}:{week}` in the
+same KV namespace, never DuckDB. D1 stores mutable draft state separately:
 
 - `drafts`, `teams`, and `picks` hold the one live manual draft;
 - `mock_boards`, `mock_drafts`, `mock_teams`, `mock_picks`, and

@@ -43,6 +43,7 @@
   <div class="colhead" aria-hidden="true">
     <span class="h-rk">#</span>
     <span class="h-nm">Player</span>
+    <span class="h-points">Proj pts</span>
     <span class="h-vorp">VORP</span>
     <span class="h-adp">ADP</span>
     <span class="h-delta">+/&minus;</span>
@@ -71,6 +72,19 @@
       </div>
     </div>
   </section>
+  <section class="replay-dock" data-replay hidden aria-label="Isolated draft replay">
+    <div class="replay-heading"><b>Isolated replay</b><button data-exit-replay type="button">Exit replay</button></div>
+    <p data-replay-progress aria-live="polite"></p>
+    <p data-replay-next></p>
+    <input data-replay-cursor type="range" min="0" value="0" step="1" aria-label="Picks replayed" />
+    <div class="replay-actions">
+      <button data-replay-previous type="button" aria-label="Previous saved pick">Previous</button>
+      <button data-replay-next-pick type="button" aria-label="Next saved pick">Next pick</button>
+      <button data-replay-own type="button">Next my pick</button>
+      <button data-replay-refresh type="button">Refresh board</button>
+    </div>
+    <p data-replay-error role="status"></p>
+  </section>
   <div class="footbar" data-foot>board.json —</div>
 
   <!-- API-key modal: first-run gate + settings -->
@@ -87,7 +101,11 @@
       <p class="err" data-err hidden></p>
       <button class="save" data-save>Unlock board</button>
       <button class="forget" data-forget hidden>Forget key on this device</button>
-      <p class="desc" data-mock-navigation hidden><a class="mode-link" href="/mock">Mock draft</a></p>
+      <div class="settings-navigation" data-mock-navigation hidden><a class="settings-action" href="/mock">Mock Draft</a></div>
+      <div data-replay-settings hidden>
+        <button class="settings-action" data-start-replay type="button">Replay MCFFL 2026 Draft</button>
+        <p data-replay-start-error role="status"></p>
+      </div>
       <button class="reset-draft-setting" data-reset-draft type="button" hidden>Reset draft…</button>
     </div>
   </div>

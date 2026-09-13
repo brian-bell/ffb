@@ -56,6 +56,57 @@ function maximumMatching(slots: readonly string[], positions: readonly string[])
   return matched;
 }
 
+interface ProjectedPlayer {
+  key: string;
+  pos: string | null;
+  points: number | null;
+}
+
+/** Maximum-weight starting lineup. Descending-weight augmenting matching is
+ * exact for this transversal matroid: each accepted player stays assigned,
+ * while paths may move earlier players to another compatible slot. Unknown
+ * projections count only for occupancy; callers must not report their total
+ * as a complete projection. Bench never contributes starting points.
+ */
+export function projectedLineup(
+  rosterSlots: Readonly<Record<string, number>>,
+  players: readonly ProjectedPlayer[],
+): { total: number; assignments: ReadonlyMap<string, string>; open: ReadonlyMap<string, number> } {
+  const slots = (positiveSlots(rosterSlots) ?? []).filter(slot => slot !== "BN")
+    .sort((a, b) => (FLEX_POSITIONS[a]?.length ?? 1) - (FLEX_POSITIONS[b]?.length ?? 1));
+  const ordered = [...players].sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+  const occupants = Array<number>(slots.length).fill(-1);
+  const assign = (player: number, visited: Set<number>): boolean => {
+    // Prefer a free compatible slot before disturbing a dedicated starter.
+    for (const occupied of [false, true]) {
+      for (let slot = 0; slot < slots.length; slot += 1) {
+        if (visited.has(slot) || (occupants[slot] !== -1) !== occupied
+          || !accepts(slots[slot]!, ordered[player]!.pos ?? "")) continue;
+        visited.add(slot);
+        if (!occupied || assign(occupants[slot]!, visited)) {
+          occupants[slot] = player;
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  ordered.forEach((player, index) => {
+    if ((player.points ?? 0) >= 0) assign(index, new Set());
+  });
+  let total = 0;
+  const assignments = new Map<string, string>();
+  const open = new Map<string, number>();
+  slots.forEach((slot, index) => {
+    const player = ordered[occupants[index]!];
+    if (player) {
+      assignments.set(player.key, slot);
+      total += player.points ?? 0;
+    } else open.set(slot, (open.get(slot) ?? 0) + 1);
+  });
+  return { total, assignments, open };
+}
+
 export function rosterFit(
   rosterSlots: Readonly<Record<string, number>>,
   positions: readonly string[],

@@ -27,7 +27,7 @@ test("own picks and undo update starter priority and bye warnings immediately", 
     next: { overall_pick: 3, round: 1, round_pick: 2, team_id: 1, team_name: "Brian", is_user: true, direction: "forward" },
   };
   let state = initial;
-  await page.route("**/api/board", route => route.fulfill({ json: { ...fixture, players } }));
+  await page.route("**/api/board", route => route.fulfill({ json: { ...fixture, roster_slots: { ...fixture.roster_slots, QB: 2 }, players } }));
   await page.route("**/api/draft", route => route.fulfill({ json: state }));
   await page.route("**/api/picks", route => {
     expect(route.request().postDataJSON().player_key).toBe("qb-a");
@@ -47,7 +47,7 @@ test("own picks and undo update starter priority and bye warnings immediately", 
   const needs = page.locator("[data-starter-needs]");
   await expect(rows.first()).toContainText("First QB");
   await expect(needs).toContainText("QB 1");
-  await expect(needs).toContainText("WR 4 · TE 2 · DEF 2");
+  await expect(needs).toContainText("WR 2 · TE 1");
   await expect(page.locator('[data-player-key="rb-clash"]')).toContainText("Bye clash");
   await page.locator('[data-player-key="qb-a"]').click();
   await page.locator("[data-record-pick]").click();
@@ -62,4 +62,31 @@ test("own picks and undo update starter priority and bye warnings immediately", 
   await expect(page.locator('[data-player-key="qb-b"]')).not.toContainText("Bye clash");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "/tmp/ffb-starter-priority.png" });
+});
+
+test("usable WR contribution leads a second TE and explains both on phone and desktop", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
+  const players = [
+    { key: "owned-te", name: "Owned TE", pos: "TE", points: 200, rank: 1 },
+    { key: "second-te", name: "Second TE", pos: "TE", points: 120, rank: 2 },
+    { key: "first-wr", name: "First WR", pos: "WR", points: 180, rank: 80 },
+  ].map(player => ({ ...fixture.players[0]!, ...player }));
+  const state: DraftState = {
+    configured: true, revision: 1,
+    draft: { name: "Live", rounds: 6, team_count: 2 },
+    teams: [{ id: 1, name: "Brian", draft_slot: 0, is_user: true }, { id: 2, name: "Other", draft_slot: 1, is_user: false }],
+    picks: [{ overall_pick: 1, round: 1, round_pick: 1, team_id: 1, team_name: "Brian", player_key: "owned-te", player_name: "Owned TE", player_pos: "TE", player_team: "SFO", picked_at: "" }],
+    next: { overall_pick: 2, round: 1, round_pick: 2, team_id: 2, team_name: "Other", is_user: false, direction: "forward" },
+  };
+  await page.route("**/api/board", route => route.fulfill({ json: { ...fixture, players, roster_slots: { WR: 1, TE: 1, "W/R/T": 1, BN: 3 } } }));
+  await page.route("**/api/draft", route => route.fulfill({ json: state }));
+  await page.goto("/");
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.locator("[data-list] .rowA").first()).toContainText("First WR");
+    await expect(page.locator('[data-player-key="first-wr"]')).toContainText("WR starter · +180.0 lineup pts");
+    await expect(page.locator('[data-player-key="second-te"]')).toContainText("W/R/T flex · +120.0 lineup pts");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/ffb-lineup-priority-${width}.png` });
+  }
 });
