@@ -5,6 +5,7 @@ declare module "cloudflare:test" {
     BOARD: KVNamespace;
     DB: D1Database;
     E2E_BOARD_JSON: string;
+    E2E_INSEASON_JSON: string;
     TEST_MIGRATIONS: D1Migration[];
     TRACKER_API_KEY: string;
   }

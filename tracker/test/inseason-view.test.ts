@@ -1,0 +1,252 @@
+import { describe, expect, it } from "vitest";
+import type { InseasonEnvelope, InseasonKind } from "../src/inseason";
+import { cardFreshness, formatAge, oldestSource, type InseasonView, DAY_MS } from "../src/inseason-view";
+import digestFixture from "./fixtures/inseason/digest.json";
+import lineupFixture from "./fixtures/inseason/lineup.json";
+import retroFixture from "./fixtures/inseason/retro.json";
+import rosFixture from "./fixtures/inseason/ros.json";
+
+const NOW = Date.parse("2026-09-20T15:40:00Z");
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+type Lineup = Extract<InseasonEnvelope, { kind: "lineup" }>;
+type Digest = Extract<InseasonEnvelope, { kind: "digest" }>;
+type Retro = Extract<InseasonEnvelope, { kind: "retro" }>;
+type Ros = Extract<InseasonEnvelope, { kind: "ros" }>;
+
+interface Cards {
+  lineup: Lineup;
+  digest: Digest;
+  retro: Retro;
+  ros: Ros;
+}
+
+function fresh(): { view: InseasonView; cards: Cards } {
+  const cards: Cards = {
+    lineup: clone(lineupFixture) as unknown as Lineup,
+    digest: clone(digestFixture) as unknown as Digest,
+    retro: clone(retroFixture) as unknown as Retro,
+    ros: clone(rosFixture) as unknown as Ros,
+  };
+  cards.lineup.week = 2;
+  cards.lineup.generated_at = "2026-09-20T14:05:12Z";
+  cards.lineup.context.league_synced_at = "2026-09-20T12:22:00Z";
+  cards.lineup.report.injury_as_of = "2026-09-20T13:02:00Z";
+  cards.lineup.report.missing_projections = [];
+  cards.lineup.report.undecidable = [];
+  cards.digest.week = 2;
+  cards.digest.generated_at = "2026-09-20T14:06:40Z";
+  cards.digest.report.injury_as_of = "2026-09-20T13:02:00Z";
+  cards.digest.report.llm = { haiku: true, sonnet: true, error: null };
+  cards.retro.week = 1;
+  cards.retro.generated_at = "2026-09-16T11:04:00Z";
+  cards.retro.report.missing_actuals = [];
+  cards.ros.week = 2;
+  cards.ros.generated_at = "2026-09-16T11:06:20Z";
+  const view: InseasonView = {
+    season: 2026,
+    week: 2,
+    server_now: "2026-09-20T15:40:00Z",
+    league: { synced_at: "2026-09-20T12:22:00Z", current_week: 2 },
+    actuals_available: { "1": true },
+    weeks: [1, 2],
+    cards: {
+      lineup: { envelope: cards.lineup },
+      digest: { envelope: cards.digest },
+      retro: { envelope: cards.retro },
+      ros: { envelope: cards.ros },
+    },
+  };
+  return { view, cards };
+}
+
+describe("cardFreshness", () => {
+  it.each(["lineup", "digest", "retro", "ros"] as InseasonKind[])("%s is fresh on the Sunday baseline", (kind) => {
+    const { view } = fresh();
+    expect(cardFreshness(kind, view, NOW)).toEqual({ state: "fresh", reason: "" });
+  });
+
+  const table: Array<{
+    name: string;
+    kind: InseasonKind;
+    mutate: (view: InseasonView, cards: Cards) => number | void;
+    expected: { state: string; reason: string };
+  }> = [
+    {
+      name: "lineup missing",
+      kind: "lineup",
+      mutate: (view) => { view.cards.lineup.envelope = null; },
+      expected: { state: "missing", reason: "Not published for week 2" },
+    },
+    {
+      name: "lineup roster changed after build",
+      kind: "lineup",
+      mutate: (view) => { view.league = { synced_at: "2026-09-20T15:10:00Z", current_week: 2 }; },
+      expected: { state: "stale", reason: "Roster changed after this lineup was built" },
+    },
+    {
+      name: "lineup ignores a league bundle when none is stored",
+      kind: "lineup",
+      mutate: (view, cards) => { view.league = null; cards.lineup.context.league_synced_at = "2026-01-01T00:00:00Z"; },
+      expected: { state: "fresh", reason: "" },
+    },
+    {
+      name: "lineup newer injury report in the digest",
+      kind: "lineup",
+      mutate: (_view, cards) => { cards.digest.report.injury_as_of = "2026-09-20T14:30:00Z"; },
+      expected: { state: "stale", reason: "Newer injury report available" },
+    },
+    {
+      name: "lineup null injury_as_of never counts as stale",
+      kind: "lineup",
+      mutate: (_view, cards) => { cards.lineup.report.injury_as_of = null; cards.digest.report.injury_as_of = "2026-09-20T14:30:00Z"; },
+      expected: { state: "fresh", reason: "" },
+    },
+    {
+      name: "lineup roster rule wins over injury rule",
+      kind: "lineup",
+      mutate: (view, cards) => { view.league = { synced_at: "2026-09-20T15:10:00Z", current_week: 2 }; cards.digest.report.injury_as_of = "2026-09-20T14:30:00Z"; },
+      expected: { state: "stale", reason: "Roster changed after this lineup was built" },
+    },
+    {
+      name: "lineup older than 5 days",
+      kind: "lineup",
+      mutate: () => NOW + 6 * DAY_MS,
+      expected: { state: "stale", reason: "Built more than 5 days ago" },
+    },
+    {
+      name: "lineup exactly 5 days old is not stale",
+      kind: "lineup",
+      mutate: () => Date.parse("2026-09-20T14:05:12Z") + 5 * DAY_MS,
+      expected: { state: "fresh", reason: "" },
+    },
+    {
+      name: "lineup missing projections",
+      kind: "lineup",
+      mutate: (_view, cards) => {
+        cards.lineup.report.missing_projections = [{ name: "A", position: "RB", team: null, slot: "BN", points: null, selected_position: "BN" }];
+        cards.lineup.report.undecidable = [{ name: "B", position: "WR", team: null, slot: "WR", points: null, selected_position: "WR" }];
+      },
+      expected: { state: "degraded", reason: "2 players have no projection" },
+    },
+    {
+      name: "lineup one undecidable player",
+      kind: "lineup",
+      mutate: (_view, cards) => {
+        cards.lineup.report.undecidable = [{ name: "B", position: "WR", team: null, slot: "WR", points: null, selected_position: "WR" }];
+      },
+      expected: { state: "degraded", reason: "1 player has no projection" },
+    },
+    {
+      name: "lineup stale age wins over degraded",
+      kind: "lineup",
+      mutate: (_view, cards) => {
+        cards.lineup.report.undecidable = [{ name: "B", position: "WR", team: null, slot: "WR", points: null, selected_position: "WR" }];
+        return NOW + 6 * DAY_MS;
+      },
+      expected: { state: "stale", reason: "Built more than 5 days ago" },
+    },
+    {
+      name: "news missing",
+      kind: "digest",
+      mutate: (view) => { view.cards.digest.envelope = null; },
+      expected: { state: "missing", reason: "Not published for week 2" },
+    },
+    {
+      name: "news older than 5 days",
+      kind: "digest",
+      mutate: () => NOW + 6 * DAY_MS,
+      expected: { state: "stale", reason: "Headlines are more than 5 days old" },
+    },
+    {
+      name: "news LLM skipped",
+      kind: "digest",
+      mutate: (_view, cards) => { cards.digest.report.llm = { haiku: false, sonnet: false, error: "LLM skipped (no key)." }; },
+      expected: { state: "degraded", reason: "LLM skipped — headlines only" },
+    },
+    {
+      name: "news stale wins over LLM skipped",
+      kind: "digest",
+      mutate: (_view, cards) => { cards.digest.report.llm.error = "LLM skipped"; return NOW + 6 * DAY_MS; },
+      expected: { state: "stale", reason: "Headlines are more than 5 days old" },
+    },
+    {
+      name: "retro week 1",
+      kind: "retro",
+      mutate: (view) => { view.week = 1; view.cards.retro.envelope = null; view.actuals_available = {}; },
+      expected: { state: "waiting", reason: "No prior week to grade" },
+    },
+    {
+      name: "retro waiting for actuals",
+      kind: "retro",
+      mutate: (view) => { view.cards.retro.envelope = null; view.actuals_available = { "1": false }; },
+      expected: { state: "waiting", reason: "Waiting for week 1 actuals" },
+    },
+    {
+      name: "retro actuals present but not published",
+      kind: "retro",
+      mutate: (view) => { view.cards.retro.envelope = null; },
+      expected: { state: "missing", reason: "Actuals are in; retro not published" },
+    },
+    {
+      name: "retro missing actuals",
+      kind: "retro",
+      mutate: (_view, cards) => { cards.retro.report.missing_actuals = [{ name: "Jake Bates" }]; },
+      expected: { state: "degraded", reason: "1 player has no actuals" },
+    },
+    {
+      name: "retro never ages out",
+      kind: "retro",
+      mutate: () => NOW + 40 * DAY_MS,
+      expected: { state: "fresh", reason: "" },
+    },
+    {
+      name: "ros missing",
+      kind: "ros",
+      mutate: (view) => { view.cards.ros.envelope = null; },
+      expected: { state: "missing", reason: "Not published" },
+    },
+    {
+      name: "ros older than 8 days",
+      kind: "ros",
+      mutate: () => Date.parse("2026-09-16T11:06:20Z") + 8 * DAY_MS + 1,
+      expected: { state: "stale", reason: "Built more than 8 days ago" },
+    },
+    {
+      name: "ros at 8 days stays fresh",
+      kind: "ros",
+      mutate: () => Date.parse("2026-09-16T11:06:20Z") + 8 * DAY_MS,
+      expected: { state: "fresh", reason: "" },
+    },
+  ];
+
+  it.each(table)("$name", ({ kind, mutate, expected }) => {
+    const { view, cards } = fresh();
+    const now = mutate(view, cards) ?? NOW;
+    expect(cardFreshness(kind, view, now)).toEqual(expected);
+  });
+});
+
+describe("oldestSource and formatAge", () => {
+  it("names the oldest published card and skips absent ones", () => {
+    const { view } = fresh();
+    expect(oldestSource(view, NOW)).toEqual({ kind: "retro", ageMs: NOW - Date.parse("2026-09-16T11:04:00Z") });
+    view.cards.retro.envelope = null;
+    expect(oldestSource(view, NOW)?.kind).toBe("ros");
+    view.cards.ros.envelope = null;
+    view.cards.lineup.envelope = null;
+    view.cards.digest.envelope = null;
+    expect(oldestSource(view, NOW)).toBeNull();
+  });
+
+  it("formats minutes, hours, then days", () => {
+    expect(formatAge(0)).toBe("0m");
+    expect(formatAge(59 * 60_000)).toBe("59m");
+    expect(formatAge(5 * 3_600_000)).toBe("5h");
+    expect(formatAge(35 * 3_600_000)).toBe("35h");
+    expect(formatAge(4 * DAY_MS + 3_600_000)).toBe("4d");
+  });
+});

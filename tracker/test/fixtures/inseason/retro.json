@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "kind": "retro",
+  "season": 2024,
+  "week": 1,
+  "generated_at": "2026-09-16T11:04:00Z",
+  "team_name": "Brian's Team",
+  "context": {
+    "actuals_synced_at": "2026-09-16T16:00:00Z"
+  },
+  "report": {
+    "season": 2024,
+    "week": 1,
+    "team_name": "Brian's Team",
+    "team_key": "1.l.sit.t.1",
+    "generated_at": "2026-09-14T14:05:12Z",
+    "synced_at": "2026-09-16T16:00:00Z",
+    "recommended_total": 46.5,
+    "started_total": 25.5,
+    "advice_lineup_total": 25.5,
+    "delta": 21.0,
+    "start_hits": [],
+    "start_misses": [
+      {
+        "yahoo_player_id": "29279",
+        "name": "Derrick Henry",
+        "slot": "RB",
+        "projected": 18.0,
+        "actual": 24.0,
+        "selected_position": "BN"
+      }
+    ],
+    "sit_hits": [],
+    "sit_misses": [
+      {
+        "yahoo_player_id": "55502",
+        "name": "Flex Filler",
+        "slot": "W/R/T",
+        "projected": 3.0,
+        "actual": 3.0,
+        "selected_position": "W/R/T"
+      }
+    ],
+    "missing_actuals": [],
+    "source_accuracy": [
+      {
+        "source": "sleeper",
+        "n": 5,
+        "mae": 2.5,
+        "bias": -1.7
+      }
+    ],
+    "matchup": {
+      "matchup_id": "1",
+      "user_team_key": "1.l.sit.t.1",
+      "user_points": 41.5,
+      "opponent_team_key": "1.l.sit.t.2",
+      "opponent_points": 18.0
+    },
+    "league_week": 1
+  }
+}

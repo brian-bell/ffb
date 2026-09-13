@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "digest",
+  "season": 2024,
+  "week": 1,
+  "generated_at": "2026-09-20T14:06:40Z",
+  "team_name": "Brian's Team",
+  "context": {
+    "sources": [
+      "injuries",
+      "news"
+    ]
+  },
+  "report": {
+    "week": 1,
+    "team_name": "Brian's Team",
+    "injury_as_of": "2026-09-12T08:00:00Z",
+    "news_as_of": "2026-09-12T12:00:00Z",
+    "roster": [
+      {
+        "player_key": "12626",
+        "full_name": "Derrick Henry",
+        "position": "RB",
+        "team": "BAL",
+        "selected_position": "BN",
+        "matched": true,
+        "injury": {
+          "status": "QUESTIONABLE",
+          "fetched_at": "2026-09-12T08:00:00Z"
+        },
+        "headlines": [
+          {
+            "native_id": "49800111",
+            "source": "espn",
+            "headline": "Derrick Henry questionable for Week 1",
+            "summary": "Ravens RB Derrick Henry is listed as questionable after a limited Friday practice.",
+            "url": "https://www.espn.com/nfl/story/_/id/49800111/henry-questionable",
+            "published_at": "2026-09-11T18:00:00Z",
+            "fetched_at": "2026-09-12T12:00:00Z"
+          },
+          {
+            "native_id": "US-EN-49800121",
+            "source": "espn_rss",
+            "headline": "Derrick Henry limited at practice",
+            "summary": "Baltimore listed Derrick Henry as limited on Friday.",
+            "url": "https://www.espn.com/nfl/story/_/id/49800121/henry-limited",
+            "published_at": "2026-09-11T21:00:00Z",
+            "fetched_at": "2026-09-13T13:59:40.318527Z"
+          }
+        ]
+      },
+      {
+        "player_key": "13971",
+        "full_name": "Ja'Marr Chase",
+        "position": "WR",
+        "team": "CIN",
+        "selected_position": "WR",
+        "matched": true,
+        "injury": null,
+        "headlines": []
+      }
+    ],
+    "watch": [
+      {
+        "player_key": "16000",
+        "full_name": "Rookie Wideout",
+        "position": "WR",
+        "team": "FA",
+        "selected_position": null,
+        "matched": true,
+        "headlines": [
+          {
+            "native_id": "49800112",
+            "source": "espn",
+            "headline": "Rookie Wideout drawing waiver buzz",
+            "summary": "Unrostered Rookie Wideout is the most-added name in several leagues.",
+            "url": "https://www.espn.com/nfl/story/_/id/49800112/rookie-wideout",
+            "published_at": "2026-09-11T19:00:00Z",
+            "fetched_at": "2026-09-12T12:00:00Z"
+          }
+        ],
+        "injury": null
+      }
+    ],
+    "other_headlines": [
+      {
+        "native_id": "49800113",
+        "source": "espn",
+        "headline": "Unknown specialist signs",
+        "summary": "A specialist not in the crosswalk signed a practice-squad deal.",
+        "url": null,
+        "published_at": "2026-09-11T20:00:00Z",
+        "fetched_at": "2026-09-12T12:00:00Z"
+      },
+      {
+        "native_id": "49800114",
+        "source": "espn",
+        "headline": "Week 1 schedule notes",
+        "summary": "Kickoff times and weather for Sunday's slate.",
+        "url": null,
+        "published_at": "2026-09-11T21:00:00Z",
+        "fetched_at": "2026-09-12T12:00:00Z"
+      },
+      {
+        "native_id": "US-EN-49800122",
+        "source": "espn_rss",
+        "headline": "League-wide injury report primer",
+        "summary": "How to read Friday injury reports before kickoff.",
+        "url": "https://www.espn.com/nfl/story/_/id/49800122/injury-primer",
+        "published_at": "2026-09-11T20:00:00Z",
+        "fetched_at": "2026-09-13T13:59:40.318527Z"
+      }
+    ],
+    "narrative": null,
+    "llm": {
+      "haiku": false,
+      "sonnet": false,
+      "error": "LLM skipped (no ANTHROPIC_API_KEY / FFB_ANTHROPIC_API_KEY)."
+    }
+  }
+}

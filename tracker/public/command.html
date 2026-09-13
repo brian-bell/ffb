@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0b0f15" />
+<title>FFB Command</title>
+<link rel="stylesheet" href="/command.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="/command">FFB <b>COMMAND</b></a>
+    <div class="weekpick" aria-label="Week">
+      <button type="button" data-week-prev aria-label="Previous week" disabled>‹</button>
+      <span data-week aria-live="polite">Week —</span>
+      <button type="button" data-week-next aria-label="Next week" disabled>›</button>
+    </div>
+    <div class="team">Team <b data-team>—</b></div>
+    <div class="oldest" data-oldest><i aria-hidden="true"></i><span data-oldest-text>—</span></div>
+    <nav class="links" aria-label="Other pages">
+      <a href="/">Draft room</a>
+      <button type="button" class="gear" data-gear aria-label="API key settings">⚙</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <p class="status" data-status role="status" hidden></p>
+  <section class="grid" data-grid></section>
+</main>
+
+<div class="scrim" data-scrim hidden></div>
+<aside class="panel" data-panel role="dialog" aria-modal="true" aria-labelledby="panel-title" hidden>
+  <div class="phead">
+    <h2 id="panel-title" data-panel-title></h2>
+    <span data-panel-badge></span>
+    <button type="button" class="close" data-panel-close aria-label="Close panel">✕</button>
+  </div>
+  <div class="pbody" data-panel-body></div>
+</aside>
+
+<div class="lock" data-lock hidden>
+  <div class="lockcard" role="dialog" aria-modal="true" aria-labelledby="lock-title">
+    <button class="close" data-lock-close aria-label="Close" hidden>×</button>
+    <h2 id="lock-title" data-lock-title>Unlock the command center</h2>
+    <p class="desc">Enter your tracker API key to load this week's reports on this device.</p>
+    <label for="apikey">API key</label>
+    <input id="apikey" data-key-input type="password" autocomplete="off" spellcheck="false" placeholder="paste your key…" />
+    <p class="err" data-key-error hidden></p>
+    <button class="save" data-key-save type="button">Unlock</button>
+    <button class="forget" data-key-forget type="button" hidden>Forget key on this device</button>
+  </div>
+</div>
+<script src="/command-app.js" defer></script>
+</body>
+</html>
