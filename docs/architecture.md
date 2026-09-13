@@ -136,8 +136,10 @@ and a coordinated tracker update.
 
 ## Tracker boundary
 
-The Worker streams the current board from KV key `board:current`. D1 stores
-mutable state separately:
+The Worker streams the current board from KV key `board:current`. The last
+valid `LeagueBundle` v1 is stored under a separate KV key,
+`league:bundle:current`, so a producer can POST league state without writing
+DuckDB. D1 stores mutable draft state separately:
 
 - `drafts`, `teams`, and `picks` hold the one live manual draft;
 - `mock_boards`, `mock_drafts`, `mock_teams`, `mock_picks`, and

@@ -5,6 +5,7 @@
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
+import { handleLeagueApi } from "./league-api";
 import { handleMockApi } from "./mock-api";
 
 export interface Env {
@@ -53,6 +54,13 @@ export default {
       const denied = requireBearer(request, env);
       if (denied) return denied;
       return handleMockApi(request, env, pathname);
+    }
+
+    // LeagueBundle v1 ingest sink. KV only — never DuckDB or draft tables.
+    if (pathname === "/api/league/bundle") {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleLeagueApi(request, env);
     }
 
     // Any other /api/* path is a real 404 (never a static asset).
