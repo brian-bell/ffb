@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from ffb.actuals import WeeklyActualsBundle
+from ffb.actuals import WeeklyActualsBundle, parse_actuals
 from ffb.lineup import is_starter
 
 LINEUP_SNAPSHOT_KIND = "lineup_recommendation"
@@ -122,17 +122,15 @@ def snapshot_now() -> str:
 def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str, Any]) -> dict:
     """Compare snapshotted sit/start advice to locked weekly actuals."""
     snapshot = parse_lineup_snapshot(advice) if "kind" in advice else advice
-    bundle = actuals if isinstance(actuals, WeeklyActualsBundle) else actuals
-    if isinstance(bundle, WeeklyActualsBundle):
-        data = bundle.data
-        players = bundle.players
-        matchups = bundle.matchups
-        league = bundle.league
-    else:
-        data = bundle
-        players = data["players"]
-        matchups = data["matchups"]
-        league = data["league"]
+    bundle = (
+        actuals
+        if isinstance(actuals, WeeklyActualsBundle)
+        else parse_actuals(actuals, season=snapshot["season"])
+    )
+    data = bundle.data
+    players = bundle.players
+    matchups = bundle.matchups
+    league = bundle.league
 
     by_id = {str(row["yahoo_player_id"]): row for row in players}
     team_key = snapshot["team_key"]

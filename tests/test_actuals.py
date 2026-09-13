@@ -104,3 +104,27 @@ def test_actuals_rejects_empty_strings_like_the_worker(mutate):
     mutate(data)
     with pytest.raises(ValueError, match="string"):
         parse_actuals(data, season=2024)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-09-16T16:00:00-00:00",
+        "2026-09-16 16:00:00Z",
+        "2026-09-16T16:00:00",
+        "2026-09-16T16:00:00+0000",
+    ],
+)
+def test_actuals_timestamp_matches_worker_strictness(value):
+    """The Worker accepts only `...T..Z` or `...+00:00`; Python must agree."""
+    data = _bundle()
+    data["synced_at"] = value
+    with pytest.raises(ValueError, match="UTC"):
+        parse_actuals(data, season=2024)
+
+
+@pytest.mark.parametrize("value", ["2026-09-16T16:00:00Z", "2026-09-16T16:00:00.250+00:00"])
+def test_actuals_accepts_worker_shaped_timestamps(value):
+    data = _bundle()
+    data["synced_at"] = value
+    parse_actuals(data, season=2024)

@@ -7,6 +7,7 @@ tests use synthetic fixtures. Storage is a snapshot or Worker KV, not DuckDB.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -166,8 +167,16 @@ def _exact_keys(value: dict[str, Any], expected: set[str], name: str) -> None:
         raise ValueError(f"{name} has unknown or missing fields")
 
 
+# Mirrors the Worker's `utcTimestamp`: a `T` separator and a literal `Z` or
+# `+00:00` suffix. `-00:00`, a space separator, and naive datetimes are rejected
+# on both sides so one bundle is never valid in the CLI but not the Worker.
+_UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|\+00:00)$")
+
+
 def _utc_timestamp(value: object, name: str) -> None:
     text = _string(value, name)
+    if not _UTC_TIMESTAMP.match(text):
+        raise ValueError(f"{name} must be an RFC 3339 UTC timestamp (Z or +00:00)")
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:

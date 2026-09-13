@@ -218,3 +218,17 @@ def test_retro_does_not_treat_advice_as_started_when_team_has_no_player_rows():
     assert retro["started_total"] == 0.0
     assert retro["recommended_total"] == 24.0
     assert retro["start_misses"][0]["name"] == "Derrick Henry"
+
+
+def test_retro_validates_dict_actuals_like_a_bundle():
+    broken = _actuals()
+    del broken["synced_at"]
+    with pytest.raises(ValueError, match="unknown or missing"):
+        retro_report(_advice(), broken)
+
+
+def test_retro_rejects_dict_actuals_for_another_season():
+    other = _actuals()
+    other["league"]["season"] = 2023
+    with pytest.raises(ValueError, match="season"):
+        retro_report(_advice(), other)
