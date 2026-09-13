@@ -87,6 +87,8 @@ fallbacks, and a worked example; in brief:
   players at the same position, the candidate included, at that pick, each
   weighted by surviving while every better player is gone. A player sure to
   last scores about zero. At the last own pick the cost is zero.
+- A pick that would leave more open starting slots than own picks remain sorts
+  after every pick that keeps the roster completable.
 
 Scores are rounded to 0.1 points. Rows explain their starter/flex gain or bench
 depth value plus the survival phrase (“likely gone by your next pick”, “coin

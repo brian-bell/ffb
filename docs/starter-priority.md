@@ -106,14 +106,18 @@ value minus the best surviving alternative.
 
 `lineupPriorityOrder` sorts:
 
-1. Players with a score, highest first.
-2. For equal scores, board rank plus five places for each same-position player
+1. Players who keep the roster completable before those who do not. A pick is
+   not completable when it would leave more open starting slots than Brian has
+   own picks after it, for example an RB upgrade at the second-to-last pick with
+   both K and DEF still open.
+2. Players with a score, highest first.
+3. For equal scores, board rank plus five places for each same-position player
    on Brian's roster with the same bye ("Bye clash"). Unknown byes are neutral.
-3. Board rank.
+4. Board rank.
 
-Players without a score come after all scored players, ordered open starter
-need, then RB/WR/TE depth in positions the league starts, then everything else,
-each with the same bye/rank tiebreak.
+Within each completable group, players without a score come after all scored
+players, ordered open starter need, then RB/WR/TE depth in positions the league
+starts, then everything else, each with the same bye/rank tiebreak.
 
 A bye penalty only breaks ties; it never outranks a higher score.
 
@@ -129,6 +133,7 @@ Each Available row explains its score:
 | No value | `Depth · no projected lineup gain` |
 | Unprojected player | `Open starter/flex need · projection unavailable` |
 | Incomplete roster | `Depth · roster projections incomplete` |
+| Not completable | any of the above + ` · would leave a starter slot unfilled` |
 
 The survival phrase uses the row's own survival: below 25% "likely gone by your
 next pick", 25–75% "coin flip to last", above 75% "should last to your next

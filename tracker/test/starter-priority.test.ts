@@ -175,6 +175,19 @@ describe("opportunity-cost live ranking", () => {
     expect(priority.candidates.get("qb-a")!.score).toBe(0);
     expect(keys[0]).toBe("rb-a");
   });
+  it("never lets a pick leave more open starter slots than own picks remain", () => {
+    // Own picks 1, 4, 5, 8; two already made, two left for open K and DEF slots.
+    const owned = [player("rb1", "RB", 200), player("rb2", "RB", 150)];
+    const slots = { RB: 1, K: 1, DEF: 1, BN: 1 };
+    const { keys, priority } = ranked(owned, [
+      withAdp(player("upgrade", "RB", 250, 1), 6), withAdp(player("k", "K", 100, 30), null), withAdp(player("def", "DEF", 120, 20), null),
+    ], slots, 5);
+    expect(keys).toEqual(["def", "k", "upgrade"]);
+    expect(priority.candidates.get("upgrade")!.reason).toContain("would leave a starter slot unfilled");
+    // With a spare pick the upgrade is allowed again.
+    expect(ranked(owned, [withAdp(player("upgrade", "RB", 250, 1), 6), withAdp(player("k", "K", 100, 30), null)], { RB: 1, K: 1, BN: 1 }, 5).keys)
+      .toEqual(["upgrade", "k"]);
+  });
   it("has no opportunity cost or survival phrase at the last own pick", () => {
     const slots = { QB: 1, BN: 1 };
     const { priority } = ranked([], [withAdp(player("qb-a", "QB", 330), 30), withAdp(player("qb-b", "QB", 320), 60)], slots, 8);

@@ -15,6 +15,9 @@ export interface CandidatePriority {
   survival: number | null;
   /** Unscored order: open starter need, useful depth, other. */
   need: 0 | 1 | 2;
+  /** False when taking this player leaves more open starter slots than own
+   * picks remain; such rows sort after every completable row. */
+  completes: boolean;
   reason: string;
 }
 
@@ -100,8 +103,13 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board, opt
   const current = draft.next?.overall_pick ?? draft.picks.length + 1;
   const pickNow = userPickAfter(draft, current - 1);
   const nextOwn = pickNow === null ? null : userPickAfter(draft, pickNow);
+  let picksAfterNow: number | null = null;
+  if (pickNow !== null) {
+    picksAfterNow = 0;
+    for (let pick = nextOwn; pick !== null; pick = userPickAfter(draft, pick)) picksAfterNow += 1;
+  }
   const byeConflicts = new Map<string, number>();
-  const scored = new Map<string, { player: Player; pos: string | null; gain: number | null; value: number | null; role: string; need: 0 | 1 | 2 }>();
+  const scored = new Map<string, { player: Player; pos: string | null; gain: number | null; value: number | null; role: string; need: 0 | 1 | 2; completes: boolean }>();
   for (const player of board.players) {
     const pos = normalizedPosition(player.pos);
     if (player.bye != null) {
@@ -116,12 +124,14 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board, opt
     const value = gain === null ? null : gain + depthWeight * Math.max(0, player.points! - gain);
     const slot = after.assignments.get(player.key);
     const role = slot?.includes("/") ? `${slot} flex` : `${slot ?? pos ?? "Unknown"} starter`;
-    const fillsOpen = pos !== null && rosterFit(board.roster_slots, [...ownedPositions, pos]).filledStarters > beforeFit.filledStarters;
+    const fit = pos === null ? beforeFit : rosterFit(board.roster_slots, [...ownedPositions, pos]);
+    const fillsOpen = fit.filledStarters > beforeFit.filledStarters;
+    const completes = picksAfterNow === null || fit.openStarters <= picksAfterNow;
     // Depth in a used offensive position retains value through flex, injuries,
     // and byes. No fixed backup counts and no promotion of unused positions.
     const usefulDepth = pos !== null && ["RB", "WR", "TE"].includes(pos)
       && rosterFit(board.roster_slots, [pos]).filledStarters > 0;
-    scored.set(player.key, { player, pos, gain, value, role, need: fillsOpen ? 0 : usefulDepth ? 1 : 2 });
+    scored.set(player.key, { player, pos, gain, value, role, need: fillsOpen ? 0 : usefulDepth ? 1 : 2, completes });
   }
   // One-step lookahead: the best same-position value likely left at the next
   // own pick. The candidate counts too: a player who will last is not urgent.
@@ -140,7 +150,7 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board, opt
     }
   }
   const candidates = new Map<string, CandidatePriority>();
-  for (const { player, pos, gain, value, role, need } of scored.values()) {
+  for (const { player, pos, gain, value, role, need, completes } of scored.values()) {
     const later = pos === null ? [] : alternatives.get(pos) ?? [];
     const score = value === null ? null : Math.round((value - expectedBestAtNextPick(later)) * 10) / 10;
     const chance = nextOwn === null ? null : survival.get(player.key) ?? survivalProbability(player.adp, player.adp_stdev, nextOwn);
@@ -150,7 +160,8 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board, opt
       : gain > 0 ? `${role} · +${gain.toFixed(1)} lineup pts${phrase}`
       : value! > 0 ? `${pos ?? "Unknown"} depth · +${value!.toFixed(1)} (bench)${phrase}`
       : "Depth · no projected lineup gain";
-    candidates.set(player.key, { score, gain, survival: chance, need, reason });
+    candidates.set(player.key, { score, gain, survival: chance, need, completes,
+      reason: completes ? reason : `${reason} · would leave a starter slot unfilled` });
   }
   const needs = [...before.open].map(([slot, count]) => `${slot} ${count}`);
   return {
@@ -163,7 +174,8 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board, opt
 
 /** Row order the live board uses once the user owns a pick: opportunity
  * score first, then board rank softened by bye overlaps. Unscored rows follow,
- * open starter needs before depth. */
+ * open starter needs before depth. Rows that would leave the roster unable to
+ * fill its starters sort last. */
 export function lineupPriorityOrder(
   priority: ReadonlyMap<string, CandidatePriority>,
   byeConflicts?: ReadonlyMap<string, number>,
@@ -171,6 +183,8 @@ export function lineupPriorityOrder(
   const soft = (p: Player): number => p.rank + 5 * (byeConflicts?.get(p.key) ?? 0);
   return (a, b) => {
     const left = priority.get(a.key), right = priority.get(b.key);
+    const lc = left?.completes ?? true, rc = right?.completes ?? true;
+    if (lc !== rc) return lc ? -1 : 1;
     const ls = left?.score ?? null, rs = right?.score ?? null;
     if ((ls === null) !== (rs === null)) return ls === null ? 1 : -1;
     return (ls !== null ? rs! - ls : (left?.need ?? 2) - (right?.need ?? 2))
