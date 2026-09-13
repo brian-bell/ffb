@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { BOARD_KEY } from "../../src/board";
+import { INSEASON_KEY_PREFIX, type InseasonKind } from "../../src/inseason";
+import { cardFreshness } from "../../src/inseason-view";
 import { LEAGUE_BUNDLE_KEY } from "../../src/league-bundle";
 import { initialBoardView, nextBoardView, type BoardViewState } from "../../src/board-view";
 import { mockClockState, mockSuggestions } from "../../src/mock-ui";
@@ -475,5 +477,56 @@ describe("weekly actuals ingest", () => {
     expect(loaded.status).toBe(200);
     expect(loaded.json).toEqual(bundle);
     expect((await api.getBoard()).status).toBe(200);
+  });
+});
+
+describe("in-season report publish", () => {
+  const kinds: InseasonKind[] = ["lineup", "digest", "retro", "ros"];
+
+  beforeEach(async () => {
+    await env.BOARD.put(BOARD_KEY, env.E2E_BOARD_JSON);
+    await env.BOARD.delete(LEAGUE_BUNDLE_KEY);
+    const page = await env.BOARD.list({ prefix: INSEASON_KEY_PREFIX });
+    await Promise.all(page.keys.map(({ name }) => env.BOARD.delete(name)));
+  });
+
+  it("accepts the envelopes the CLI published and composes the dashboard view", async () => {
+    const envelopes = JSON.parse(env.E2E_INSEASON_JSON) as Record<InseasonKind, string>;
+    for (const kind of kinds) {
+      const posted = await api.publishInseason(kind, envelopes[kind]);
+      expect(posted.status, `${kind}: ${posted.body}`).toBe(200);
+      expect(posted.json).toMatchObject({ kind, season: 2024, week: 1 });
+      expect(await env.BOARD.get(`${INSEASON_KEY_PREFIX}2024:${kind}:1`)).toBe(envelopes[kind]);
+      const replay = await api.publishInseason(kind, envelopes[kind]);
+      expect(replay.status).toBe(200);
+    }
+    const mismatch = await api.publishInseason("digest", envelopes.lineup);
+    expect(mismatch.status).toBe(400);
+    expect(mismatch.json).toMatchObject({ error: "invalid_report" });
+
+    const week1 = await api.getInseason(2024, 1);
+    expect(week1.status).toBe(200);
+    const view1 = week1.json!;
+    expect(view1.week).toBe(1);
+    expect(view1.weeks).toEqual([1]);
+    expect(view1.cards.lineup.envelope?.team_name).toBe("Brian's Team");
+    expect(view1.cards.digest.envelope?.kind).toBe("digest");
+    expect(view1.cards.retro.envelope).toBeNull();
+    expect(view1.cards.ros.envelope?.kind).toBe("ros");
+    const now = Date.parse(view1.server_now);
+    expect(cardFreshness("lineup", view1, now).state).toBe("degraded");
+    expect(cardFreshness("digest", view1, now)).toEqual({ state: "degraded", reason: "LLM skipped — headlines only" });
+    expect(cardFreshness("retro", view1, now)).toEqual({ state: "waiting", reason: "No prior week to grade" });
+    expect(cardFreshness("ros", view1, now).state).toBe("fresh");
+
+    const week2 = await api.getInseason(2024, 2);
+    expect(week2.status).toBe(200);
+    const view2 = week2.json!;
+    expect(view2.cards.lineup.envelope).toBeNull();
+    expect(view2.cards.retro.envelope?.week).toBe(1);
+    expect(view2.cards.ros.envelope?.week).toBe(1);
+    expect(view2.actuals_available).toEqual({ "1": false });
+    expect(cardFreshness("retro", view2, now).state).toBe("fresh");
+    expect((await api.getBoard()).body).toBe(env.E2E_BOARD_JSON);
   });
 });

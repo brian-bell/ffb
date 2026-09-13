@@ -30,7 +30,8 @@ from ffb.claude import (
     sonnet_user_prompt,
 )
 from ffb.consensus import consensus_rows
-from ffb.league import FixtureLeagueSource
+from ffb.inseason import build_envelope, utc_now
+from ffb.league import FixtureLeagueSource, parse_bundle
 from ffb.league_context import load_league_context
 from ffb.lineup import (
     attach_injuries,
@@ -49,7 +50,14 @@ from ffb.retro import (
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources import yahoo
-from ffb.sources.tracker import TrackerConfig, TrackerConfigError, fetch_actuals
+from ffb.sources.tracker import (
+    TrackerConfig,
+    TrackerConfigError,
+    TrackerPublishError,
+    fetch_actuals,
+    fetch_league_bundle,
+    publish_inseason,
+)
 from ffb.store import SchemaMismatchError, Store
 from ffb.yahoo_auth import YahooAuthError
 
@@ -92,17 +100,30 @@ def league_sync(  # noqa: B008
     refresh: bool = typer.Option(
         False, "--refresh", help="Refetch live Yahoo data, replacing snapshots."
     ),
+    from_tracker: bool = typer.Option(
+        False,
+        "--from-tracker",
+        help="Pull the Worker's last accepted LeagueBundle (GET /api/league/bundle).",
+    ),
 ) -> None:
-    """Validate and atomically import live Yahoo or fixture-backed league state."""
+    """Validate and atomically import live Yahoo, tracker, or fixture-backed league state."""
+    if from_tracker and (fixture is not None or refresh):
+        raise typer.BadParameter("--from-tracker cannot be combined with --fixture or --refresh")
     if fixture is not None:
         source: object = FixtureLeagueSource(fixture)
+    elif from_tracker:
+        try:
+            source = _TrackerLeagueSource(TrackerConfig.from_env())
+        except TrackerConfigError as exc:
+            console.print(f"[red]Tracker league sync unavailable:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
     else:
         try:
             source = yahoo.league_source_from_env(SnapshotCache(paths.snapshot_dir()))
         except YahooAuthError as exc:
             console.print(f"[red]Live Yahoo sync unavailable:[/red] {exc}")
             raise typer.Exit(code=2) from exc
-    label = "fixture/mock" if fixture is not None else "live Yahoo"
+    label = "fixture/mock" if fixture is not None else "tracker" if from_tracker else "live Yahoo"
     try:
         bundle = source.fetch(season, refresh=refresh)
     except ValueError as exc:
@@ -113,7 +134,11 @@ def league_sync(  # noqa: B008
         console.print(f"[red]Yahoo authentication failed:[/red] {exc}")
         raise typer.Exit(code=2) from exc
     except httpx.HTTPError as exc:
-        console.print(f"[red]Yahoo fetch failed:[/red] {exc}")
+        if from_tracker:
+            # Never echo the exception body: the request carried the bearer key.
+            console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
+        else:
+            console.print(f"[red]Yahoo fetch failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store = _open_store()
     result = store.replace_league_state(bundle)
@@ -354,6 +379,9 @@ def lineup(
         "--force",
         help="Replace an existing sit/start snapshot, or write one for a past week.",
     ),
+    publish: bool = typer.Option(
+        False, "--publish", help="POST the rendered report to the tracker command center."
+    ),
 ) -> None:
     """Compare the user team's stored lineup to optimal weekly starters."""
     if week is not None and week < 1:
@@ -458,6 +486,25 @@ def lineup(
         )
     _render_lineup(report, week=chosen_week, team_name=user["name"])
     _report_scoring_provenance(league)
+    if publish:
+        snapshot_generated_at = (
+            cache.read_json(advice_key)["generated_at"] if cache.has(advice_key) else None
+        )
+        _publish_report(
+            build_envelope(
+                "lineup",
+                season=season,
+                week=chosen_week,
+                generated_at=utc_now(),
+                team_name=user["name"],
+                context={
+                    "league_synced_at": context["synced_at"],
+                    "projection_sources": list(active_sources),
+                    "snapshot_generated_at": snapshot_generated_at,
+                },
+                report=report,
+            )
+        )
 
 
 @app.command()
@@ -471,6 +518,9 @@ def retro(
     ),
     force: bool = typer.Option(
         False, "--force", help="Replace already-locked weekly actuals with the fixture."
+    ),
+    publish: bool = typer.Option(
+        False, "--publish", help="POST the rendered report to the tracker command center."
     ),
 ) -> None:
     """Compare a snapshotted sit/start run to ingested weekly actuals."""
@@ -546,10 +596,60 @@ def retro(
         console.print(f"[red]Weekly actuals do not match the sit/start snapshot:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     _render_retro(report)
+    if publish:
+        _publish_report(
+            build_envelope(
+                "retro",
+                season=season,
+                week=chosen_week,
+                generated_at=utc_now(),
+                team_name=report["team_name"],
+                context={"actuals_synced_at": bundle.data["synced_at"]},
+                report=report,
+            )
+        )
 
 
 def _tracker_client() -> httpx.Client:
     return httpx.Client()
+
+
+class _TrackerLeagueSource:
+    """LeagueSource that pulls the Worker's last accepted bundle (``--from-tracker``)."""
+
+    def __init__(self, cfg: TrackerConfig):
+        self.cfg = cfg
+
+    def fetch(self, season: int, *, refresh: bool = False):
+        del refresh
+        with _tracker_client() as client:
+            payload = fetch_league_bundle(client, self.cfg)
+        if payload is None:
+            raise ValueError(
+                "tracker has no league bundle; POST a LeagueBundle to /api/league/bundle first"
+            )
+        return parse_bundle(payload, season=season)
+
+
+def _publish_report(envelope: dict) -> None:
+    """POST one closed envelope after the report printed; failures exit 1, never log the key."""
+    kind = envelope["kind"]
+    try:
+        cfg = TrackerConfig.from_env()
+    except TrackerConfigError as exc:
+        console.print(f"[red]Publish skipped:[/red] {exc}.")
+        raise typer.Exit(code=1) from exc
+    try:
+        with _tracker_client() as client:
+            summary = publish_inseason(client, cfg, envelope)
+    except TrackerPublishError as exc:
+        console.print(f"[red]Tracker rejected the {kind} report:[/red] {exc.error} — {exc.message}")
+        raise typer.Exit(code=1) from exc
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Tracker publish failed:[/red] {type(exc).__name__}")
+        raise typer.Exit(code=1) from exc
+    week = summary.get("week", envelope["week"]) if isinstance(summary, dict) else envelope["week"]
+    console.print(f"[green]Published {kind} week {week} to the tracker.[/green]")
 
 
 def _pull_actuals_from_tracker(cache: SnapshotCache, *, season: int, week: int):
@@ -596,8 +696,15 @@ def ros(
         "--playoff-weeks",
         help="Comma-separated playoff weeks (default: 15,16,17).",
     ),
+    publish: bool = typer.Option(
+        False,
+        "--publish",
+        help="POST the full all-position report to the tracker command center.",
+    ),
 ) -> None:
     """Print rest-of-season consensus, playoff slate, and bye planning."""
+    if publish and pos:
+        raise typer.BadParameter("--publish stores the all-position report; drop -p/--position")
     try:
         weeks = ros_mod.parse_playoff_weeks(playoff_weeks)
     except ValueError as exc:
@@ -628,10 +735,12 @@ def ros(
     )
     byes = store.team_bye_rows(season)
     roster: list[dict] = []
+    team_name: str | None = None
     context = store.league_context(season)
     if context is not None:
         user_teams = [team for team in store.league_teams(season) if team["is_user_team"]]
         if len(user_teams) == 1:
+            team_name = user_teams[0]["name"]
             store.refresh_league_roster_identities(season, context["current_week"])
             roster = [
                 row
@@ -639,6 +748,12 @@ def ros(
                 if row["team_key"] == user_teams[0]["team_key"]
             ]
     store.close()
+    if publish and context is None:
+        console.print(
+            f"[red]--publish needs the stored current week. Run: ffb league sync "
+            f"{season} --from-tracker (or --fixture PATH).[/red]"
+        )
+        raise typer.Exit(code=1)
     report = ros_mod.ros_report(
         consensus,
         byes=byes,
@@ -654,6 +769,22 @@ def ros(
         raise typer.Exit(code=0)
     _render_ros(report, season=season, pos=pos, limit=limit)
     _report_scoring_provenance(league)
+    if publish:
+        assert context is not None
+        _publish_report(
+            build_envelope(
+                "ros",
+                season=season,
+                week=context["current_week"],
+                generated_at=utc_now(),
+                team_name=team_name,
+                context={
+                    "projection_sources": list(active_sources),
+                    "playoff_weeks_requested": list(weeks),
+                },
+                report={**report, "playoff_weeks": list(report["playoff_weeks"])},
+            )
+        )
 
 
 @app.command()
@@ -661,6 +792,9 @@ def digest(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
     week: int | None = typer.Option(
         None, "--week", help="Digest week label. Defaults to stored current week."
+    ),
+    publish: bool = typer.Option(
+        False, "--publish", help="POST the rendered report to the tracker command center."
     ),
 ) -> None:
     """Injury and headline context for the user roster and unrostered mentions."""
@@ -712,6 +846,26 @@ def digest(
     report["watch"] = attach_injuries(report["watch"], injuries)
     _apply_digest_llm(report)
     _render_digest(report)
+    if publish:
+        assert chosen_week is not None
+        ready = sorted(
+            source["name"]
+            for source in status["sources"]
+            if source["name"] in ("news", "injuries")
+            and source["row_count"]
+            and source["state"] in ("ready", "untracked")
+        )
+        _publish_report(
+            build_envelope(
+                "digest",
+                season=season,
+                week=chosen_week,
+                generated_at=utc_now(),
+                team_name=team_name,
+                context={"sources": ready},
+                report=report,
+            )
+        )
 
 
 @app.command()

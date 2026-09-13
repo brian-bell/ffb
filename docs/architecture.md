@@ -83,6 +83,9 @@ DuckDB. `ffb digest` is a read-time headline report: stored ESPN/RSS articles
 plus Sleeper injury labels for the user roster and unrostered mentions.
 Haiku/Sonnet add flags and Tuesday-brief prose when an Anthropic key is
 present; headlines never enter scoring, consensus, VORP, or sit/start math.
+Each of these four report commands accepts `--publish`, which wraps the exact
+dict it rendered in the closed envelope from `inseason.py` and POSTs it to the
+tracker; the Worker stores and serves reports but never computes them.
 `board.py` merges consensus,
 ADP, and byes, selects the requested player pool, then derives VORP, tiers, and
 ranks.
@@ -153,7 +156,10 @@ valid `LeagueBundle` v1 is stored under a separate KV key,
 `league:bundle:current`, so a producer can POST league state without writing
 DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
 `WeeklyActualsBundle` v1 and stores it under `actuals:v1:{season}:{week}` in the
-same KV namespace, never DuckDB. D1 stores mutable draft state separately:
+same KV namespace, never DuckDB. `POST /api/inseason/{kind}` stores the CLI's
+published in-season report envelopes under `inseason:v1:{season}:{kind}:{week}`
+and `GET /api/inseason` composes the read-only `/command` dashboard from them.
+D1 stores mutable draft state separately:
 
 - `drafts`, `teams`, and `picks` hold the one live manual draft;
 - `mock_boards`, `mock_drafts`, `mock_teams`, `mock_picks`, and

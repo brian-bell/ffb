@@ -6,6 +6,7 @@ import { handleActualsApi } from "./actuals-api";
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
+import { handleInseasonApi } from "./inseason-api";
 import { handleLeagueApi } from "./league-api";
 import { handleMockApi } from "./mock-api";
 
@@ -64,6 +65,13 @@ export default {
       return handleActualsApi(request, env, url);
     }
 
+    // In-season report envelopes (command center). KV only, closed v1 contract.
+    if (pathname === "/api/inseason" || pathname.startsWith("/api/inseason/")) {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleInseasonApi(request, env, url, pathname);
+    }
+
     // LeagueBundle v1 ingest sink. KV only — never DuckDB or draft tables.
     if (pathname === "/api/league/bundle") {
       const denied = requireBearer(request, env);
@@ -79,6 +87,13 @@ export default {
     if ((request.method === "GET" || request.method === "HEAD") && pathname === "/mock") {
       const assetUrl = new URL(request.url);
       assetUrl.pathname = "/mock.html";
+      return env.ASSETS.fetch(new Request(assetUrl, request));
+    }
+
+    // Read-only in-season command center (desktop dashboard).
+    if ((request.method === "GET" || request.method === "HEAD") && pathname === "/command") {
+      const assetUrl = new URL(request.url);
+      assetUrl.pathname = "/command.html";
       return env.ASSETS.fetch(new Request(assetUrl, request));
     }
 

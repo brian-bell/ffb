@@ -165,6 +165,55 @@ validates it, and snapshots it under `snapshots/actuals/` before the retro runs.
 | `POST /api/actuals` | Validate and store one week's scoreboard + player actuals |
 | `GET /api/actuals?season=&week=` | Read the stored actuals blob for that week |
 
+## In-season command center
+
+`GET /command` is a read-only desktop dashboard for the four in-season CLI
+reports. The Python CLI stays the only place a report is computed: `ffb lineup`,
+`ffb digest`, `ffb retro`, and `ffb ros` each accept `--publish`, which POSTs
+the exact dict the command just rendered inside a closed, versioned envelope
+(`src/ffb/inseason.py`). The Worker validates the envelope plus the minimal
+report shape the page renders (`src/inseason.ts`), stores the body verbatim in
+KV, and composes one dashboard view per week. No DuckDB, D1, scoring, or LLM
+work happens in the Worker. The design record is
+[specs/in-season-command-center.md](specs/in-season-command-center.md).
+
+| Method and route | Purpose |
+| --- | --- |
+| `POST /api/inseason/{kind}` | Validate and store one envelope (`lineup`, `digest`, `retro`, `ros`) |
+| `GET /api/inseason?season=&week=` | Compose the dashboard view for one week |
+
+Envelopes live under `inseason:v1:{season}:{kind}:{week}`. The POST route
+reuses the league bundle vocabulary: 400 `invalid_report` for an envelope or
+report shape failure or a kind that does not match the route, 409
+`stale_report` when the stored document has a strictly newer `generated_at`
+(an equal timestamp is an idempotent re-POST), 409 `season_mismatch` against
+the published board, and 413 `payload_too_large` over the 10 MiB cap. The
+`week` field is the report week for `lineup` and `digest`, the scored week for
+`retro`, and the stored `current_week` at generation for `ros`.
+
+The GET view resolves requested week `W` as lineup and digest at `W`, retro at
+`W-1` (absent for week 1), and the newest `ros` document with week `≤ W`. It
+also carries `league` (`synced_at` and `current_week` from
+`league:bundle:current`, or `null`), `actuals_available` for week `W-1`,
+`weeks` with at least one lineup or digest document, and `server_now`. When
+`week` is omitted the Worker uses the league's current week, then the newest
+published week; when `season` is omitted it uses the league bundle's season,
+then the board's.
+
+Freshness is decided only by `cardFreshness(kind, view, now)` in
+`src/inseason-view.ts`, a pure function of that view and the client clock.
+States are `fresh`, `stale` (roster changed after the lineup was built, a
+newer injury report in the digest, or aged past 5 days for lineup and news or
+8 days for rest of season), `degraded` (missing projections, LLM skipped, or
+missing actuals), `waiting` (no prior week, or actuals not posted yet), and
+`missing` (nothing published; the card shows the command to run). Retro never
+ages out. The header strip shows the week, team, and the oldest source on
+screen; clicking a published card opens a right-side panel with the full
+report. Narrative, notes, and headlines are rendered with `textContent`, and a
+headline becomes a link only when its URL is `https:`. The page reuses the
+stored API key flow and the dark tokens; below 1100 px the grid collapses to
+two columns and below 760 px to one.
+
 ## Roster safety and identity
 
 `roster-fit.ts` uses exact capacity matching across dedicated positions,
@@ -222,7 +271,8 @@ npm run test:browser
 ```
 
 The Playwright suite covers phone, minimum desktop, standard desktop, and short
-desktop viewports against committed fixtures. It does not read or mutate local
+desktop viewports against committed fixtures, plus `/command` at standard and
+minimum desktop widths with every freshness state. It does not read or mutate local
 Wrangler KV or D1 state. Run `make test-backend-e2e` from the repository root
 when Worker routes, APIs, D1 behavior, or the board boundary change.
 

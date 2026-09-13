@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "kind": "lineup",
+  "season": 2024,
+  "week": 1,
+  "generated_at": "2026-09-20T14:05:12Z",
+  "team_name": "Brian's Team",
+  "context": {
+    "league_synced_at": "2026-09-12T00:00:00Z",
+    "projection_sources": [
+      "sleeper"
+    ],
+    "snapshot_generated_at": "2026-09-20T14:05:12Z"
+  },
+  "report": {
+    "current": [
+      {
+        "slot": "RB",
+        "name": "Slow Back",
+        "position": "RB",
+        "team": "KCC",
+        "points": 4.0,
+        "n": 1,
+        "selected_position": "RB",
+        "player_key": "rb-low",
+        "projection_key": "rb-low",
+        "yahoo_player_id": "55501",
+        "matched": true
+      },
+      {
+        "slot": "WR",
+        "name": "Ja'Marr Chase",
+        "position": "WR",
+        "team": "CIN",
+        "points": 13.0,
+        "n": 1,
+        "selected_position": "WR",
+        "player_key": "13971",
+        "projection_key": "13971",
+        "yahoo_player_id": "33393",
+        "matched": true
+      },
+      {
+        "slot": "DEF",
+        "name": "49ers",
+        "position": "DEF",
+        "team": "SFO",
+        "points": 3.0,
+        "n": 1,
+        "selected_position": "DEF",
+        "player_key": "yahoo:100025",
+        "projection_key": "def:SFO",
+        "yahoo_player_id": "100025",
+        "matched": false
+      },
+      {
+        "slot": "W/R/T",
+        "name": "Flex Filler",
+        "position": "WR",
+        "team": "CHI",
+        "points": 3.0,
+        "n": 1,
+        "selected_position": "W/R/T",
+        "player_key": "wr-flex",
+        "projection_key": "wr-flex",
+        "yahoo_player_id": "55502",
+        "matched": true
+      }
+    ],
+    "optimal": [
+      {
+        "slot": "RB",
+        "name": "Derrick Henry",
+        "position": "RB",
+        "team": "BAL",
+        "points": 18.0,
+        "n": 1,
+        "selected_position": "BN",
+        "player_key": "12626",
+        "projection_key": "12626",
+        "yahoo_player_id": "29279",
+        "matched": true
+      },
+      {
+        "slot": "WR",
+        "name": "Ja'Marr Chase",
+        "position": "WR",
+        "team": "CIN",
+        "points": 13.0,
+        "n": 1,
+        "selected_position": "WR",
+        "player_key": "13971",
+        "projection_key": "13971",
+        "yahoo_player_id": "33393",
+        "matched": true
+      },
+      {
+        "slot": "DEF",
+        "name": "49ers",
+        "position": "DEF",
+        "team": "SFO",
+        "points": 3.0,
+        "n": 1,
+        "selected_position": "DEF",
+        "player_key": "yahoo:100025",
+        "projection_key": "def:SFO",
+        "yahoo_player_id": "100025",
+        "matched": false
+      },
+      {
+        "slot": "W/R/T",
+        "name": "Slow Back",
+        "position": "RB",
+        "team": "KCC",
+        "points": 4.0,
+        "n": 1,
+        "selected_position": "RB",
+        "player_key": "rb-low",
+        "projection_key": "rb-low",
+        "yahoo_player_id": "55501",
+        "matched": true
+      }
+    ],
+    "aligned": [
+      {
+        "slot": "RB",
+        "current": {
+          "slot": "RB",
+          "name": "Slow Back",
+          "position": "RB",
+          "team": "KCC",
+          "points": 4.0,
+          "n": 1,
+          "selected_position": "RB",
+          "player_key": "rb-low",
+          "projection_key": "rb-low",
+          "yahoo_player_id": "55501",
+          "matched": true
+        },
+        "optimal": {
+          "slot": "RB",
+          "name": "Derrick Henry",
+          "position": "RB",
+          "team": "BAL",
+          "points": 18.0,
+          "n": 1,
+          "selected_position": "BN",
+          "player_key": "12626",
+          "projection_key": "12626",
+          "yahoo_player_id": "29279",
+          "matched": true
+        }
+      },
+      {
+        "slot": "WR",
+        "current": {
+          "slot": "WR",
+          "name": "Ja'Marr Chase",
+          "position": "WR",
+          "team": "CIN",
+          "points": 13.0,
+          "n": 1,
+          "selected_position": "WR",
+          "player_key": "13971",
+          "projection_key": "13971",
+          "yahoo_player_id": "33393",
+          "matched": true
+        },
+        "optimal": {
+          "slot": "WR",
+          "name": "Ja'Marr Chase",
+          "position": "WR",
+          "team": "CIN",
+          "points": 13.0,
+          "n": 1,
+          "selected_position": "WR",
+          "player_key": "13971",
+          "projection_key": "13971",
+          "yahoo_player_id": "33393",
+          "matched": true
+        }
+      },
+      {
+        "slot": "DEF",
+        "current": {
+          "slot": "DEF",
+          "name": "49ers",
+          "position": "DEF",
+          "team": "SFO",
+          "points": 3.0,
+          "n": 1,
+          "selected_position": "DEF",
+          "player_key": "yahoo:100025",
+          "projection_key": "def:SFO",
+          "yahoo_player_id": "100025",
+          "matched": false
+        },
+        "optimal": {
+          "slot": "DEF",
+          "name": "49ers",
+          "position": "DEF",
+          "team": "SFO",
+          "points": 3.0,
+          "n": 1,
+          "selected_position": "DEF",
+          "player_key": "yahoo:100025",
+          "projection_key": "def:SFO",
+          "yahoo_player_id": "100025",
+          "matched": false
+        }
+      },
+      {
+        "slot": "W/R/T",
+        "current": {
+          "slot": "W/R/T",
+          "name": "Flex Filler",
+          "position": "WR",
+          "team": "CHI",
+          "points": 3.0,
+          "n": 1,
+          "selected_position": "W/R/T",
+          "player_key": "wr-flex",
+          "projection_key": "wr-flex",
+          "yahoo_player_id": "55502",
+          "matched": true
+        },
+        "optimal": {
+          "slot": "W/R/T",
+          "name": "Slow Back",
+          "position": "RB",
+          "team": "KCC",
+          "points": 4.0,
+          "n": 1,
+          "selected_position": "RB",
+          "player_key": "rb-low",
+          "projection_key": "rb-low",
+          "yahoo_player_id": "55501",
+          "matched": true
+        }
+      }
+    ],
+    "start": [
+      {
+        "slot": "RB",
+        "name": "Derrick Henry",
+        "position": "RB",
+        "team": "BAL",
+        "points": 18.0,
+        "n": 1,
+        "selected_position": "BN",
+        "player_key": "12626",
+        "projection_key": "12626",
+        "yahoo_player_id": "29279",
+        "matched": true
+      }
+    ],
+    "sit": [
+      {
+        "slot": "W/R/T",
+        "name": "Flex Filler",
+        "position": "WR",
+        "team": "CHI",
+        "points": 3.0,
+        "n": 1,
+        "selected_position": "W/R/T",
+        "player_key": "wr-flex",
+        "projection_key": "wr-flex",
+        "yahoo_player_id": "55502",
+        "matched": true
+      }
+    ],
+    "undecidable": [],
+    "current_total": 23.0,
+    "optimal_total": 38.0,
+    "delta": 15.0,
+    "missing_projections": [
+      {
+        "slot": "BN",
+        "name": "Rookie Bench",
+        "position": "RB",
+        "team": "CHI",
+        "points": null,
+        "n": 0,
+        "selected_position": "BN",
+        "player_key": "yahoo:42025",
+        "projection_key": null,
+        "yahoo_player_id": "42025",
+        "matched": false
+      }
+    ],
+    "close_calls": [
+      {
+        "name": "Flex Filler",
+        "points": 3.0,
+        "versus": "Slow Back",
+        "slot": "W/R/T",
+        "delta": 1.0
+      }
+    ],
+    "injury_as_of": null
+  }
+}

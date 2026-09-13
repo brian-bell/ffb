@@ -1,9 +1,12 @@
-"""Thin fetch for the tracker Worker's weekly actuals endpoint.
+"""Thin HTTP client for the tracker Worker.
 
 ``GET /api/actuals?season=&week=`` returns the ``WeeklyActualsBundle`` that
-Grok (or a fixture) posted to the Worker. Validation lives in
-``ffb.actuals.parse_actuals``; this module only moves bytes. The bearer key
-is read from the environment and must never reach logs or snapshots.
+Grok (or a fixture) posted to the Worker; ``GET /api/league/bundle`` returns
+the last accepted ``LeagueBundle``; ``POST /api/inseason/{kind}`` stores one
+in-season report envelope. Validation lives beside each contract
+(``ffb.actuals``, ``ffb.league``, ``ffb.inseason``); this module only moves
+bytes. The bearer key is read from the environment and must never reach logs,
+errors, or snapshots.
 """
 
 from __future__ import annotations
@@ -38,13 +41,29 @@ class TrackerConfig:
         api_key = (environ.get(KEY_ENV) or "").strip()
         missing = [name for name, value in ((URL_ENV, base_url), (KEY_ENV, api_key)) if not value]
         if missing:
-            raise TrackerConfigError(
-                f"set {' and '.join(missing)} to pull actuals from the tracker"
-            )
+            raise TrackerConfigError(f"set {' and '.join(missing)} to reach the tracker")
         return cls(base_url=base_url, api_key=api_key)
 
     def __repr__(self) -> str:  # never echo the bearer key
         return f"TrackerConfig(base_url={self.base_url!r}, api_key=<redacted>)"
+
+
+class TrackerPublishError(RuntimeError):
+    """The Worker refused a publish. Carries its structured error, never the key."""
+
+    def __init__(self, status: int, error: str, message: str):
+        super().__init__(f"{status} {error}: {message}")
+        self.status = status
+        self.error = error
+        self.message = message
+
+
+def _headers(cfg: TrackerConfig) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {cfg.api_key}",
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+    }
 
 
 def fetch_actuals(client: httpx.Client, cfg: TrackerConfig, season: int, week: int) -> Any | None:
@@ -52,17 +71,49 @@ def fetch_actuals(client: httpx.Client, cfg: TrackerConfig, season: int, week: i
     url = f"{cfg.base_url}/api/actuals"
     log.info("api request provider=tracker method=GET url=%s season=%s week=%s", url, season, week)
     response = client.get(
-        url,
-        params={"season": season, "week": week},
-        headers={
-            "Authorization": f"Bearer {cfg.api_key}",
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json",
-        },
-        timeout=30.0,
+        url, params={"season": season, "week": week}, headers=_headers(cfg), timeout=30.0
     )
     log.info("api response provider=tracker status=%s", response.status_code)
     if response.status_code == 404:
         return None
     response.raise_for_status()
+    return response.json()
+
+
+def fetch_league_bundle(client: httpx.Client, cfg: TrackerConfig) -> Any | None:
+    """Return the Worker's last accepted LeagueBundle, or ``None`` when none is stored."""
+    url = f"{cfg.base_url}/api/league/bundle"
+    log.info("api request provider=tracker method=GET url=%s", url)
+    response = client.get(url, headers=_headers(cfg), timeout=30.0)
+    log.info("api response provider=tracker status=%s", response.status_code)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+def publish_inseason(client: httpx.Client, cfg: TrackerConfig, envelope: dict[str, Any]) -> Any:
+    """POST one in-season envelope; return the Worker's summary or raise TrackerPublishError."""
+    kind = envelope["kind"]
+    url = f"{cfg.base_url}/api/inseason/{kind}"
+    log.info(
+        "api request provider=tracker method=POST url=%s season=%s week=%s",
+        url,
+        envelope.get("season"),
+        envelope.get("week"),
+    )
+    response = client.post(url, json=envelope, headers=_headers(cfg), timeout=60.0)
+    log.info("api response provider=tracker status=%s", response.status_code)
+    if response.status_code >= 400:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        raise TrackerPublishError(
+            response.status_code,
+            str(body.get("error") or "http_error"),
+            str(body.get("message") or response.reason_phrase or "publish rejected"),
+        )
     return response.json()

@@ -26,6 +26,33 @@ const generatedPlayers = Array.from({ length: 240 }, (_, index) => {
   };
 });
 const board = { ...fixture, players: generatedPlayers };
+const inseason = Object.fromEntries(
+  await Promise.all(["lineup", "digest", "retro", "ros"].map(async (kind) => [
+    kind,
+    JSON.parse(await readFile(join(trackerRoot, `test/fixtures/inseason/${kind}.json`), "utf8")),
+  ])),
+);
+
+// Baseline /command view: the generated Python envelopes relabeled to week 2 so
+// the retro (week 1) and ros (week ≤ 2) resolution paths are exercised. Browser
+// specs override this route per scenario.
+function inseasonView(week = 2) {
+  const at = (kind, w) => ({ ...inseason[kind], week: w });
+  return {
+    season: 2024,
+    week,
+    server_now: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    league: { synced_at: inseason.lineup.context.league_synced_at, current_week: 2 },
+    actuals_available: week > 1 ? { [String(week - 1)]: true } : {},
+    weeks: [1, 2],
+    cards: {
+      lineup: { envelope: week === 2 ? at("lineup", 2) : null },
+      digest: { envelope: week === 2 ? at("digest", 2) : null },
+      retro: { envelope: week === 2 ? at("retro", 1) : null },
+      ros: { envelope: at("ros", 1) },
+    },
+  };
+}
 const teams = Array.from({ length: board.num_teams }, (_, draftSlot) => ({
   id: draftSlot + 1,
   name: draftSlot === 0 ? "Brian" : `CPU ${draftSlot + 1}`,
@@ -159,6 +186,11 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, board);
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/inseason") {
+      const week = url.searchParams.get("week");
+      sendJson(response, 200, inseasonView(week ? Number(week) : 2));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/mocks/current") {
       if (authorization === "Bearer test-recovery-key") {
         sendJson(response, 200, configuredState(currentInput(), {
@@ -233,8 +265,10 @@ const server = createServer(async (request, response) => {
 
   const asset = url.pathname === "/mock" || url.pathname === "/mock/"
     ? "mock.html"
-    : url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-  if (!asset || asset.includes("..") || !["index.html", "app.js", "mock.html", "mock-app.js", "styles.css", "audio/espn-draft-chime.mp3"].includes(asset)) {
+    : url.pathname === "/command" || url.pathname === "/command/"
+      ? "command.html"
+      : url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  if (!asset || asset.includes("..") || !["index.html", "app.js", "mock.html", "mock-app.js", "styles.css", "command.html", "command-app.js", "command.css", "audio/espn-draft-chime.mp3"].includes(asset)) {
     response.writeHead(404);
     response.end("Not found");
     return;

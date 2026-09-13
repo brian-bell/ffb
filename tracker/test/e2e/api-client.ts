@@ -3,6 +3,8 @@ import type { DraftConfigInput, DraftState } from "../../src/draft-store";
 import type { MockState } from "../../src/mock-draft";
 import type { VariancePreset } from "../../src/mock-strategy";
 import type { WeeklyActualsBundle } from "../../src/actuals";
+import type { InseasonKind } from "../../src/inseason";
+import type { InseasonView } from "../../src/inseason-view";
 import type { Board } from "../../src/types";
 
 const API_ORIGIN = "https://e2e.test";
@@ -110,4 +112,11 @@ export const api = {
     ),
   getActuals: (season: number, week: number) =>
     request<WeeklyActualsBundle>(`/api/actuals?season=${season}&week=${week}`),
+  publishInseason: (kind: InseasonKind, envelopeText: string) =>
+    request<{ kind: InseasonKind; season: number; week: number; generated_at: string }>(
+      `/api/inseason/${kind}`,
+      { method: "POST", body: envelopeText },
+    ),
+  getInseason: (season: number, week?: number) =>
+    request<InseasonView>(`/api/inseason?season=${season}${week === undefined ? "" : `&week=${week}`}`),
 };

@@ -20,6 +20,8 @@ def prime_snapshots(snapshot_dir: Path) -> None:
     fixtures = {
         sleeper.snapshot_key(SEASON): fixture_dir / "sleeper_projections_sample.json",
         espn.snapshot_key(SEASON): fixture_dir / "espn_projections_sample.json",
+        sleeper.snapshot_key(SEASON, week=1): fixture_dir / "sleeper_projections_week1_sample.json",
+        espn.snapshot_key(SEASON, week=1): fixture_dir / "espn_projections_week1_sample.json",
         ffc.snapshot_key(SEASON, teams=E2E_TEAMS, fmt=config.FFC_FORMAT): fixture_dir
         / "ffc_adp_sample.json",
         crosswalk.snapshot_key(): fixture_dir / "ff_playerids_sample.json",

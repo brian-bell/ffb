@@ -38,7 +38,17 @@ uv run ffb season sync 2026 --source injuries
 uv run ffb season sync 2026 --source news
 uv run ffb digest 2026
 uv run ffb season status 2026 --json
+FFB_TRACKER_URL=https://<worker> FFB_TRACKER_API_KEY=<key> uv run ffb league sync 2026 --from-tracker
+FFB_TRACKER_URL=https://<worker> FFB_TRACKER_API_KEY=<key> uv run ffb lineup 2026 --publish
 ```
+
+`--publish` on `lineup`, `digest`, `retro`, and `ros` POSTs the report the
+command just printed to the tracker's `/api/inseason/{kind}` route for the
+`/command` dashboard. `ros --publish` always sends the all-position report and
+rejects `-p`. A publish failure prints the Worker's error, exits 1, and leaves
+local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
+accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be
+combined with `--fixture` or `--refresh`.
 
 Every selected source is attempted and recorded independently. Validation keeps
 an invalid or empty response from replacing a known-good snapshot or persisted
@@ -60,6 +70,68 @@ ahead is treated as corrupt. One claimant repairs it to the current attempt
 time and proceeds while concurrent or subsequent claimants are throttled. This
 provider-call marker is separate from accepted-snapshot freshness and never
 makes rejected data current.
+
+## In-season refresh runbook
+
+Two scheduled runs per week feed the command center, both driven by the Grok
+bot. Grok scrapes Yahoo and posts to the two existing Worker routes, then runs
+the CLI from the repository root with `FFB_TRACKER_URL` and
+`FFB_TRACKER_API_KEY` set. `S` is the season and `W` the current week. Grok
+never runs `season sync` against Yahoo; the free sources are fetched by the
+CLI. Scheduling itself lives outside this repository (`ffb-8yi`).
+
+**Wednesday 07:00 ET, week roll.** Yahoo has rolled the week and applied
+Monday's stat corrections.
+
+1. Grok posts the week `W-1` `WeeklyActualsBundle` to `POST /api/actuals`.
+2. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
+3. Grok runs, in order:
+
+```sh
+ffb retro S --week W-1 --publish
+ffb season sync S --week W --refresh
+ffb league sync S --from-tracker
+ffb ros S --publish
+ffb lineup S --week W --publish
+ffb digest S --publish
+```
+
+Retro runs first: it pulls actuals from the Worker and grades the locked `W-1`
+snapshot. If the actuals scrape lags, retry retro alone later. Lineup runs
+after league sync and writes the week `W` snapshot.
+
+**Sunday 10:00 ET, pre-kickoff refresh.** Late enough for Friday and Saturday
+injury designations, early enough to act before the 1 PM slate.
+
+1. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
+2. Grok runs, in order:
+
+```sh
+ffb season sync S --week W --source projections --source injuries --source news --refresh
+ffb league sync S --from-tracker
+ffb lineup S --week W --force --publish
+ffb digest S --publish
+```
+
+`--force` replaces the Wednesday snapshot so retro grades the last advice that
+was actionable before kickoff. Thursday night players get Wednesday's advice;
+Sunday inactives (11:30 ET) are an accepted gap. No Thursday, Monday, or daily
+news runs are scheduled; the 5-day and 8-day freshness limits match this
+cadence.
+
+Card-by-card recovery when a badge is not green:
+
+| Badge | Fix |
+| --- | --- |
+| Lineup: roster changed | `ffb league sync S --from-tracker` → `ffb lineup S --week W --force --publish` |
+| Lineup: newer injury report | `ffb season sync S --source injuries --refresh` → `ffb lineup S --week W --force --publish` |
+| Lineup: N players have no projection | `ffb season sync S --week W --source projections --refresh` → republish lineup |
+| News: LLM skipped | set `ANTHROPIC_API_KEY` or `FFB_ANTHROPIC_API_KEY` → `ffb digest S --publish` |
+| News: stale | news/injury sync → `ffb digest S --publish` |
+| Retro: waiting for actuals | confirm Grok posted `/api/actuals` for week W-1, then `ffb retro S --week W-1 --publish` |
+| Retro: not published | `ffb retro S --week W-1 --publish` |
+| Retro: no sit/start snapshot (CLI error) | not recoverable for that week; `ffb lineup S --week W-1 --force --publish` writes post-hoc advice, which the retro then grades |
+| Rest of season: stale | `ffb season sync S --refresh` → `ffb ros S --publish` |
 
 ## Rebuilding DuckDB
 
@@ -91,7 +163,9 @@ npm run dev
 
 Put `TRACKER_API_KEY=<anything>` in gitignored `tracker/.dev.vars`. Local D1 and
 KV are Miniflare state and are separate from production. Re-export the board and
-rerun `npm run publish:board` after local data changes.
+rerun `npm run publish:board` after local data changes. To fill the local
+`/command` page, point `FFB_TRACKER_URL` at the dev server and run the report
+commands with `--publish`.
 
 ## Production resources and secrets
 
@@ -140,10 +214,13 @@ an authenticated development machine.
 | Tracker domain, API, store, or client | Typecheck, Vitest, client build |
 | Responsive tracker UI | Typecheck, Vitest, client build, Playwright viewport suite |
 | Ingestion fixture, board export/contract, D1, KV, or Worker API | All relevant local checks plus `make test-backend-e2e` |
+| In-season publish envelope, `/api/inseason`, or `/command` | Targeted pytest, tracker typecheck, Vitest, Playwright `command.spec.ts`, and `make test-backend-e2e` |
 | Tracker dependency or lockfile | Run under `nvm use`; commit `tracker/package-lock.json` |
 | Python dependency or lockfile | Update `uv.lock`; verify `uv sync --frozen` |
 
 The backend end-to-end harness generates a real board from committed snapshots,
 publishes it to isolated KV, applies D1 migrations, and exercises the Worker API
-without live network or Cloudflare dependencies. Set `FFB_E2E_KEEP_TMP=1` to
+without live network or Cloudflare dependencies. It also runs the four report
+commands with `--publish` against a local capture server and replays the
+captured envelopes through the real `/api/inseason` routes. Set `FFB_E2E_KEEP_TMP=1` to
 retain temporary state while diagnosing a failure.

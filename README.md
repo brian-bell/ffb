@@ -90,6 +90,13 @@ sit/start numbers. Without `ANTHROPIC_API_KEY` it still prints headlines and
 injury labels; with a key, Haiku adds per-player flags and Sonnet writes a
 short Tuesday-brief paragraph.
 
+`ffb lineup`, `ffb digest`, `ffb retro`, and `ffb ros` accept `--publish` to
+POST the report they just printed to the tracker, where the read-only
+`/command` dashboard shows all four with per-card freshness. `ffb league sync
+--from-tracker` imports the league bundle the tracker last accepted. Both need
+`FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY`; see
+[docs/operations.md](docs/operations.md) for the twice-weekly runbook.
+
 ## Draft tracker
 
 The tracker is a separate TypeScript Cloudflare Worker with its own dependencies
