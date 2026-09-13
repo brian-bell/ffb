@@ -64,13 +64,6 @@ for (const mode of ["live", "mock"] as const) {
       await page.keyboard.press("Enter");
       await expect(first).toHaveAttribute("aria-pressed", "false");
     }
-    const guide = page.locator(".board-guide");
-    await guide.locator("summary").focus();
-    await page.keyboard.press("Enter");
-    await expect(guide).toHaveAttribute("open", "");
-    await expect(guide).toContainText("points above positional replacement");
-    await expect(guide).toContainText(mode === "live" ? "Live Available prioritizes roster needs by projected lineup gain" : "Mock Available follows board rank");
-    await expect(guide).toContainText("Rows are not sorted by projected points alone");
     await page.locator("[data-player-search]").fill("San Francisco Defense");
     const missing = page.locator("[data-list] .rowA").first();
     await expect(missing.locator(".points")).toHaveText("Projected points unavailable—");

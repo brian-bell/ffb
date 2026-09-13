@@ -1,5 +1,5 @@
 import type { DraftState } from "./draft-store";
-import type { Board } from "./types";
+import type { Board, Player } from "./types";
 import { distinctPlayerIdentities, indexPlayerIdentities, normalizedPosition } from "./player-identity";
 import { projectedLineup, rosterFit } from "./roster-fit";
 
@@ -70,5 +70,20 @@ export function liveStarterPriority(draft: DraftState | null, board?: Board): St
     byeConflicts,
     summary: (needs.length ? `Need: ${needs.join(" · ")}` : "Starters filled · Building depth")
       + (incomplete ? " · roster projections incomplete" : ""),
+  };
+}
+
+/** Row order the live board uses once the user owns a pick: measured gain
+ * groups, larger gains first, then board rank softened by bye overlaps. */
+export function lineupPriorityOrder(
+  priority: ReadonlyMap<string, CandidatePriority>,
+  byeConflicts?: ReadonlyMap<string, number>,
+): (a: Player, b: Player) => number {
+  const score = (p: Player): number => p.rank + 5 * (byeConflicts?.get(p.key) ?? 0);
+  return (a, b) => {
+    const left = priority.get(a.key), right = priority.get(b.key);
+    return (left?.group ?? 3) - (right?.group ?? 3)
+      || (right?.gain ?? 0) - (left?.gain ?? 0)
+      || score(a) - score(b) || a.rank - b.rank;
   };
 }

@@ -172,6 +172,40 @@ desktop viewports against committed fixtures. It does not read or mutate local
 Wrangler KV or D1 state. Run `make test-backend-e2e` from the repository root
 when Worker routes, APIs, D1 behavior, or the board boundary change.
 
+## Recommendation backtest
+
+`tracker/src/backtest.ts` scores draft rankers against a completed saved draft
+without network, D1, or KV. A ranker is any `{ name, order(context) }` that
+returns the available pool best-first given the board and the draft state at
+the user's turn. `backtestDraft(saved, board, rankers)` reports two things per
+ranker:
+
+- **Per-turn comparison.** At each recorded own pick, given the actual history
+  to that point, what the ranker would have recommended, whether it agreed with
+  the recorded pick, and the projected starting-lineup gain of each choice
+  against the roster actually held then.
+- **Followed replay.** The whole draft replayed with every own pick following
+  the ranker while every opponent pick stays as recorded. A recorded opponent
+  pick the ranker already took vanishes from that opponent rather than
+  displacing the user. The result is the final projected starting lineup
+  (`projectedLineup` over the board's roster slots; bench never scores).
+
+Built-in rankers are `board` (published rank), `market` (ADP order, as mock
+suggestions use), and `live` (the live Available ordering, sharing
+`lineupPriorityOrder` with the renderer). Output is deterministic for a given
+board and draft. Run it locally against an exported board:
+
+```sh
+cd tracker
+npm run backtest -- --board ../exports/board.json --draft ../drafts/mcffl-2026.json
+npm run backtest -- --json    # machine-readable report
+```
+
+The saved league draft has no frozen projections, so results depend on the
+board you pass; the September 6, 2026 export is the one the draft was made
+with. The saved pick order is Brian's own record and may contain errors. Any replacement ranker must beat `live` on the followed total for that
+draft before it ships.
+
 ## Saved draft replay
 
 Board settings offers **Replay MCFFL 2026 Draft**, using the completed 150-pick
