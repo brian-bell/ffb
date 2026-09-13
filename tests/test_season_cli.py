@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
+from ffb.sources import crosswalk, espn, espn_news, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -26,6 +26,8 @@ def _env(tmp_path):
         ffc.snapshot_key(2024): "ffc_adp_sample.json",
         schedule.snapshot_key(2024): "schedule_sample.json",
         sleeper_players.snapshot_key(): "sleeper_players_injury_sample.json",
+        espn_news.snapshot_key(): "espn_news_sample.json",
+        espn_news.rss_snapshot_key(): "espn_news_rss_sample.json",
     }
     for key, filename in fixtures.items():
         payload = json.loads((FIXTURES / filename).read_text())
@@ -238,7 +240,8 @@ def test_source_selectors_expand_and_deduplicate_without_syncing_adp(tmp_path):
 
 def test_status_json_includes_versioned_snapshot_provenance_and_separate_league(tmp_path):
     env = _env(tmp_path)
-    assert runner.invoke(app, ["season", "sync", "2024", "--offline"], env=env).exit_code == 0
+    synced = runner.invoke(app, ["season", "sync", "2024", "--offline", "--source", "all"], env=env)
+    assert synced.exit_code == 0, synced.output
 
     result = runner.invoke(app, ["season", "status", "2024", "--json"], env=env)
 

@@ -15,17 +15,22 @@ from ffb.ingest import (
     ensure_espn_ingested,
     ensure_ingested,
     ensure_injuries_ingested,
+    ensure_news_ingested,
     ensure_schedule_ingested,
 )
 from ffb.league_context import load_league_context
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import crosswalk, espn, ffc, schedule, sleeper, sleeper_players
+from ffb.sources import crosswalk, espn, espn_news, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
 log = logging.getLogger(__name__)
 
 DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries")
-ALL_SOURCES = ("crosswalk", *DEFAULT_SOURCES)
+# Opt-in sources: not synced by a bare ``season sync`` and not required for
+# ``complete`` until they have been synced at least once.
+OPTIONAL_SOURCES = ("news",)
+SYNCABLE_SOURCES = (*DEFAULT_SOURCES, *OPTIONAL_SOURCES)
+ALL_SOURCES = ("crosswalk", *SYNCABLE_SOURCES)
 SOURCE_KIND = {
     "crosswalk": "identity",
     "sleeper": "projections",
@@ -33,6 +38,7 @@ SOURCE_KIND = {
     "ffc": "adp",
     "schedule": "schedule",
     "injuries": "injuries",
+    "news": "news",
 }
 
 
@@ -46,11 +52,12 @@ class SyncResult:
 
 
 def expand_sources(selectors: list[str] | None) -> list[str]:
-    selected = selectors or ["all"]
+    selected = selectors or ["default"]
     if "all" in selected and len(selected) > 1:
         raise ValueError("'all' cannot be combined with other source selectors")
     expansion = {
-        "all": DEFAULT_SOURCES,
+        "default": DEFAULT_SOURCES,
+        "all": SYNCABLE_SOURCES,
         "projections": ("sleeper", "espn"),
         "adp": ("ffc",),
         "sleeper": ("sleeper",),
@@ -58,6 +65,7 @@ def expand_sources(selectors: list[str] | None) -> list[str]:
         "ffc": ("ffc",),
         "schedule": ("schedule",),
         "injuries": ("injuries",),
+        "news": ("news",),
     }
     output: list[str] = []
     for selector in selected:
@@ -131,6 +139,7 @@ class SeasonDataService:
             "ffc": ffc.snapshot_key(season, teams=league.num_teams),
             "schedule": schedule.snapshot_key(season),
             "injuries": sleeper_players.snapshot_key(),
+            "news": espn_news.snapshot_key(),
         }[source]
         force_rebuild = rebuild or not self.cache.has(snapshot_key)
         log.info(
@@ -189,6 +198,16 @@ class SeasonDataService:
                     policy=policy,
                     now=self.clock().astimezone(UTC),
                     fetch=self.fetchers.get(source),
+                )
+            elif source == "news":
+                ensure_news_ingested(
+                    self.store,
+                    self.cache,
+                    season,
+                    refresh=refresh,
+                    policy=policy,
+                    fetch=self.fetchers.get(source),
+                    fetch_rss=self.fetchers.get("news_rss"),
                 )
             else:
                 ensure_adp_ingested(
@@ -358,6 +377,11 @@ class SeasonDataService:
                     and bool(row_count)
                     and self.store.has_stale_injury_resolution(season)
                 )
+                or (
+                    source == "news"
+                    and bool(row_count)
+                    and self.store.has_stale_news_resolution(season)
+                )
             )
             sources.append(
                 {
@@ -385,7 +409,9 @@ class SeasonDataService:
             "version": 1,
             "season": season,
             "complete": all(
-                source["state"] == "ready" and not source["stale"] for source in sources
+                source["state"] == "ready" and not source["stale"]
+                for source in sources
+                if source["name"] not in OPTIONAL_SOURCES or source["state"] != "missing"
             ),
             "sources": sources,
             "league": {
@@ -396,6 +422,6 @@ class SeasonDataService:
         }
 
     def unmatched(self, season: int, source: str | None = None) -> list[dict[str, Any]]:
-        if source is not None and source not in DEFAULT_SOURCES:
+        if source is not None and source not in SYNCABLE_SOURCES:
             raise ValueError(f"unknown unmatched source: {source}")
         return self.store.unmatched_rows(season, source)
