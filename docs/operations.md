@@ -80,8 +80,8 @@ the CLI from the repository root with `FFB_TRACKER_URL` and
 never runs `season sync` against Yahoo; the free sources are fetched by the
 CLI. Scheduling itself lives outside this repository (`ffb-8yi`).
 
-**Wednesday 07:00 ET, week roll.** Yahoo has rolled the week and applied
-Monday's stat corrections.
+**Wednesday 10:00 ET, week roll.** Mid-morning gives Yahoo slack to roll the
+week and apply Monday's stat corrections.
 
 1. Grok posts the week `W-1` `WeeklyActualsBundle` to `POST /api/actuals`.
 2. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
@@ -100,8 +100,9 @@ Retro runs first: it pulls actuals from the Worker and grades the locked `W-1`
 snapshot. If the actuals scrape lags, retry retro alone later. Lineup runs
 after league sync and writes the week `W` snapshot.
 
-**Sunday 10:00 ET, pre-kickoff refresh.** Late enough for Friday and Saturday
-injury designations, early enough to act before the 1 PM slate.
+**Sunday 07:00 ET, pre-kickoff refresh.** Early enough to act before the
+9:30 AM ET international games; Friday and Saturday injury designations are
+already in.
 
 1. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
 2. Grok runs, in order:
@@ -115,7 +116,7 @@ ffb digest S --publish
 
 `--force` replaces the Wednesday snapshot so retro grades the last advice that
 was actionable before kickoff. Thursday night players get Wednesday's advice;
-Sunday inactives (11:30 ET) are an accepted gap. No Thursday, Monday, or daily
+Sunday inactives (90 minutes before each kickoff) are an accepted gap. No Thursday, Monday, or daily
 news runs are scheduled; the 5-day and 8-day freshness limits match this
 cadence.
 

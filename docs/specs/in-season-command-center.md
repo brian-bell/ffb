@@ -299,9 +299,10 @@ Yahoo; the free sources (Sleeper, ESPN, FFC, nflverse) are fetched by the CLI.
 This replaces the current Wednesday and Sunday league bundle refresh, which
 stays as steps 1 and 2 of each run.
 
-### Wednesday 07:00 ET — week roll
+### Wednesday 10:00 ET — week roll
 
-Yahoo has rolled the week and applied Monday's stat corrections.
+Mid-morning gives Yahoo slack to roll the week and apply Monday's stat
+corrections.
 
 1. Grok posts the week `W-1` `WeeklyActualsBundle` to `POST /api/actuals`.
 2. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
@@ -323,11 +324,11 @@ the week `W` snapshot.
 
 Updates: Retro, Rest of season, Lineup, News.
 
-### Sunday 10:00 ET — pre-kickoff refresh
+### Sunday 07:00 ET — pre-kickoff refresh
 
-Late enough for Friday and Saturday injury designations, early enough to act
-before the 1 PM slate. Sunday inactives (11:30 ET) are out of reach at this
-cadence and are an accepted gap.
+Early enough to act before the 9:30 AM ET international games; Friday and
+Saturday injury designations are already in. Sunday inactives (90 minutes
+before each kickoff) are out of reach at this cadence and are an accepted gap.
 
 1. Grok posts the week `W` `LeagueBundle` to `POST /api/league/bundle`.
 2. Grok runs, in order:
@@ -417,7 +418,7 @@ Settled on 2026-09-13 (kept for the record):
 - **Which lineup does retro grade?** The Sunday run uses `--force`, so retro
   grades the last advice actionable before kickoff. Wednesday's snapshot is a
   draft that Sunday replaces.
-- **Cadence.** Two runs per week, Wednesday 07:00 ET and Sunday 10:00 ET. No
+- **Cadence.** Two runs per week, Wednesday 10:00 ET and Sunday 07:00 ET. No
   daily news run and no short-slate runs.
 
 Still open:
