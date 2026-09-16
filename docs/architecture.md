@@ -82,7 +82,8 @@ one-time pull from the Worker's `GET /api/actuals`) and never stores actuals in
 DuckDB. The retro report keeps two additive metrics: **advice**
 (`recommended_total` / `delta`) is snapshotted sit/start vs who started, and
 **hindsight** (`hindsight_total` / `hindsight_delta`) is the greedy actuals
-optimum from the snapshotted roster vs who started. `ffb digest` is a
+optimum from the snapshotted roster vs who started, ranked on unrounded
+actual points rather than display tenths. `ffb digest` is a
 read-time headline report: stored ESPN/RSS articles
 plus Sleeper injury labels for the user roster and unrostered mentions.
 Haiku/Sonnet add flags and Tuesday-brief prose when an Anthropic key is

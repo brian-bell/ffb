@@ -167,7 +167,9 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
 
     snapshot_ids = {_identity(row) for row in snapshot["players"]}
     hindsight_optimal = _assign_optimal(
-        _hindsight_pool(snapshot["players"], by_id), snapshot["roster_slots"]
+        _hindsight_pool(snapshot["players"], by_id),
+        snapshot["roster_slots"],
+        use_display_points=False,
     )
     hindsight_total = _sum_actuals(hindsight_optimal, by_id)
     started_on_snapshot = {ident for ident in started_ids if ident in snapshot_ids}

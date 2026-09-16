@@ -478,6 +478,47 @@ def test_retro_hindsight_skips_swap_when_actuals_are_missing():
     assert retro["hindsight_delta"] == 0.0
 
 
+def test_retro_hindsight_ranks_on_unrounded_actual_points():
+    snapshot = _snapshot(
+        [
+            _player(
+                yahoo_player_id="starter",
+                yahoo_player_key="1.p.starter",
+                full_name="Starter Back",
+                primary_position="RB",
+                selected_position="RB",
+                player_key="starter",
+                matched=True,
+            ),
+            _player(
+                yahoo_player_id="bench",
+                yahoo_player_key="1.p.bench",
+                full_name="Bench Back",
+                primary_position="RB",
+                selected_position="BN",
+                player_key="bench",
+                matched=True,
+            ),
+        ],
+        [_consensus("starter", 11.0), _consensus("bench", 9.0)],
+        {"RB": 1, "BN": 1},
+    )
+    retro = retro_report(
+        snapshot,
+        _bundle(
+            [
+                _actual_row("starter", "Starter Back", "RB", 10.0),
+                _actual_row("bench", "Bench Back", "BN", 10.04),
+            ]
+        ),
+    )
+    assert [row["name"] for row in retro["hindsight_start"]] == ["Bench Back"]
+    assert [row["name"] for row in retro["hindsight_sit"]] == ["Starter Back"]
+    assert retro["hindsight_total"] == 10.04
+    assert retro["started_total"] == 10.0
+    assert retro["hindsight_delta"] == 0.04
+
+
 def test_retro_hindsight_tied_actuals_prefer_the_started_player():
     snapshot = _snapshot(
         [
