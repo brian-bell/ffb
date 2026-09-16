@@ -210,18 +210,35 @@ function delta(rowValue: RetroRow): string {
   return rowValue.actual == null || rowValue.projected == null ? "—" : signed(rowValue.actual - rowValue.projected);
 }
 
+function retroId(row: RetroRow): string {
+  return row.yahoo_player_id || row.name;
+}
+
 function renderRetro(current: InseasonView, now: number): HTMLElement {
   const freshness = cardFreshness("retro", current, now);
   const envelope = current.cards.retro.envelope as Retro | null;
   if (!envelope) return cardShell("retro", freshness, null, now, emptyBody("retro", freshness, current));
   const report: RetroReport = envelope.report;
-  const headline = el("div", { class: "head" },
+  const headlineKids: HTMLElement[] = [
     el("b", { class: report.delta > 0 ? "bad" : "good", "data-headline": "", text: signed(-report.delta) }),
-    el("span", { text: `started vs advice · ${matchupResult(report.matchup)}` }),
-  );
+  ];
+  if (typeof report.hindsight_delta === "number" && report.hindsight_delta > report.delta) {
+    headlineKids.push(el("b", { class: "muted", "data-hindsight": "", text: signed(-report.hindsight_delta) }));
+  }
+  headlineKids.push(el("span", { text: `started vs advice · ${matchupResult(report.matchup)}` }));
+  const headline = el("div", { class: "head" }, ...headlineKids);
+  const adviceIds = new Set([...report.start_misses, ...report.sit_misses].map(retroId));
   const rows = el("ul", { class: "rows" });
   for (const player of report.start_misses) rows.appendChild(row("miss", "miss", player.name, "advised start · benched", delta(player)));
   for (const player of report.sit_misses) rows.appendChild(row("miss", "miss", player.name, "advised sit · started", delta(player)));
+  for (const player of report.hindsight_start ?? []) {
+    if (adviceIds.has(retroId(player))) continue;
+    rows.appendChild(row("hind", "hind", player.name, "hindsight start · benched", pts(player.actual)));
+  }
+  for (const player of report.hindsight_sit ?? []) {
+    if (adviceIds.has(retroId(player))) continue;
+    rows.appendChild(row("hind", "hind", player.name, "hindsight sit · started", pts(player.actual)));
+  }
   for (const player of report.start_hits.slice(0, 2)) rows.appendChild(row("hit", "hit", player.name, "started as advised", pts(player.actual), "good"));
   for (const player of report.sit_hits.slice(0, 2)) rows.appendChild(row("hit", "hit", player.name, "benched as advised", pts(player.actual), "good"));
   if (!rows.childElementCount) rows.appendChild(row("ok", "hit", "No sit/start swaps in the advice snapshot.", null, ""));
@@ -383,8 +400,11 @@ function panelRetro(envelope: Retro): HTMLElement[] {
   const report = envelope.report;
   const body: HTMLElement[] = [];
   body.push(provenance([["graded", fmtTime(envelope.generated_at)], ["actuals synced", fmtTime(envelope.context.actuals_synced_at)], ["week", String(envelope.week)]]));
-  body.push(el("p", { class: "note", text: "A hit means the started lineup followed the advice; a miss means it did not." }));
+  body.push(el("p", { class: "note", text: "A hit means the started lineup followed the advice; a miss means it did not. Hindsight is the best actuals lineup from the snapshotted roster." }));
   body.push(el("p", { text: `Advised lineup ${pts(report.recommended_total)} · started ${pts(report.started_total)} · left on bench ${signed(report.delta)} · ${matchupResult(report.matchup)}` }));
+  if (typeof report.hindsight_total === "number") {
+    body.push(el("p", { text: `Hindsight ${pts(report.hindsight_total)} · started ${pts(report.hindsight_started_total ?? report.started_total)} · left on bench ${signed(report.hindsight_delta ?? 0)}` }));
+  }
   const grades = (title: string, list: RetroRow[], cls: string): void => {
     body.push(el("h3", { text: `${title} (${list.length})` }));
     body.push(list.length
@@ -395,6 +415,10 @@ function panelRetro(envelope: Retro): HTMLElement[] {
   grades("Start misses", report.start_misses, "bad");
   grades("Sit hits", report.sit_hits, "good");
   grades("Sit misses", report.sit_misses, "bad");
+  if (report.hindsight_start || report.hindsight_sit) {
+    grades("Hindsight start", report.hindsight_start ?? [], "bad");
+    grades("Hindsight sit", report.hindsight_sit ?? [], "bad");
+  }
   body.push(el("h3", { text: "Source accuracy" }));
   body.push(report.source_accuracy.length
     ? table([{ h: "Source" }, { h: "n", num: true }, { h: "MAE", num: true }, { h: "Bias", num: true }], report.source_accuracy.map((source) => [source.source, String(source.n), source.mae.toFixed(2), signed(source.bias)]))

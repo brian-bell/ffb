@@ -132,7 +132,11 @@ All routes use the existing bearer-key gate.
 
 `POST /api/inseason/{kind}` validates the envelope and a minimal closed shape
 for `report` (required top-level keys and types for that kind; player rows are
-checked for the fields the page renders). It stores the body under:
+checked for the fields the page renders). Retro hindsight keys
+(`hindsight_total`, `hindsight_started_total`, `hindsight_delta`,
+`hindsight_start`, `hindsight_sit`) are an all-or-none optional extension:
+absent is a pre-hindsight schema-v1 envelope; if any key is present, all five
+are required and typed. New CLI publishes include them. It stores the body under:
 
 ```text
 inseason:v1:{season}:{kind}:{week}
@@ -258,11 +262,19 @@ retro, rest of season) without phone-specific design work.
 | --- | --- | --- | --- |
 | Lineup | `delta` to optimal, current vs optimal totals | `start`, `sit`, `undecidable`, top `close_calls` | aligned slot table, all close calls, missing projections, injury timestamp, projection sources |
 | News | count of flagged roster players | roster players with `flag` or injury badge, first sentence of `narrative` | full narrative, roster and watch lists with notes and headlines, other headlines, `news_as_of` |
-| Retro | `delta` recommended vs started, matchup score | start/sit hits and misses | all four hit/miss lists, source accuracy table, missing actuals |
+| Retro | `delta` recommended vs started, matchup score; muted second figure when `hindsight_delta` > `delta` | advice start/sit misses, then hindsight start/sit not already in the advice lists, then advice hits | all four hit/miss lists, hindsight start/sit, source accuracy table, missing actuals |
 | Rest of season | playoff weeks and roster exposure | next `bye_plan` group with `thin_positions`, rostered players' playoff difficulty | ROS table with position filter, playoff schedule strength, full bye plan, usage note |
 
 Retro hit and miss labels follow the report: a "hit" means the started lineup
 followed the advice; a "miss" means it did not. The panel says so in one line.
+Hindsight is a second metric: the greedy actuals-optimal lineup from the
+snapshotted roster (`hindsight_total`), ranked on unrounded actual points.
+`hindsight_delta` compares it to `hindsight_started_total`, the started
+players who were on the snapshot roster, so waiver adds are ignored on both
+sides. The headline stays the advice Δ (`signed(-delta)`). Pool membership
+follows the actuals: players on IR/IL at game time and players dropped to
+another team stay out. `missing_actuals` covers every pool player without an
+actuals row, not only advised or started players.
 
 `narrative`, notes, and headlines are LLM or third-party text. The client
 renders them with `textContent`, never HTML. Headline links open in a new tab

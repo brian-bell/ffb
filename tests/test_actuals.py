@@ -36,7 +36,7 @@ def test_actuals_accepts_the_committed_minimal_fixture():
     assert bundle.league["week"] == 1
     assert bundle.league["season"] == 2024
     assert len(bundle.matchups) == 1
-    assert len(bundle.players) == 6
+    assert len(bundle.players) == 7
 
 
 def test_actuals_rejects_season_mismatch():

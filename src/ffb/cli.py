@@ -1318,6 +1318,18 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
         )
 
 
+def _row_ids(rows: list[dict]) -> set[str]:
+    return {str(row.get("yahoo_player_id") or "") for row in rows}
+
+
+def _hindsight_matches_advice(report: dict) -> bool:
+    if "hindsight_start" not in report or "hindsight_sit" not in report:
+        return False
+    return _row_ids(report.get("hindsight_start") or []) == _row_ids(
+        report["start_misses"]
+    ) and _row_ids(report.get("hindsight_sit") or []) == _row_ids(report["sit_misses"])
+
+
 def _render_retro(report: dict) -> None:
     """Print recommended vs started actuals, sit/start hits, and source accuracy."""
     week = report["week"]
@@ -1327,10 +1339,22 @@ def _render_retro(report: dict) -> None:
         f"Started {report['started_total']:.1f}   "
         f"Δ {report['delta']:+.1f}"
     )
+    if "hindsight_total" in report:
+        console.print(
+            f"Hindsight {report['hindsight_total']:.1f}   "
+            f"Started {report['hindsight_started_total']:.1f}   "
+            f"Δ {report['hindsight_delta']:+.1f}"
+        )
     matchup = report.get("matchup")
     if matchup:
         console.print(f"Scoreboard {matchup['user_points']:.1f}–{matchup['opponent_points']:.1f}")
-    if report["start_hits"] or report["start_misses"] or report["sit_hits"] or report["sit_misses"]:
+    advice_swaps = (
+        report["start_hits"] or report["start_misses"] or report["sit_hits"] or report["sit_misses"]
+    )
+    hindsight_start = report.get("hindsight_start") or []
+    hindsight_sit = report.get("hindsight_sit") or []
+    hindsight_swaps = hindsight_start or hindsight_sit
+    if advice_swaps:
         for row in report["start_hits"]:
             console.print(
                 f"[green]Start hit[/green] {row['name']} "
@@ -1351,8 +1375,25 @@ def _render_retro(report: dict) -> None:
                 f"[red]Sit miss[/red] {row['name']} "
                 f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
             )
-    else:
+    elif not hindsight_swaps:
         console.print("[green]No sit/start swaps in the advice snapshot.[/green]")
+    advice_ids = _row_ids(report["start_misses"]) | _row_ids(report["sit_misses"])
+    for row in hindsight_start:
+        if _row_ids([row]) <= advice_ids:
+            continue
+        console.print(
+            f"[red]Hindsight start[/red] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+        )
+    for row in hindsight_sit:
+        if _row_ids([row]) <= advice_ids:
+            continue
+        console.print(
+            f"[red]Hindsight sit[/red] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+        )
+    if hindsight_swaps and _hindsight_matches_advice(report):
+        console.print("[green]Advice matched hindsight.[/green]")
     if report["source_accuracy"]:
         table = Table(title=f"Week {week} source accuracy")
         table.add_column("Source")
@@ -1371,7 +1412,7 @@ def _render_retro(report: dict) -> None:
         names = ", ".join(row["name"] for row in report["missing_actuals"][:8])
         more = "…" if len(report["missing_actuals"]) > 8 else ""
         console.print(
-            f"[yellow]⚠ {len(report['missing_actuals'])} advised player(s) "
+            f"[yellow]⚠ {len(report['missing_actuals'])} rostered player(s) "
             f"have no weekly actuals: {names}{more}[/yellow]"
         )
 

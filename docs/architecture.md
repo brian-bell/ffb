@@ -79,7 +79,12 @@ backfills only with `--force`; `ffb retro --fixture` likewise refuses to
 replace differing locked actuals without `--force`; `ffb retro` joins that
 advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, or a
 one-time pull from the Worker's `GET /api/actuals`) and never stores actuals in
-DuckDB. `ffb digest` is a read-time headline report: stored ESPN/RSS articles
+DuckDB. The retro report keeps two additive metrics: **advice**
+(`recommended_total` / `delta`) is snapshotted sit/start vs who started, and
+**hindsight** (`hindsight_total` / `hindsight_delta`) is the greedy actuals
+optimum from the snapshotted roster vs the started players on that roster,
+ranked on unrounded actual points rather than display tenths. `ffb digest` is a
+read-time headline report: stored ESPN/RSS articles
 plus Sleeper injury labels for the user roster and unrostered mentions.
 Haiku/Sonnet add flags and Tuesday-brief prose when an Anthropic key is
 present; headlines never enter scoring, consensus, VORP, or sit/start math.

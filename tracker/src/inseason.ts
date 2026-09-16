@@ -76,6 +76,7 @@ export interface DigestReport {
 }
 
 export interface RetroRow {
+  yahoo_player_id?: string;
   name: string;
   slot: string | null;
   projected: number | null;
@@ -90,6 +91,11 @@ export interface RetroReport {
   start_misses: RetroRow[];
   sit_hits: RetroRow[];
   sit_misses: RetroRow[];
+  hindsight_total?: number;
+  hindsight_started_total?: number;
+  hindsight_delta?: number;
+  hindsight_start?: RetroRow[];
+  hindsight_sit?: RetroRow[];
   missing_actuals: Array<{ name: string; yahoo_player_id?: string }>;
   source_accuracy: Array<{ source: string; n: number; mae: number; bias: number }>;
   matchup: { user_points: number; opponent_points: number; opponent_team_key?: string } | null;
@@ -338,11 +344,30 @@ function retroRow(value: unknown, label: string): void {
   nullableNum(row.actual ?? null, `${label}.actual`);
 }
 
+const RETRO_HINDSIGHT_KEYS = [
+  "hindsight_total",
+  "hindsight_started_total",
+  "hindsight_delta",
+  "hindsight_start",
+  "hindsight_sit",
+] as const;
+
 function retroReport(value: unknown): void {
   const report = obj(value, "report");
   requireKeys(
     report,
-    ["recommended_total", "started_total", "delta", "start_hits", "start_misses", "sit_hits", "sit_misses", "missing_actuals", "source_accuracy", "matchup"],
+    [
+      "recommended_total",
+      "started_total",
+      "delta",
+      "start_hits",
+      "start_misses",
+      "sit_hits",
+      "sit_misses",
+      "missing_actuals",
+      "source_accuracy",
+      "matchup",
+    ],
     "report",
   );
   num(report.recommended_total, "report.recommended_total");
@@ -350,6 +375,16 @@ function retroReport(value: unknown): void {
   num(report.delta, "report.delta");
   for (const field of ["start_hits", "start_misses", "sit_hits", "sit_misses"] as const) {
     list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));
+  }
+  const hindsightPresent = RETRO_HINDSIGHT_KEYS.filter((key) => key in report);
+  if (hindsightPresent.length > 0) {
+    requireKeys(report, RETRO_HINDSIGHT_KEYS, "report");
+    num(report.hindsight_total, "report.hindsight_total");
+    num(report.hindsight_started_total, "report.hindsight_started_total");
+    num(report.hindsight_delta, "report.hindsight_delta");
+    for (const field of ["hindsight_start", "hindsight_sit"] as const) {
+      list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));
+    }
   }
   list(report.missing_actuals, "report.missing_actuals").forEach((raw, i) => {
     str(obj(raw, `report.missing_actuals[${i}]`).name, `report.missing_actuals[${i}].name`);

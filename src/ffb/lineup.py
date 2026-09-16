@@ -191,13 +191,16 @@ def _counted_points(row: dict[str, Any]) -> float:
     return float(row["points"] or 0.0)
 
 
-def _points_sort_key(player: dict[str, Any]) -> tuple[int, float, int, str]:
+def _points_sort_key(
+    player: dict[str, Any], *, use_display_points: bool = True
+) -> tuple[int, float, int, str]:
     points = player.get("points")
     non_starter = 0 if is_starter(player.get("selected_position")) else 1
     name = player.get("name") or ""
     if points is None:
         return (1, 0.0, non_starter, name)
-    return (0, -_display_points(points), non_starter, name)
+    ranked = _display_points(points) if use_display_points else float(points)
+    return (0, -ranked, non_starter, name)
 
 
 def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
@@ -244,10 +247,18 @@ def _expand_current(players: list[dict[str, Any]], roster_slots: dict[str, int])
     return rows
 
 
-def _assign_optimal(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> list[dict]:
+def _assign_optimal(
+    players: list[dict[str, Any]],
+    roster_slots: dict[str, int],
+    *,
+    use_display_points: bool = True,
+) -> list[dict]:
     open_counts = dict(starting_slot_counts(roster_slots))
     assigned: list[tuple[str, dict[str, Any]]] = []
-    for player in sorted(players, key=_points_sort_key):
+    for player in sorted(
+        players,
+        key=lambda row: _points_sort_key(row, use_display_points=use_display_points),
+    ):
         if player.get("points") is None or is_unavailable(player):
             continue
         slot = _claim_slot(player, open_counts)
