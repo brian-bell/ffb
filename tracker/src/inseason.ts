@@ -343,6 +343,13 @@ function retroRow(value: unknown, label: string): void {
   nullableNum(row.actual ?? null, `${label}.actual`);
 }
 
+const RETRO_HINDSIGHT_KEYS = [
+  "hindsight_total",
+  "hindsight_delta",
+  "hindsight_start",
+  "hindsight_sit",
+] as const;
+
 function retroReport(value: unknown): void {
   const report = obj(value, "report");
   requireKeys(
@@ -355,10 +362,6 @@ function retroReport(value: unknown): void {
       "start_misses",
       "sit_hits",
       "sit_misses",
-      "hindsight_total",
-      "hindsight_delta",
-      "hindsight_start",
-      "hindsight_sit",
       "missing_actuals",
       "source_accuracy",
       "matchup",
@@ -368,17 +371,17 @@ function retroReport(value: unknown): void {
   num(report.recommended_total, "report.recommended_total");
   num(report.started_total, "report.started_total");
   num(report.delta, "report.delta");
-  num(report.hindsight_total, "report.hindsight_total");
-  num(report.hindsight_delta, "report.hindsight_delta");
-  for (const field of [
-    "start_hits",
-    "start_misses",
-    "sit_hits",
-    "sit_misses",
-    "hindsight_start",
-    "hindsight_sit",
-  ] as const) {
+  for (const field of ["start_hits", "start_misses", "sit_hits", "sit_misses"] as const) {
     list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));
+  }
+  const hindsightPresent = RETRO_HINDSIGHT_KEYS.filter((key) => key in report);
+  if (hindsightPresent.length > 0) {
+    requireKeys(report, RETRO_HINDSIGHT_KEYS, "report");
+    num(report.hindsight_total, "report.hindsight_total");
+    num(report.hindsight_delta, "report.hindsight_delta");
+    for (const field of ["hindsight_start", "hindsight_sit"] as const) {
+      list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));
+    }
   }
   list(report.missing_actuals, "report.missing_actuals").forEach((raw, i) => {
     str(obj(raw, `report.missing_actuals[${i}]`).name, `report.missing_actuals[${i}].name`);

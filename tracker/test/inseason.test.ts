@@ -111,13 +111,6 @@ describe("parseEnvelope", () => {
     retro.report.matchup = { user_points: "41.5", opponent_points: 18 };
     expect(parseEnvelope(retro, "retro").ok).toBe(false);
 
-    const hindsight = clone(retroFixture) as { report: Record<string, unknown> };
-    delete hindsight.report.hindsight_total;
-    expect(parseEnvelope(hindsight, "retro")).toMatchObject({
-      ok: false,
-      message: expect.stringContaining("hindsight_total"),
-    });
-
     const ros = clone(rosFixture) as { report: { usage_available: unknown } };
     ros.report.usage_available = "no";
     expect(parseEnvelope(ros, "ros").ok).toBe(false);
@@ -127,6 +120,28 @@ describe("parseEnvelope", () => {
     const ros = clone(rosFixture) as { report: Record<string, unknown> };
     ros.report.future_field = { anything: true };
     expect(parseEnvelope(ros, "ros").ok).toBe(true);
+  });
+
+  it("treats retro hindsight keys as an all-or-none optional extension", () => {
+    const legacy = clone(retroFixture) as { report: Record<string, unknown> };
+    for (const key of ["hindsight_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
+      delete legacy.report[key];
+    }
+    expect(parseEnvelope(legacy, "retro")).toMatchObject({ ok: true });
+
+    const partial = clone(retroFixture) as { report: Record<string, unknown> };
+    delete partial.report.hindsight_total;
+    expect(parseEnvelope(partial, "retro")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("hindsight_total"),
+    });
+
+    const badType = clone(retroFixture) as { report: Record<string, unknown> };
+    badType.report.hindsight_delta = "1.0";
+    expect(parseEnvelope(badType, "retro")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("hindsight_delta"),
+    });
   });
 });
 
@@ -317,5 +332,19 @@ describe("Worker GET /api/inseason", () => {
     const res = await view("?season=2024&week=1");
     expect(res.status).toBe(200);
     expect(res.body.cards.ros.envelope).toBeNull();
+  });
+
+  it("loads a pre-hindsight schema-v1 retro already in KV", async () => {
+    const envelope = clone(FIXTURES.retro) as { report: Record<string, unknown> };
+    for (const key of ["hindsight_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
+      delete envelope.report[key];
+    }
+    await env.BOARD.put(inseasonKey(2024, "retro", 1), JSON.stringify(envelope));
+    const week2 = await view("?season=2024&week=2");
+    expect(week2.status).toBe(200);
+    expect(week2.body.cards.retro.envelope?.week).toBe(1);
+    const report = week2.body.cards.retro.envelope?.report as Record<string, unknown> | undefined;
+    expect(report?.hindsight_total).toBeUndefined();
+    expect(report?.delta).toBe(21);
   });
 });
