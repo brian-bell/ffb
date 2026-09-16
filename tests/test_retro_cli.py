@@ -401,3 +401,107 @@ def test_retro_fixture_refuses_to_replace_different_actuals_unless_forced(tmp_pa
     forced = runner.invoke(app, ["retro", "2024", "--fixture", str(path), "--force"], env=env)
     assert forced.exit_code == 0, forced.output
     assert cache.read_json(actuals_snapshot_key(2024, 1))["players"] != original["players"]
+
+
+def _capture_render(monkeypatch, report):
+    from io import StringIO
+
+    from rich.console import Console
+
+    from ffb import cli
+
+    buf = StringIO()
+    monkeypatch.setattr(cli, "console", Console(file=buf, color_system=None, highlight=False))
+    cli._render_retro(report)
+    return buf.getvalue()
+
+
+def _retro_render(**changes):
+    report = {
+        "week": 1,
+        "team_name": "Brian's Team",
+        "recommended_total": 10.0,
+        "started_total": 10.0,
+        "delta": 0.0,
+        "hindsight_total": 16.8,
+        "hindsight_delta": 6.8,
+        "start_hits": [],
+        "start_misses": [],
+        "sit_hits": [],
+        "sit_misses": [],
+        "hindsight_start": [
+            {
+                "name": "Malik Washington",
+                "actual": 16.8,
+                "projected": 8.0,
+                "yahoo_player_id": "40393",
+            }
+        ],
+        "hindsight_sit": [
+            {
+                "name": "Rico Dowdle",
+                "actual": 3.1,
+                "projected": 12.0,
+                "yahoo_player_id": "40904",
+            }
+        ],
+        "source_accuracy": [],
+        "missing_actuals": [],
+        "matchup": None,
+    }
+    report.update(changes)
+    return report
+
+
+def test_retro_cli_keeps_recommended_and_adds_hindsight_line(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    _ready_lineup(env)
+    result = runner.invoke(app, ["retro", "2024", "--fixture", str(ACTUALS)], env=env)
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.output.split())
+    assert "Recommended 46.5" in output
+    assert "Hindsight" in result.output
+    assert "Started 25.5" in output
+
+
+def test_retro_cli_does_not_print_only_no_swaps_when_hindsight_disagrees(monkeypatch):
+    output = _capture_render(monkeypatch, _retro_render())
+    assert "Recommended 10.0" in output
+    assert "Hindsight 16.8" in output
+    assert "Malik Washington" in output
+    assert "Rico Dowdle" in output
+    assert "No sit/start swaps in the advice snapshot." not in output
+    assert "Advice matched hindsight." not in output
+
+
+def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
+    miss = {
+        "name": "Good Def",
+        "actual": 10.0,
+        "projected": 12.0,
+        "yahoo_player_id": "100002",
+    }
+    sit = {
+        "name": "Bad Def",
+        "actual": 4.0,
+        "projected": 8.0,
+        "yahoo_player_id": "100001",
+    }
+    output = _capture_render(
+        monkeypatch,
+        _retro_render(
+            recommended_total=10.0,
+            started_total=4.0,
+            delta=6.0,
+            hindsight_total=10.0,
+            hindsight_delta=6.0,
+            start_misses=[miss],
+            sit_misses=[sit],
+            hindsight_start=[miss],
+            hindsight_sit=[sit],
+        ),
+    )
+    assert "Recommended 10.0" in output
+    assert "Hindsight 10.0" in output
+    assert "Start miss" in output
+    assert "Advice matched hindsight." in output
