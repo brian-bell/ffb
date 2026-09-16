@@ -229,6 +229,29 @@ The header strip shows `Week W`, the team name, and "Oldest source: {card},
 from `context.snapshot_generated_at`, because `ffb lineup` does not replace a
 locked snapshot without `--force` even when it publishes a newer report.
 
+### Retro hindsight (ffb-2)
+
+The retro report stays schema v1. Python adds four fields without renaming
+`recommended_total` or `delta`:
+
+| Key | Meaning |
+| --- | --- |
+| `hindsight_total` | Actual points of the greedy optimum over the snapshot roster |
+| `hindsight_delta` | `hindsight_total - started_total` |
+| `hindsight_start` | Set-diff: hindsight starters who were not started |
+| `hindsight_sit` | Set-diff: started players who are not in the hindsight optimum |
+
+Hindsight reuses lineup `_assign_optimal` on actual points overlaid onto the
+snapshot `players` + `roster_slots`. Identity is `yahoo_player_id`. IR/IL
+slots are unstartable even if those players scored. Waiver adds that appear
+only in actuals never enter the hindsight pool. The card headline remains the
+advice Δ (`started vs advice`); hindsight is a muted second line. CLI still
+prints `Recommended`. Worker ingest requires the four keys; the page treats
+them as optional so a pre-hindsight stored document still renders.
+
+Republish with `ffb retro S --week W-1 --publish` once a sit/start snapshot and
+actuals snapshot exist for that week.
+
 ## Page
 
 Route `GET /command` serves static HTML and a client bundle, same as `/` and

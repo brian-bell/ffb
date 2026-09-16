@@ -439,7 +439,11 @@ and `FFB_TRACKER_API_KEY`) the CLI uses when no local snapshot exists. The CLI
 snapshots accepted bundles under `snapshots/actuals/` and never writes actuals
 to DuckDB. `ffb lineup`
 snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
-by `yahoo_player_id`.
+by `yahoo_player_id`. The join still grades advice vs started; it also overlays
+actual points onto the snapshot `players` and re-runs the sit/start greedy
+assignment for hindsight totals and start/sit set-diffs. IR/IL slots cannot
+start even if they scored. Players who appear only in actuals (adds after the
+snapshot) are ignored for the hindsight pool.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors

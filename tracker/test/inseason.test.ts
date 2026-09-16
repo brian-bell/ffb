@@ -121,6 +121,16 @@ describe("parseEnvelope", () => {
     ros.report.future_field = { anything: true };
     expect(parseEnvelope(ros, "ros").ok).toBe(true);
   });
+
+  it("requires retro hindsight keys after the additive publish", () => {
+    const retro = clone(retroFixture) as { report: Record<string, unknown> };
+    expect(parseEnvelope(retro, "retro").ok).toBe(true);
+    delete retro.report.hindsight_total;
+    expect(parseEnvelope(retro, "retro")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("hindsight_total"),
+    });
+  });
 });
 
 describe("inseason keys", () => {

@@ -200,6 +200,13 @@ also carries `league` (`synced_at` and `current_week` from
 published week; when `season` is omitted it uses the league bundle's season,
 then the board's.
 
+The retro report is additive: `hindsight_total`, `hindsight_delta`,
+`hindsight_start`, and `hindsight_sit` sit beside `recommended_total` / `delta`.
+The Worker `requireKeys` list includes those four keys. The `/command` card
+headline stays the advice Δ; hindsight is a muted second line. Missing
+hindsight keys still render the pre-hindsight card so an older stored document
+does not blank the panel.
+
 Freshness is decided only by `cardFreshness(kind, view, now)` in
 `src/inseason-view.ts`, a pure function of that view and the client clock.
 States are `fresh`, `stale` (roster changed after the lineup was built, a

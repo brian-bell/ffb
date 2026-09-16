@@ -164,6 +164,10 @@ def test_retro_uses_locked_actuals_not_advice_time_lineup():
     assert [row["name"] for row in retro["sit_hits"]] == ["Slow Back"]
     assert retro["start_misses"] == []
     assert retro["sit_misses"] == []
+    assert retro["hindsight_total"] == 24.0
+    assert retro["hindsight_delta"] == 0.0
+    assert retro["hindsight_start"] == []
+    assert retro["hindsight_sit"] == []
 
 
 def test_retro_scores_ignored_sit_start_advice_with_actual_points():
@@ -176,6 +180,10 @@ def test_retro_scores_ignored_sit_start_advice_with_actual_points():
     assert [row["name"] for row in retro["sit_misses"]] == ["Slow Back"]
     assert retro["matchup"]["user_points"] == 26.0
     assert retro["matchup"]["opponent_points"] == 10.0
+    assert retro["hindsight_total"] == 24.0
+    assert retro["hindsight_delta"] == 22.0
+    assert [row["name"] for row in retro["hindsight_start"]] == ["Derrick Henry"]
+    assert [row["name"] for row in retro["hindsight_sit"]] == ["Slow Back"]
 
 
 def test_retro_reports_per_source_accuracy():
@@ -232,3 +240,147 @@ def test_retro_rejects_dict_actuals_for_another_season():
     other["league"]["season"] = 2023
     with pytest.raises(ValueError, match="season"):
         retro_report(_advice(), other)
+
+
+def _turkey_player(yahoo_id, name, position, slot, player_key, team="DAL"):
+    eligible = ["DEF"] if position == "DEF" else [position, "W/R/T"]
+    return _player(
+        yahoo_player_id=yahoo_id,
+        yahoo_player_key=f"1.p.{yahoo_id}",
+        full_name=name,
+        nfl_team=team,
+        primary_position=position,
+        eligible_positions=eligible,
+        selected_position=slot,
+        player_key=player_key,
+        matched=True,
+    )
+
+
+def _turkey_advice():
+    """Week 1 Turkey Supreme: advised Ravens over Rams; Washington was not advised."""
+    players = attach_weekly_points(
+        [
+            _turkey_player("lead", "Lead Back", "RB", "RB", "lead"),
+            _turkey_player("dowdle", "Rico Dowdle", "RB", "W/R/T", "dowdle"),
+            _turkey_player("wr1", "Starter WR", "WR", "WR", "wr1"),
+            _turkey_player("wash", "Washington", "WR", "BN", "wash"),
+            _turkey_player("rams", "Rams", "DEF", "DEF", "def:LAR", team="LAR"),
+            _turkey_player("ravens", "Ravens", "DEF", "BN", "def:BAL", team="BAL"),
+            _turkey_player("ir-star", "IR Scorer", "RB", "IR", "ir-star"),
+        ],
+        [
+            _consensus("lead", 15.0),
+            _consensus("dowdle", 10.0),
+            _consensus("wr1", 14.0),
+            _consensus("wash", 6.0),
+            _consensus("def:LAR", 7.0),
+            _consensus("def:BAL", 9.0),
+            _consensus("ir-star", 0.0),
+        ],
+    )
+    report = compare_lineup(players, {"RB": 1, "WR": 1, "W/R/T": 1, "DEF": 1, "BN": 4, "IR": 1})
+    return build_lineup_snapshot(
+        season=2026,
+        week=1,
+        generated_at="2026-09-13T13:00:00Z",
+        team_key="1.l.sit.t.1",
+        team_name="Turkey Supreme",
+        roster_slots={"RB": 1, "WR": 1, "W/R/T": 1, "DEF": 1, "BN": 4, "IR": 1},
+        players=players,
+        report=report,
+    )
+
+
+def _turkey_actuals():
+    return {
+        "schema_version": 1,
+        "source": "fixture",
+        "synced_at": "2026-09-16T16:00:00Z",
+        "league": {
+            "league_id": "sit-1",
+            "league_key": "1.l.sit",
+            "name": "Sit Start Mock",
+            "season": 2026,
+            "week": 1,
+            "num_teams": 2,
+        },
+        "matchups": [
+            {
+                "matchup_id": "1",
+                "week": 1,
+                "teams": [
+                    {"team_key": "1.l.sit.t.1", "points": 35.5},
+                    {"team_key": "1.l.sit.t.2", "points": 10.0},
+                ],
+            }
+        ],
+        "players": [
+            _actual("lead", "Lead Back", "RB", 12.0),
+            _actual("dowdle", "Rico Dowdle", "W/R/T", 3.0),
+            _actual("wr1", "Starter WR", "WR", 16.5),
+            _actual("wash", "Washington", "BN", 16.7),
+            _actual("rams", "Rams", "DEF", 4.0),
+            _actual("ravens", "Ravens", "BN", 8.0),
+            _actual("ir-star", "IR Scorer", "IR", 30.0),
+            _actual("waiver", "Waiver Add", "BN", 40.0),
+            {
+                "yahoo_player_id": "99901",
+                "yahoo_player_key": "1.p.99901",
+                "name": "Rival Receiver",
+                "team_key": "1.l.sit.t.2",
+                "selected_position": "WR",
+                "points": 10.0,
+            },
+        ],
+    }
+
+
+def _actual(yahoo_id, name, slot, points, team_key="1.l.sit.t.1"):
+    return {
+        "yahoo_player_id": yahoo_id,
+        "yahoo_player_key": f"1.p.{yahoo_id}",
+        "name": name,
+        "team_key": team_key,
+        "selected_position": slot,
+        "points": points,
+    }
+
+
+def test_hindsight_week1_turkey_supreme_advice_miss_stays_ravens_rams():
+    snapshot = _turkey_advice()
+    assert [row["name"] for row in snapshot["report"]["start"]] == ["Ravens"]
+    assert [row["name"] for row in snapshot["report"]["sit"]] == ["Rams"]
+
+    retro = retro_report(snapshot, _turkey_actuals())
+    assert retro["recommended_total"] == 39.5
+    assert retro["started_total"] == 35.5
+    assert retro["delta"] == 4.0
+    assert [row["name"] for row in retro["start_misses"]] == ["Ravens"]
+    assert [row["name"] for row in retro["sit_misses"]] == ["Rams"]
+    assert retro["hindsight_total"] == 53.2
+    assert retro["hindsight_delta"] == 17.7
+    assert [row["name"] for row in retro["hindsight_start"]] == ["Washington", "Ravens"]
+    assert [row["name"] for row in retro["hindsight_sit"]] == ["Rico Dowdle", "Rams"]
+    assert "IR Scorer" not in [row["name"] for row in retro["hindsight_start"]]
+    assert "Waiver Add" not in [row["name"] for row in retro["hindsight_start"]]
+    assert "recommended_total" in retro and "hindsight_total" in retro
+    assert retro["delta"] != retro["hindsight_delta"]
+
+
+def test_hindsight_does_not_start_ir_il_even_if_they_scored():
+    retro = retro_report(_turkey_advice(), _turkey_actuals())
+    names = [row["name"] for row in retro["hindsight_start"]] + [
+        row["name"] for row in retro["hindsight_sit"]
+    ]
+    assert "IR Scorer" not in names
+    assert retro["hindsight_total"] == 53.2
+
+
+def test_hindsight_ignores_waiver_adds_after_the_snapshot():
+    actuals = _turkey_actuals()
+    waiver = next(row for row in actuals["players"] if row["yahoo_player_id"] == "waiver")
+    waiver["selected_position"] = "WR"
+    retro = retro_report(_turkey_advice(), actuals)
+    assert "Waiver Add" not in [row["name"] for row in retro["hindsight_start"]]
+    assert "Waiver Add" in [row["name"] for row in retro["hindsight_sit"]]

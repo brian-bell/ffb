@@ -88,6 +88,7 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
   await expect(page.locator(".card.digest [data-headline]")).toHaveText("1");
   await expect(page.locator(".card.digest .excerpt")).toHaveText("Derrick Henry practiced in full and is a clear start.");
   await expect(page.locator(".card.retro [data-headline]")).toHaveText("-21.0");
+  await expect(page.locator(".card.retro [data-hindsight]")).toHaveText("hindsight -22.0 vs started");
   await expect(page.locator(".card.retro")).toContainText("W 41.5–18.0");
   await expect(page.locator(".card.ros [data-headline]")).toHaveText("15·16·17");
   await expect(page.locator(".card.ros")).toContainText("bye 5");
@@ -249,6 +250,28 @@ test("the detail panel opens and closes from the keyboard and renders report tex
   const retro = page.getByRole("dialog", { name: "Retro · week 1" });
   await expect(retro).toContainText("A hit means the started lineup followed the advice; a miss means it did not.");
   await expect(retro).toContainText("Start misses (1)");
+  await expect(retro).toContainText("Hindsight lineup 47.5");
+  await expect(retro).toContainText("Hindsight start (1)");
+  await expect(retro).toContainText("Hindsight sit (1)");
+  await expect(retro).toContainText("Derrick Henry");
+  await expect(retro).toContainText("Slow Back");
+});
+
+test("a retro envelope without hindsight keys keeps the advice headline", async ({ page }) => {
+  const legacy = baseView();
+  const report = legacy.cards.retro.envelope!.report as Record<string, unknown>;
+  delete report.hindsight_total;
+  delete report.hindsight_delta;
+  delete report.hindsight_start;
+  delete report.hindsight_sit;
+  await open(page, legacy);
+  await expect(page.locator(".card.retro [data-headline]")).toHaveText("-21.0");
+  await expect(page.locator(".card.retro [data-hindsight]")).toHaveCount(0);
+  await page.locator(".card.retro").click();
+  const panel = page.getByRole("dialog", { name: "Retro · week 1" });
+  await expect(panel).toContainText("Start misses (1)");
+  await expect(panel).not.toContainText("Hindsight lineup");
+  await expect(panel).not.toContainText("Hindsight start");
 });
 
 test("the week picker requests the neighbouring week and the API key gate works", async ({ page }) => {

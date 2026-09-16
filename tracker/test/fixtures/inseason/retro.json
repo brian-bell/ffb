@@ -41,6 +41,28 @@
         "selected_position": "W/R/T"
       }
     ],
+    "hindsight_total": 47.5,
+    "hindsight_delta": 22.0,
+    "hindsight_start": [
+      {
+        "yahoo_player_id": "29279",
+        "name": "Derrick Henry",
+        "slot": "RB",
+        "projected": 18.0,
+        "actual": 24.0,
+        "selected_position": "BN"
+      }
+    ],
+    "hindsight_sit": [
+      {
+        "yahoo_player_id": "55501",
+        "name": "Slow Back",
+        "slot": "RB",
+        "projected": 4.0,
+        "actual": 2.0,
+        "selected_position": "RB"
+      }
+    ],
     "missing_actuals": [],
     "source_accuracy": [
       {

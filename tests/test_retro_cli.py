@@ -157,6 +157,7 @@ def test_retro_compares_advice_to_actuals_fixture(tmp_path):
     assert "Recommended 46.5" in output
     assert "Started 25.5" in output
     assert "Δ +21.0" in output
+    assert "Hindsight" in result.output
     assert "Derrick Henry" in result.output
     assert "Flex Filler" in result.output
     assert "Start miss" in result.output

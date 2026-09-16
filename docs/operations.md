@@ -131,6 +131,7 @@ Card-by-card recovery when a badge is not green:
 | News: stale | news/injury sync → `ffb digest S --publish` |
 | Retro: waiting for actuals | confirm Grok posted `/api/actuals` for week W-1, then `ffb retro S --week W-1 --publish` |
 | Retro: not published | `ffb retro S --week W-1 --publish` |
+| Retro: hindsight line missing | republish after this code lands: `ffb retro S --week W-1 --publish` (needs the locked sit/start snapshot and actuals for that week) |
 | Retro: no sit/start snapshot (CLI error) | not recoverable for that week; `ffb lineup S --week W-1 --force --publish` writes post-hoc advice, which the retro then grades |
 | Rest of season: stale | `ffb season sync S --refresh` → `ffb ros S --publish` |
 

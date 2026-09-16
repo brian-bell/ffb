@@ -169,6 +169,9 @@ digest = json.load(open(f"{out}/digest.json"))
 assert digest["report"]["llm"]["error"], "digest must record the skipped LLM"
 retro = json.load(open(f"{out}/retro.json"))
 assert retro["context"]["actuals_synced_at"] == "2026-09-16T16:00:00Z"
+for key in ("hindsight_total", "hindsight_delta", "hindsight_start", "hindsight_sit"):
+    assert key in retro["report"], f"retro report missing {key}"
+assert "recommended_total" in retro["report"] and "delta" in retro["report"]
 ros = json.load(open(f"{out}/ros.json"))
 assert ros["context"]["playoff_weeks_requested"] == [15, 16, 17]
 assert ros["report"]["bye_plan"], "ros must publish the bye plan for the stored roster"

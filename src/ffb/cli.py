@@ -1327,6 +1327,9 @@ def _render_retro(report: dict) -> None:
         f"Started {report['started_total']:.1f}   "
         f"Δ {report['delta']:+.1f}"
     )
+    console.print(
+        f"[dim]Hindsight {report['hindsight_total']:.1f}   Δ {report['hindsight_delta']:+.1f}[/dim]"
+    )
     matchup = report.get("matchup")
     if matchup:
         console.print(f"Scoreboard {matchup['user_points']:.1f}–{matchup['opponent_points']:.1f}")
@@ -1353,6 +1356,16 @@ def _render_retro(report: dict) -> None:
             )
     else:
         console.print("[green]No sit/start swaps in the advice snapshot.[/green]")
+    for row in report.get("hindsight_start") or []:
+        console.print(
+            f"[dim]Hindsight start[/dim] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+        )
+    for row in report.get("hindsight_sit") or []:
+        console.print(
+            f"[dim]Hindsight sit[/dim] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+        )
     if report["source_accuracy"]:
         table = Table(title=f"Week {week} source accuracy")
         table.add_column("Source")

@@ -90,6 +90,7 @@ main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60
 .head b.bad { color: var(--reach); }
 .head b.plain { color: var(--ink); }
 .head span { color: var(--muted); font-size: 12px; }
+.head-sub { margin: -4px 16px 10px; color: var(--muted); font-size: 12px; }
 .rows { flex: 1; margin: 0; padding: 0 8px 6px; list-style: none; }
 .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 34px; padding: 0 8px; border-top: 1px solid var(--soft); font-size: 12.5px; }
 .row:first-child { border-top: 0; }

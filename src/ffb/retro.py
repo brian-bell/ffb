@@ -10,7 +10,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
-from ffb.lineup import is_starter
+from ffb.lineup import _assign_optimal, is_starter
+
+_IR_SLOTS = frozenset({"IR", "IL"})
+_UNSET = object()
 
 LINEUP_SNAPSHOT_KIND = "lineup_recommendation"
 LINEUP_SNAPSHOT_KEYS = {
@@ -173,6 +176,8 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         seen.add(ident)
         missing.append({"yahoo_player_id": ident, "name": row.get("name") or ""})
 
+    hindsight_total, hindsight_start, hindsight_sit = _hindsight(snapshot, by_id, started)
+
     return {
         "season": snapshot["season"],
         "week": snapshot["week"],
@@ -188,6 +193,10 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         "start_misses": start_misses,
         "sit_hits": sit_hits,
         "sit_misses": sit_misses,
+        "hindsight_total": hindsight_total,
+        "hindsight_delta": round(hindsight_total - started_total, 2),
+        "hindsight_start": hindsight_start,
+        "hindsight_sit": hindsight_sit,
         "missing_actuals": missing,
         "source_accuracy": _source_accuracy(snapshot["players"], by_id),
         "matchup": _user_matchup(matchups, team_key),
@@ -239,13 +248,68 @@ def _sum_actuals(rows: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -
     return round(total, 2)
 
 
-def _scored(row: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _hindsight(
+    snapshot: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    started: list[dict[str, Any]],
+) -> tuple[float, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Greedy sit/start on actual points over the snapshot roster.
+
+    IR/IL slots are unstartable even if those players scored. Players who
+    appear only in actuals (waiver adds after the snapshot) never enter the
+    pool. Identity is ``yahoo_player_id``.
+    """
+    overlaid = _overlay_actual_points(snapshot["players"], by_id)
+    optimal = _assign_optimal(overlaid, snapshot["roster_slots"])
+    optimal_ids = {_identity(row) for row in optimal}
+    started_ids = {_identity(row) for row in started}
+    projected = {
+        str(player.get("yahoo_player_id") or ""): player.get("points")
+        for player in snapshot["players"]
+    }
+    hindsight_start = [
+        _scored(row, by_id, projected=projected.get(_identity(row)))
+        for row in optimal
+        if _identity(row) not in started_ids
+    ]
+    hindsight_sit = [
+        _scored(row, by_id, projected=projected.get(_identity(row)))
+        for row in started
+        if _identity(row) not in optimal_ids
+    ]
+    return _sum_actuals(optimal, by_id), hindsight_start, hindsight_sit
+
+
+def _overlay_actual_points(
+    players: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    overlaid: list[dict[str, Any]] = []
+    for player in players:
+        ident = str(player.get("yahoo_player_id") or "")
+        actual = by_id.get(ident)
+        row = dict(player)
+        row["points"] = None if actual is None else actual["points"]
+        actual_slot = None if actual is None else actual.get("selected_position")
+        if player.get("selected_position") in _IR_SLOTS or actual_slot in _IR_SLOTS:
+            row["injury"] = {"status": "IR"}
+        overlaid.append(row)
+    return overlaid
+
+
+def _scored(
+    row: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    *,
+    projected: object = _UNSET,
+) -> dict[str, Any]:
     actual = by_id.get(_identity(row))
+    if projected is _UNSET:
+        projected = row.get("points")
     return {
         "yahoo_player_id": _identity(row),
         "name": row.get("name") or (actual or {}).get("name") or "",
         "slot": row.get("slot") or row.get("selected_position"),
-        "projected": row.get("points"),
+        "projected": projected,
         "actual": None if actual is None else actual["points"],
         "selected_position": None if actual is None else actual.get("selected_position"),
     }
