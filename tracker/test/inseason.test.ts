@@ -124,7 +124,7 @@ describe("parseEnvelope", () => {
 
   it("treats retro hindsight keys as an all-or-none optional extension", () => {
     const legacy = clone(retroFixture) as { report: Record<string, unknown> };
-    for (const key of ["hindsight_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
+    for (const key of ["hindsight_total", "hindsight_started_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
       delete legacy.report[key];
     }
     expect(parseEnvelope(legacy, "retro")).toMatchObject({ ok: true });
@@ -336,7 +336,7 @@ describe("Worker GET /api/inseason", () => {
 
   it("loads a pre-hindsight schema-v1 retro already in KV", async () => {
     const envelope = clone(FIXTURES.retro) as { report: Record<string, unknown> };
-    for (const key of ["hindsight_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
+    for (const key of ["hindsight_total", "hindsight_started_total", "hindsight_delta", "hindsight_start", "hindsight_sit"]) {
       delete envelope.report[key];
     }
     await env.BOARD.put(inseasonKey(2024, "retro", 1), JSON.stringify(envelope));

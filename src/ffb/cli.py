@@ -1319,7 +1319,7 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
 
 
 def _row_ids(rows: list[dict]) -> set[str]:
-    return {str(row.get("yahoo_player_id") or row.get("name") or "") for row in rows}
+    return {str(row.get("yahoo_player_id") or "") for row in rows}
 
 
 def _hindsight_matches_advice(report: dict) -> bool:
@@ -1342,7 +1342,7 @@ def _render_retro(report: dict) -> None:
     if "hindsight_total" in report:
         console.print(
             f"Hindsight {report['hindsight_total']:.1f}   "
-            f"Started {report['started_total']:.1f}   "
+            f"Started {report['hindsight_started_total']:.1f}   "
             f"Δ {report['hindsight_delta']:+.1f}"
         )
     matchup = report.get("matchup")
@@ -1377,31 +1377,22 @@ def _render_retro(report: dict) -> None:
             )
     elif not hindsight_swaps:
         console.print("[green]No sit/start swaps in the advice snapshot.[/green]")
-    advice_ids = {
-        str(row.get("yahoo_player_id") or "")
-        for row in (
-            list(report["start_hits"])
-            + list(report["start_misses"])
-            + list(report["sit_hits"])
-            + list(report["sit_misses"])
-        )
-        if row.get("yahoo_player_id")
-    }
+    advice_ids = _row_ids(report["start_misses"]) | _row_ids(report["sit_misses"])
     for row in hindsight_start:
-        if str(row.get("yahoo_player_id") or "") in advice_ids:
+        if _row_ids([row]) <= advice_ids:
             continue
         console.print(
             f"[red]Hindsight start[/red] {row['name']} "
             f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
         )
     for row in hindsight_sit:
-        if str(row.get("yahoo_player_id") or "") in advice_ids:
+        if _row_ids([row]) <= advice_ids:
             continue
         console.print(
             f"[red]Hindsight sit[/red] {row['name']} "
             f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
         )
-    if _hindsight_matches_advice(report):
+    if hindsight_swaps and _hindsight_matches_advice(report):
         console.print("[green]Advice matched hindsight.[/green]")
     if report["source_accuracy"]:
         table = Table(title=f"Week {week} source accuracy")
@@ -1421,7 +1412,7 @@ def _render_retro(report: dict) -> None:
         names = ", ".join(row["name"] for row in report["missing_actuals"][:8])
         more = "…" if len(report["missing_actuals"]) > 8 else ""
         console.print(
-            f"[yellow]⚠ {len(report['missing_actuals'])} advised player(s) "
+            f"[yellow]⚠ {len(report['missing_actuals'])} rostered player(s) "
             f"have no weekly actuals: {names}{more}[/yellow]"
         )
 

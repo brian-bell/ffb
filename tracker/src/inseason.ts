@@ -92,6 +92,7 @@ export interface RetroReport {
   sit_hits: RetroRow[];
   sit_misses: RetroRow[];
   hindsight_total?: number;
+  hindsight_started_total?: number;
   hindsight_delta?: number;
   hindsight_start?: RetroRow[];
   hindsight_sit?: RetroRow[];
@@ -345,6 +346,7 @@ function retroRow(value: unknown, label: string): void {
 
 const RETRO_HINDSIGHT_KEYS = [
   "hindsight_total",
+  "hindsight_started_total",
   "hindsight_delta",
   "hindsight_start",
   "hindsight_sit",
@@ -378,6 +380,7 @@ function retroReport(value: unknown): void {
   if (hindsightPresent.length > 0) {
     requireKeys(report, RETRO_HINDSIGHT_KEYS, "report");
     num(report.hindsight_total, "report.hindsight_total");
+    num(report.hindsight_started_total, "report.hindsight_started_total");
     num(report.hindsight_delta, "report.hindsight_delta");
     for (const field of ["hindsight_start", "hindsight_sit"] as const) {
       list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));

@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
-from ffb.lineup import _assign_optimal, is_starter
+from ffb.lineup import BENCH_SLOT, NON_STARTING_SLOTS, _assign_optimal, is_starter
 
-_UNSTARTABLE_SLOTS = frozenset({"IR", "IL"})
+_UNSTARTABLE_SLOTS = NON_STARTING_SLOTS - {BENCH_SLOT}
 
 LINEUP_SNAPSHOT_KIND = "lineup_recommendation"
 LINEUP_SNAPSHOT_KEYS = {
@@ -34,6 +34,7 @@ _SNAPSHOT_PLAYER_KEYS = {
     "position",
     "team",
     "selected_position",
+    "eligible_positions",
     "projection_key",
     "player_key",
     "points",
@@ -165,34 +166,30 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         _scored(row, by_id) for row in snapshot["report"]["sit"] if _identity(row) in started_ids
     ]
 
-    snapshot_ids = {_identity(row) for row in snapshot["players"]}
+    snapshot_by_id = {_identity(row): row for row in snapshot["players"]}
+    pool = _hindsight_pool(snapshot["players"], by_id, team_key)
+    pool_ids = {_identity(row) for row in pool}
     hindsight_optimal = _assign_optimal(
-        _hindsight_pool(snapshot["players"], by_id),
+        pool,
         snapshot["roster_slots"],
         use_display_points=False,
     )
     hindsight_total = _sum_actuals(hindsight_optimal, by_id)
-    started_on_snapshot = {ident for ident in started_ids if ident in snapshot_ids}
+    started_on_snapshot = [row for row in started if _identity(row) in pool_ids]
+    hindsight_started_total = _sum_actuals(started_on_snapshot, by_id)
     hindsight_ids = {_identity(row) for row in hindsight_optimal}
-    snapshot_by_id = {_identity(row): row for row in snapshot["players"]}
     hindsight_start = [
         _hindsight_scored(row, by_id, snapshot_by_id)
         for row in hindsight_optimal
-        if _identity(row) not in started_on_snapshot
+        if _identity(row) not in started_ids
     ]
     hindsight_sit = [
         _hindsight_scored(row, by_id, snapshot_by_id)
-        for row in started
-        if _identity(row) in snapshot_ids and _identity(row) not in hindsight_ids
+        for row in started_on_snapshot
+        if _identity(row) not in hindsight_ids
     ]
 
-    needed = recommended + started + snapshot["report"]["start"] + snapshot["report"]["sit"]
-    for player in snapshot["players"]:
-        if player.get("selected_position") in _UNSTARTABLE_SLOTS:
-            continue
-        if player.get("points") is None:
-            continue
-        needed.append(player)
+    needed = recommended + started + snapshot["report"]["start"] + snapshot["report"]["sit"] + pool
     missing = []
     seen: set[str] = set()
     for row in needed:
@@ -218,7 +215,8 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         "sit_hits": sit_hits,
         "sit_misses": sit_misses,
         "hindsight_total": hindsight_total,
-        "hindsight_delta": round(hindsight_total - started_total, 2),
+        "hindsight_started_total": hindsight_started_total,
+        "hindsight_delta": round(hindsight_total - hindsight_started_total, 2),
         "hindsight_start": hindsight_start,
         "hindsight_sit": hindsight_sit,
         "missing_actuals": missing,
@@ -236,6 +234,7 @@ def _snapshot_player(player: dict[str, Any]) -> dict[str, Any]:
         "position": player.get("position"),
         "team": player.get("team"),
         "selected_position": player.get("selected_position"),
+        "eligible_positions": list(player.get("eligible_positions") or []),
         "projection_key": player.get("projection_key"),
         "player_key": player.get("player_key"),
         "points": player.get("points"),
@@ -263,16 +262,24 @@ def _identity(row: dict[str, Any]) -> str:
 
 
 def _hindsight_pool(
-    players: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]
+    players: list[dict[str, Any]], by_id: dict[str, dict[str, Any]], team_key: str
 ) -> list[dict[str, Any]]:
-    """Snapshot roster with actual points; IR/IL and waiver adds stay out."""
+    """Snapshot roster with actual points.
+
+    Membership follows the actuals: players on IR/IL at game time, players
+    dropped to another team, and waiver adds stay out. A snapshot IR/IL player
+    with no actuals row is stale and stays out too.
+    """
     pool: list[dict[str, Any]] = []
     for player in players:
-        if player.get("selected_position") in _UNSTARTABLE_SLOTS:
-            continue
         ident = _identity(player)
         actual = by_id.get(ident)
-        if actual is not None and actual.get("selected_position") in _UNSTARTABLE_SLOTS:
+        if actual is None:
+            if player.get("selected_position") in _UNSTARTABLE_SLOTS:
+                continue
+        elif actual.get("team_key") != team_key:
+            continue
+        elif actual.get("selected_position") in _UNSTARTABLE_SLOTS:
             continue
         row = dict(player)
         row["points"] = None if actual is None else actual["points"]

@@ -611,3 +611,154 @@ def test_retro_hindsight_rb_cannot_steal_wt_from_te_or_wr():
     assert [row["name"] for row in retro["hindsight_sit"]] == []
     assert retro["hindsight_total"] == 11.0
     assert retro["started_total"] == 11.0
+
+
+def test_retro_hindsight_ignores_players_dropped_to_another_team():
+    snapshot = _snapshot(
+        [
+            _player(
+                yahoo_player_id="1001",
+                yahoo_player_key="1.p.1001",
+                full_name="Kept RB",
+                selected_position="RB",
+                player_key="kept",
+                matched=True,
+            ),
+            _player(
+                yahoo_player_id="1002",
+                yahoo_player_key="1.p.1002",
+                full_name="Dropped RB",
+                selected_position="BN",
+                player_key="dropped",
+                matched=True,
+            ),
+        ],
+        [_consensus("kept", 10.0), _consensus("dropped", 8.0)],
+        {"RB": 1, "BN": 1},
+    )
+    rival = _actual_row("1002", "Dropped RB", "RB", 30.0)
+    rival["team_key"] = "1.l.sit.t.2"
+    retro = retro_report(snapshot, _bundle([_actual_row("1001", "Kept RB", "RB", 5.0), rival]))
+    assert retro["hindsight_start"] == []
+    assert retro["hindsight_sit"] == []
+    assert retro["hindsight_total"] == 5.0
+    assert retro["hindsight_delta"] == 0.0
+    assert retro["missing_actuals"] == []
+
+
+def test_retro_hindsight_lets_player_activated_from_ir_start():
+    snapshot = _snapshot(
+        [
+            _player(
+                yahoo_player_id="s1",
+                yahoo_player_key="1.p.s1",
+                full_name="Starter RB",
+                selected_position="RB",
+                player_key="s1",
+                matched=True,
+            ),
+            _player(
+                yahoo_player_id="b1",
+                yahoo_player_key="1.p.b1",
+                full_name="Bench RB",
+                selected_position="BN",
+                player_key="b1",
+                matched=True,
+            ),
+            _player(
+                yahoo_player_id="ir1",
+                yahoo_player_key="1.p.ir1",
+                full_name="IR RB",
+                selected_position="IR",
+                player_key="ir1",
+                matched=True,
+            ),
+        ],
+        [_consensus("s1", 8.0), _consensus("b1", 10.0), _consensus("ir1", 12.0)],
+        {"RB": 2, "BN": 1, "IR": 1},
+    )
+    retro = retro_report(
+        snapshot,
+        _bundle(
+            [
+                _actual_row("s1", "Starter RB", "RB", 5.0),
+                _actual_row("b1", "Bench RB", "BN", 5.0),
+                _actual_row("ir1", "IR RB", "RB", 25.0),
+            ]
+        ),
+    )
+    assert retro["started_total"] == 30.0
+    assert retro["hindsight_total"] == 30.0
+    assert retro["hindsight_delta"] == 0.0
+    assert retro["hindsight_sit"] == []
+
+
+def test_retro_hindsight_honours_yahoo_eligibility_from_the_snapshot():
+    snapshot = _snapshot(
+        [
+            _player(
+                yahoo_player_id="rb1",
+                yahoo_player_key="1.p.rb1",
+                full_name="RB One",
+                eligible_positions=["RB"],
+                selected_position="RB",
+                player_key="rb1",
+                matched=True,
+            ),
+            _player(
+                yahoo_player_id="dual",
+                yahoo_player_key="1.p.dual",
+                full_name="Dual RB",
+                eligible_positions=["RB", "WR"],
+                selected_position="WR",
+                player_key="dual",
+                matched=True,
+            ),
+        ],
+        [_consensus("rb1", 12.0), _consensus("dual", 9.0)],
+        {"RB": 1, "WR": 1},
+    )
+    assert snapshot["players"][1]["eligible_positions"] == ["RB", "WR"]
+    retro = retro_report(
+        snapshot,
+        _bundle(
+            [
+                _actual_row("rb1", "RB One", "RB", 15.0),
+                _actual_row("dual", "Dual RB", "WR", 12.0),
+            ]
+        ),
+    )
+    assert retro["hindsight_total"] == 27.0
+    assert retro["hindsight_delta"] == 0.0
+    assert retro["hindsight_sit"] == []
+
+
+def test_retro_hindsight_compares_against_started_snapshot_players_only():
+    snapshot = _snapshot(
+        [
+            _player(
+                yahoo_player_id="snap",
+                yahoo_player_key="1.p.snap",
+                full_name="Snap RB",
+                selected_position="RB",
+                player_key="snap",
+                matched=True,
+            ),
+        ],
+        [_consensus("snap", 10.0)],
+        {"RB": 1, "W/R/T": 1, "BN": 1},
+    )
+    retro = retro_report(
+        snapshot,
+        _bundle(
+            [
+                _actual_row("snap", "Snap RB", "RB", 5.0),
+                _actual_row("999", "Waiver WR", "W/R/T", 25.0),
+            ]
+        ),
+    )
+    assert retro["started_total"] == 30.0
+    assert retro["hindsight_started_total"] == 5.0
+    assert retro["hindsight_total"] == 5.0
+    assert retro["hindsight_delta"] == 0.0
+    assert retro["hindsight_sit"] == []

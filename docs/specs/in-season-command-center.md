@@ -133,10 +133,10 @@ All routes use the existing bearer-key gate.
 `POST /api/inseason/{kind}` validates the envelope and a minimal closed shape
 for `report` (required top-level keys and types for that kind; player rows are
 checked for the fields the page renders). Retro hindsight keys
-(`hindsight_total`, `hindsight_delta`, `hindsight_start`, `hindsight_sit`)
-are an all-or-none optional extension: absent is a pre-hindsight schema-v1
-envelope; if any key is present, all four are required and typed. New CLI
-publishes include them. It stores the body under:
+(`hindsight_total`, `hindsight_started_total`, `hindsight_delta`,
+`hindsight_start`, `hindsight_sit`) are an all-or-none optional extension:
+absent is a pre-hindsight schema-v1 envelope; if any key is present, all five
+are required and typed. New CLI publishes include them. It stores the body under:
 
 ```text
 inseason:v1:{season}:{kind}:{week}
@@ -268,10 +268,13 @@ retro, rest of season) without phone-specific design work.
 Retro hit and miss labels follow the report: a "hit" means the started lineup
 followed the advice; a "miss" means it did not. The panel says so in one line.
 Hindsight is a second metric: the greedy actuals-optimal lineup from the
-snapshotted roster (`hindsight_total`, `hindsight_delta` vs started), ranked
-on unrounded actual points. The headline stays the advice Δ (`signed(-delta)`).
-IR/IL slots are unstartable in the hindsight pool; players added after the
-snapshot are ignored.
+snapshotted roster (`hindsight_total`), ranked on unrounded actual points.
+`hindsight_delta` compares it to `hindsight_started_total`, the started
+players who were on the snapshot roster, so waiver adds are ignored on both
+sides. The headline stays the advice Δ (`signed(-delta)`). Pool membership
+follows the actuals: players on IR/IL at game time and players dropped to
+another team stay out. `missing_actuals` covers every pool player without an
+actuals row, not only advised or started players.
 
 `narrative`, notes, and headlines are LLM or third-party text. The client
 renders them with `textContent`, never HTML. Headline links open in a new tab

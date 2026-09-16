@@ -267,6 +267,7 @@ test("old retro reports without hindsight keys still render advice only", async 
   const view = baseView();
   const report = (view.cards.retro.envelope!.report as Record<string, unknown>);
   delete report.hindsight_total;
+  delete report.hindsight_started_total;
   delete report.hindsight_delta;
   delete report.hindsight_start;
   delete report.hindsight_sit;

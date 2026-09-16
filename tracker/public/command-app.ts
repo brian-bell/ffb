@@ -211,7 +211,7 @@ function delta(rowValue: RetroRow): string {
 }
 
 function retroId(row: RetroRow): string {
-  return row.yahoo_player_id ?? row.name;
+  return row.yahoo_player_id || row.name;
 }
 
 function renderRetro(current: InseasonView, now: number): HTMLElement {
@@ -227,9 +227,7 @@ function renderRetro(current: InseasonView, now: number): HTMLElement {
   }
   headlineKids.push(el("span", { text: `started vs advice · ${matchupResult(report.matchup)}` }));
   const headline = el("div", { class: "head" }, ...headlineKids);
-  const adviceIds = new Set(
-    [...report.start_misses, ...report.sit_misses, ...report.start_hits, ...report.sit_hits].map(retroId),
-  );
+  const adviceIds = new Set([...report.start_misses, ...report.sit_misses].map(retroId));
   const rows = el("ul", { class: "rows" });
   for (const player of report.start_misses) rows.appendChild(row("miss", "miss", player.name, "advised start · benched", delta(player)));
   for (const player of report.sit_misses) rows.appendChild(row("miss", "miss", player.name, "advised sit · started", delta(player)));
@@ -405,7 +403,7 @@ function panelRetro(envelope: Retro): HTMLElement[] {
   body.push(el("p", { class: "note", text: "A hit means the started lineup followed the advice; a miss means it did not. Hindsight is the best actuals lineup from the snapshotted roster." }));
   body.push(el("p", { text: `Advised lineup ${pts(report.recommended_total)} · started ${pts(report.started_total)} · left on bench ${signed(report.delta)} · ${matchupResult(report.matchup)}` }));
   if (typeof report.hindsight_total === "number") {
-    body.push(el("p", { text: `Hindsight ${pts(report.hindsight_total)} · started ${pts(report.started_total)} · left on bench ${signed(report.hindsight_delta ?? 0)}` }));
+    body.push(el("p", { text: `Hindsight ${pts(report.hindsight_total)} · started ${pts(report.hindsight_started_total ?? report.started_total)} · left on bench ${signed(report.hindsight_delta ?? 0)}` }));
   }
   const grades = (title: string, list: RetroRow[], cls: string): void => {
     body.push(el("h3", { text: `${title} (${list.length})` }));

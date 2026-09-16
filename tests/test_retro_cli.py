@@ -424,6 +424,7 @@ def _retro_render(**changes):
         "started_total": 10.0,
         "delta": 0.0,
         "hindsight_total": 16.8,
+        "hindsight_started_total": 10.0,
         "hindsight_delta": 6.8,
         "start_hits": [],
         "start_misses": [],
@@ -505,3 +506,34 @@ def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
     assert "Hindsight 10.0" in output
     assert "Start miss" in output
     assert "Advice matched hindsight." in output
+
+
+def test_retro_cli_shows_hindsight_reversal_of_followed_advice(monkeypatch):
+    henry = {"name": "Derrick Henry", "actual": 3.0, "projected": 18.0, "yahoo_player_id": "1"}
+    slow = {"name": "Slow Guy", "actual": 21.0, "projected": 6.0, "yahoo_player_id": "2"}
+    output = _capture_render(
+        monkeypatch,
+        _retro_render(
+            hindsight_total=28.0,
+            hindsight_delta=18.0,
+            start_hits=[henry],
+            sit_hits=[slow],
+            hindsight_start=[slow],
+            hindsight_sit=[henry],
+        ),
+    )
+    assert "Start hit Derrick Henry" in output
+    assert "Hindsight start Slow Guy" in output
+    assert "Hindsight sit Derrick Henry" in output
+    assert "Advice matched hindsight." not in output
+
+
+def test_retro_cli_no_swaps_week_prints_one_summary_line(monkeypatch):
+    output = _capture_render(
+        monkeypatch,
+        _retro_render(
+            hindsight_total=10.0, hindsight_delta=0.0, hindsight_start=[], hindsight_sit=[]
+        ),
+    )
+    assert "No sit/start swaps in the advice snapshot." in output
+    assert "Advice matched hindsight." not in output

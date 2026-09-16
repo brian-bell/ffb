@@ -62,6 +62,14 @@
       "points": 24.0
     },
     {
+      "yahoo_player_id": "42025",
+      "yahoo_player_key": "1.p.42025",
+      "name": "Rookie Bench",
+      "team_key": "1.l.sit.t.1",
+      "selected_position": "BN",
+      "points": 0.0
+    },
+    {
       "yahoo_player_id": "99901",
       "yahoo_player_key": "1.p.99901",
       "name": "Rival Receiver",

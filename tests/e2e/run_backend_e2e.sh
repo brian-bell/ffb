@@ -170,6 +170,7 @@ assert digest["report"]["llm"]["error"], "digest must record the skipped LLM"
 retro = json.load(open(f"{out}/retro.json"))
 assert retro["context"]["actuals_synced_at"] == "2026-09-16T16:00:00Z"
 assert isinstance(retro["report"]["hindsight_total"], (int, float))
+assert isinstance(retro["report"]["hindsight_started_total"], (int, float))
 assert isinstance(retro["report"]["hindsight_delta"], (int, float))
 assert isinstance(retro["report"]["hindsight_start"], list)
 assert isinstance(retro["report"]["hindsight_sit"], list)
