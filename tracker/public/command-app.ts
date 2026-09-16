@@ -418,7 +418,7 @@ function panelRetro(envelope: Retro): HTMLElement[] {
   grades("Sit hits", report.sit_hits, "good");
   grades("Sit misses", report.sit_misses, "bad");
   if (report.hindsight_start || report.hindsight_sit) {
-    grades("Hindsight start", report.hindsight_start ?? [], "good");
+    grades("Hindsight start", report.hindsight_start ?? [], "bad");
     grades("Hindsight sit", report.hindsight_sit ?? [], "bad");
   }
   body.push(el("h3", { text: "Source accuracy" }));

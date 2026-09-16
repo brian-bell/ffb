@@ -256,6 +256,11 @@ test("the detail panel opens and closes from the keyboard and renders report tex
   await expect(retro).toContainText("Hindsight is the best actuals lineup from the snapshotted roster.");
   await expect(retro).toContainText("Start misses (1)");
   await expect(retro).toContainText("Hindsight start (2)");
+  const startMissDelta = retro.locator("h3", { hasText: "Start misses (1)" }).locator("+ .tablewrap td.bad");
+  const hindsightStartDelta = retro.locator("h3", { hasText: "Hindsight start (2)" }).locator("+ .tablewrap td.bad");
+  await expect(startMissDelta).toHaveCount(1);
+  await expect(hindsightStartDelta).toHaveCount(2);
+  await expect(retro.locator("h3", { hasText: "Hindsight start (2)" }).locator("+ .tablewrap td.good")).toHaveCount(0);
 });
 
 test("old retro reports without hindsight keys still render advice only", async ({ page }) => {
