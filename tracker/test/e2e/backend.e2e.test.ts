@@ -527,6 +527,9 @@ describe("in-season report publish", () => {
     expect(view2.cards.ros.envelope?.week).toBe(1);
     expect(view2.actuals_available).toEqual({ "1": false });
     expect(cardFreshness("retro", view2, now).state).toBe("fresh");
+    const retroReport = view2.cards.retro.envelope?.report as { hindsight_total?: number; hindsight_delta?: number };
+    expect(typeof retroReport.hindsight_total).toBe("number");
+    expect(typeof retroReport.hindsight_delta).toBe("number");
     expect((await api.getBoard()).body).toBe(env.E2E_BOARD_JSON);
   });
 });

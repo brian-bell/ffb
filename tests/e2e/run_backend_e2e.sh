@@ -169,6 +169,10 @@ digest = json.load(open(f"{out}/digest.json"))
 assert digest["report"]["llm"]["error"], "digest must record the skipped LLM"
 retro = json.load(open(f"{out}/retro.json"))
 assert retro["context"]["actuals_synced_at"] == "2026-09-16T16:00:00Z"
+assert isinstance(retro["report"]["hindsight_total"], (int, float))
+assert isinstance(retro["report"]["hindsight_delta"], (int, float))
+assert isinstance(retro["report"]["hindsight_start"], list)
+assert isinstance(retro["report"]["hindsight_sit"], list)
 ros = json.load(open(f"{out}/ros.json"))
 assert ros["context"]["playoff_weeks_requested"] == [15, 16, 17]
 assert ros["report"]["bye_plan"], "ros must publish the bye plan for the stored roster"

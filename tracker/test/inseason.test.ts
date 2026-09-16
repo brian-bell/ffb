@@ -111,6 +111,13 @@ describe("parseEnvelope", () => {
     retro.report.matchup = { user_points: "41.5", opponent_points: 18 };
     expect(parseEnvelope(retro, "retro").ok).toBe(false);
 
+    const hindsight = clone(retroFixture) as { report: Record<string, unknown> };
+    delete hindsight.report.hindsight_total;
+    expect(parseEnvelope(hindsight, "retro")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("hindsight_total"),
+    });
+
     const ros = clone(rosFixture) as { report: { usage_available: unknown } };
     ros.report.usage_available = "no";
     expect(parseEnvelope(ros, "ros").ok).toBe(false);

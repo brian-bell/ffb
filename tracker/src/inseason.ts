@@ -76,6 +76,7 @@ export interface DigestReport {
 }
 
 export interface RetroRow {
+  yahoo_player_id?: string;
   name: string;
   slot: string | null;
   projected: number | null;
@@ -90,6 +91,10 @@ export interface RetroReport {
   start_misses: RetroRow[];
   sit_hits: RetroRow[];
   sit_misses: RetroRow[];
+  hindsight_total?: number;
+  hindsight_delta?: number;
+  hindsight_start?: RetroRow[];
+  hindsight_sit?: RetroRow[];
   missing_actuals: Array<{ name: string; yahoo_player_id?: string }>;
   source_accuracy: Array<{ source: string; n: number; mae: number; bias: number }>;
   matchup: { user_points: number; opponent_points: number; opponent_team_key?: string } | null;
@@ -342,13 +347,37 @@ function retroReport(value: unknown): void {
   const report = obj(value, "report");
   requireKeys(
     report,
-    ["recommended_total", "started_total", "delta", "start_hits", "start_misses", "sit_hits", "sit_misses", "missing_actuals", "source_accuracy", "matchup"],
+    [
+      "recommended_total",
+      "started_total",
+      "delta",
+      "start_hits",
+      "start_misses",
+      "sit_hits",
+      "sit_misses",
+      "hindsight_total",
+      "hindsight_delta",
+      "hindsight_start",
+      "hindsight_sit",
+      "missing_actuals",
+      "source_accuracy",
+      "matchup",
+    ],
     "report",
   );
   num(report.recommended_total, "report.recommended_total");
   num(report.started_total, "report.started_total");
   num(report.delta, "report.delta");
-  for (const field of ["start_hits", "start_misses", "sit_hits", "sit_misses"] as const) {
+  num(report.hindsight_total, "report.hindsight_total");
+  num(report.hindsight_delta, "report.hindsight_delta");
+  for (const field of [
+    "start_hits",
+    "start_misses",
+    "sit_hits",
+    "sit_misses",
+    "hindsight_start",
+    "hindsight_sit",
+  ] as const) {
     list(report[field], `report.${field}`).forEach((row, i) => retroRow(row, `report.${field}[${i}]`));
   }
   list(report.missing_actuals, "report.missing_actuals").forEach((raw, i) => {

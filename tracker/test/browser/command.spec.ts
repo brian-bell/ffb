@@ -88,7 +88,12 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
   await expect(page.locator(".card.digest [data-headline]")).toHaveText("1");
   await expect(page.locator(".card.digest .excerpt")).toHaveText("Derrick Henry practiced in full and is a clear start.");
   await expect(page.locator(".card.retro [data-headline]")).toHaveText("-21.0");
+  await expect(page.locator(".card.retro [data-hindsight]")).toHaveText("-33.3");
   await expect(page.locator(".card.retro")).toContainText("W 41.5–18.0");
+  await expect(page.locator(".card.retro")).toContainText("Derrick Henry");
+  await expect(page.locator(".card.retro")).toContainText("Malik Washington");
+  await expect(page.locator(".card.retro")).toContainText("hindsight start · benched");
+  await expect(page.locator(".card.retro")).toContainText("Rico Dowdle");
   await expect(page.locator(".card.ros [data-headline]")).toHaveText("15·16·17");
   await expect(page.locator(".card.ros")).toContainText("bye 5");
 
@@ -248,7 +253,28 @@ test("the detail panel opens and closes from the keyboard and renders report tex
   await page.locator(".card.retro").click();
   const retro = page.getByRole("dialog", { name: "Retro · week 1" });
   await expect(retro).toContainText("A hit means the started lineup followed the advice; a miss means it did not.");
+  await expect(retro).toContainText("Hindsight is the best actuals lineup from the snapshotted roster.");
   await expect(retro).toContainText("Start misses (1)");
+  await expect(retro).toContainText("Hindsight start (2)");
+});
+
+test("old retro reports without hindsight keys still render advice only", async ({ page }) => {
+  const view = baseView();
+  const report = (view.cards.retro.envelope!.report as Record<string, unknown>);
+  delete report.hindsight_total;
+  delete report.hindsight_delta;
+  delete report.hindsight_start;
+  delete report.hindsight_sit;
+  await open(page, view);
+  await expect(page.locator(".card.retro [data-headline]")).toHaveText("-21.0");
+  await expect(page.locator(".card.retro [data-hindsight]")).toHaveCount(0);
+  await expect(page.locator(".card.retro")).toContainText("Derrick Henry");
+  await expect(page.locator(".card.retro")).not.toContainText("Malik Washington");
+  await expect(page.locator(".card.retro")).not.toContainText("hindsight start");
+  await page.locator(".card.retro").click();
+  const retro = page.getByRole("dialog", { name: "Retro · week 1" });
+  await expect(retro).toContainText("Hindsight is the best actuals lineup from the snapshotted roster.");
+  await expect(retro).not.toContainText("Hindsight start");
 });
 
 test("the week picker requests the neighbouring week and the API key gate works", async ({ page }) => {
