@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ffb import config
+from ffb.league_context import roster_slot_counts
 from ffb.sources import sleeper_league as sl
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sleeper"
@@ -38,7 +39,7 @@ def test_flex_slots_collapse_to_two_wrt():
     assert by_pos["W/R/T"] == {"position": "W/R/T", "count": 2, "is_starting": True}
     assert by_pos["RB"]["count"] == 2
     assert by_pos["BN"] == {"position": "BN", "count": 5, "is_starting": False}
-    assert sl.roster_slot_counts(slots)["W/R/T"] == 2
+    assert roster_slot_counts(slots)["W/R/T"] == 2
 
 
 def test_super_flex_and_idp_slots_fail_loud():
@@ -89,7 +90,6 @@ def test_is_user_team_is_unique_for_verified_user_id():
     state = _state()
     user_teams = [team for team in state.teams if team["is_user_team"]]
     assert len(user_teams) == 1
-    assert user_teams[0]["owner_id"] == USER_ID
     assert user_teams[0]["team_id"] == "6"
     assert user_teams[0]["name"] == "Steelers Nation"
     assert user_teams[0]["team_key"] == f"{config.SLEEPER_LEAGUE_KEY}.t.6"
@@ -219,18 +219,24 @@ def test_starter_length_mismatch_fails():
         )
 
 
-def test_mapped_state_uses_sleeper_league_key_and_week_from_nfl_state():
-    state = _state()
-    assert state.league_key == config.SLEEPER_LEAGUE_KEY
-    assert state.league_id == config.SLEEPER_LEAGUE_ID
-    assert state.name == "2026-ff-nyt"
-    assert state.current_week == 2
-    assert state.num_teams == 2
-    assert state.provider_settings["playoff_week_start"] == 15
-    assert state.provider_settings["taxi_slots"] == 0
-    assert state.provider_settings["max_keepers"] == 1
-    assert state.roster_slots["W/R/T"] == 2
-    assert state.roster_slots["BN"] == 5
+def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_week():
+    bundle = _state()
+    assert bundle.data["source"] == "sleeper"
+    assert bundle.data["schema_version"] == 1
+    assert bundle.league["league_key"] == config.SLEEPER_LEAGUE_KEY
+    assert bundle.league["league_id"] == config.SLEEPER_LEAGUE_ID
+    assert bundle.league["name"] == "2026-ff-nyt"
+    assert bundle.league["current_week"] == 2
+    assert bundle.league["num_teams"] == 2
+    provider = bundle.settings["provider_settings"]
+    assert provider["playoff_week_start"] == 15
+    assert provider["taxi_slots"] == 0
+    assert provider["max_keepers"] == 1
+    slots = roster_slot_counts(bundle.settings["roster_slots"])
+    assert slots["W/R/T"] == 2
+    assert slots["BN"] == 5
+    # Fail-loud scoring means nothing is ever silently dropped into unmapped.
+    assert bundle.settings["unmapped_scoring_rules"] == []
 
 
 def test_season_mismatch_is_rejected():

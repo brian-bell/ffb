@@ -23,13 +23,13 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from ffb import config, identity
+from ffb.league import LeagueBundle, parse_bundle
 from ffb.sources.sleeper import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -44,25 +44,6 @@ _SLOT_MAP = {"FLEX": "W/R/T"}
 
 class SleeperLeagueError(Exception):
     """Missing env config or an unusable Sleeper league payload."""
-
-
-@dataclass(frozen=True)
-class SleeperLeagueState:
-    """In-memory Sleeper league view for sit/start. Never persisted to DuckDB."""
-
-    league_id: str
-    league_key: str
-    name: str
-    season: int
-    current_week: int
-    num_teams: int
-    scoring: config.ScoringConfig
-    roster_slots: dict[str, int]
-    teams: list[dict[str, Any]]
-    rosters: list[dict[str, Any]]
-    synced_at: str
-    scoring_rules: list[dict[str, Any]]
-    provider_settings: dict[str, Any]
 
 
 # --- thin fetch --------------------------------------------------------------
@@ -135,14 +116,6 @@ def collapse_roster_positions(positions: list[str]) -> list[dict[str, Any]]:
         {"position": slot, "count": counts[slot], "is_starting": slot not in _NON_STARTING_SLOTS}
         for slot in order
     ]
-
-
-def roster_slot_counts(slots: list[dict[str, Any]]) -> dict[str, int]:
-    return {
-        slot["position"]: slot["count"]
-        for slot in slots
-        if slot["is_starting"] or slot["position"] == "BN"
-    }
 
 
 def parse_scoring_settings(raw: Any) -> dict[str, Any]:
@@ -282,7 +255,6 @@ def parse_teams(
                 "name": name,
                 "managers": [manager] if manager else [],
                 "is_user_team": owner_id == wanted,
-                "owner_id": owner_id,
             }
         )
     return teams
@@ -333,12 +305,8 @@ def parse_roster(
     reserved = {_str(pid, "reserve") for pid in reserve if not _vacant_starter(pid)}
     lookup = players_by_id or {}
     players: list[dict[str, Any]] = []
-    seen: set[str] = set()
     for raw_id in player_ids:
         pid = _str(raw_id, "player_id")
-        if pid in seen:
-            raise ValueError(f"duplicate Sleeper player id {pid} on a roster")
-        seen.add(pid)
         if pid in selected:
             chosen = selected[pid]
         elif pid in reserved:
@@ -478,36 +446,23 @@ def map_state(
     season: int,
     synced_at: str,
     players_by_id: Mapping[str, Any] | None = None,
-) -> SleeperLeagueState:
-    """Pure raw responses -> in-memory Sleeper league state."""
+) -> LeagueBundle:
+    """Pure raw responses -> the provider-neutral ``LeagueBundle`` contract.
+
+    Shape, uniqueness, and season/week cross-checks belong to ``parse_bundle``;
+    only Sleeper-specific rules (slot support, taxi, user-team uniqueness, and
+    fail-loud scoring) are enforced here.
+    """
     nfl = parse_nfl_state(state)
     meta = parse_league_meta(league, current_week=nfl["week"])
-    if meta["season"] != season:
-        raise ValueError(
-            f"requested season {season} does not match Sleeper league season {meta['season']}"
-        )
-    if meta["league_key"] != sleeper_league_key(meta["league_id"]):
-        raise ValueError("Sleeper league_key must use the sleeper:<id> vocabulary")
     slots = collapse_roster_positions(meta["roster_positions"])
     scoring = parse_scoring_settings(meta["scoring_settings"])
     user_map = parse_users(users)
     teams = parse_teams(rosters, user_map, user_id=user_id, league_id=meta["league_id"])
-    if len(teams) != meta["num_teams"]:
-        raise ValueError("Sleeper roster count must equal league.total_rosters")
     if sum(team["is_user_team"] for team in teams) != 1:
         raise ValueError(
             f"Sleeper user_id {user_id} must own exactly one roster (is_user_team uniqueness)"
         )
-    parsed_rosters = [
-        parse_roster(
-            roster,
-            roster_positions=meta["roster_positions"],
-            week=meta["current_week"],
-            league_id=meta["league_id"],
-            players_by_id=players_by_id,
-        )
-        for roster in rosters
-    ]
     settings = meta["settings"]
     taxi_slots = settings.get("taxi_slots")
     if taxi_slots not in (None, 0):
@@ -515,26 +470,44 @@ def map_state(
             f"Sleeper taxi_slots={taxi_slots!r} is unsupported "
             "(taxi players would be treated as BN)"
         )
-    provider_settings = {
-        key: settings[key]
-        for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
-        if key in settings
+    payload = {
+        "schema_version": 1,
+        "source": "sleeper",
+        "synced_at": synced_at,
+        "league": {
+            "league_id": meta["league_id"],
+            "league_key": meta["league_key"],
+            "name": meta["name"],
+            "season": meta["season"],
+            "current_week": meta["current_week"],
+            "num_teams": meta["num_teams"],
+        },
+        "settings": {
+            "roster_slots": slots,
+            "scoring_rules": scoring["scoring_rules"],
+            # Sleeper fails loud on unmapped nonzero settings rather than
+            # scoring a league with rules it silently dropped, so this list is
+            # always empty. See parse_scoring_settings.
+            "unmapped_scoring_rules": [],
+            "provider_settings": {
+                key: settings[key]
+                for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
+                if key in settings
+            },
+        },
+        "teams": teams,
+        "rosters": [
+            parse_roster(
+                roster,
+                roster_positions=meta["roster_positions"],
+                week=meta["current_week"],
+                league_id=meta["league_id"],
+                players_by_id=players_by_id,
+            )
+            for roster in rosters
+        ],
     }
-    return SleeperLeagueState(
-        league_id=meta["league_id"],
-        league_key=meta["league_key"],
-        name=meta["name"],
-        season=meta["season"],
-        current_week=meta["current_week"],
-        num_teams=meta["num_teams"],
-        scoring=scoring["scoring"],
-        roster_slots=roster_slot_counts(slots),
-        teams=teams,
-        rosters=parsed_rosters,
-        synced_at=synced_at,
-        scoring_rules=scoring["scoring_rules"],
-        provider_settings=provider_settings,
-    )
+    return parse_bundle(payload, season=season)
 
 
 # --- live source -------------------------------------------------------------
@@ -560,28 +533,25 @@ class SleeperLeagueSource:
         self,
         season: int,
         *,
-        refresh: bool = False,
         offline: bool = False,
         players_by_id: Mapping[str, Any] | None = None,
-    ) -> SleeperLeagueState:
+    ) -> LeagueBundle:
+        """Pull live league state, or replay the last snapshots when ``offline``.
+
+        Rosters and the NFL week are current-state endpoints whose snapshot keys
+        carry no week, so a cached replay silently serves last week's starters
+        and week number. Sit/start therefore refetches every run by default;
+        snapshots exist for ``--offline`` and for post-mortem, not as a cache.
+        """
         from ffb.snapshot import SnapshotPolicy
 
-        if offline and refresh:
-            raise SleeperLeagueError("--offline and --refresh cannot be combined")
-        if offline:
-            policy = SnapshotPolicy.OFFLINE
-        elif refresh:
-            policy = SnapshotPolicy.REFRESH
-        else:
-            policy = SnapshotPolicy.MISSING_ONLY
+        policy = SnapshotPolicy.OFFLINE if offline else SnapshotPolicy.REFRESH
         staged: dict[str, Any] = {}
         cached_keys: list[str] = []
         with httpx.Client(transport=self.transport) as client:
 
             def pull(key: str, fetch_fn: Callable[[], Any]) -> Any:
-                if policy is SnapshotPolicy.OFFLINE or (
-                    policy is SnapshotPolicy.MISSING_ONLY and self.cache.has(key)
-                ):
+                if policy is SnapshotPolicy.OFFLINE:
                     cached_keys.append(key)
                     return self.cache.get_json(key, fetch_fn, policy=policy)
                 data = fetch_fn()

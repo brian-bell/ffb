@@ -492,7 +492,8 @@ are not ingested today.
 ### Sleeper league (second-league lineup spike)
 
 `src/ffb/sources/sleeper_league.py`. Thin peer of `YahooLeagueSource` for
-Brian's Sleeper league. **Not** a multi-platform framework. Yahoo remains the
+Brian's Sleeper league; `fetch` returns a validated `LeagueBundle`, the same
+contract Yahoo emits. **Not** a multi-platform framework. Yahoo remains the
 occupant of DuckDB `league_*` and Worker `league:bundle:current`.
 
 - **Identities** (verified via API): username `brianbell84`, user_id
@@ -510,8 +511,10 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   Current-week matchups are unused: starters come from `/rosters`. Retro can
   add matchups later.
 - **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`, plus
-  `sleeper/state_nfl`. Sit/start advice is written under
-  `lineup/sleeper/{season}_week{N}` so it cannot clobber Yahoo
+  `sleeper/state_nfl`. These keys carry no week, so sit/start refetches on
+  every run and the snapshots serve `--offline` replay and post-mortem, not
+  caching. No sit/start advice snapshot is written: nothing reads one yet, and
+  `lineup/{season}_week{N}` stays Yahoo
   `lineup/{season}_week{N}`. Committed offline fixtures live in
   `tests/fixtures/sleeper/`.
 - **Mapping** — `FLEX` → `W/R/T` (this league has two FLEX slots). SUPER_FLEX
@@ -525,8 +528,9 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   path never falls back to Yahoo `LEAGUE_SCORING`. The CLI banner says
   "Sleeper league settings" rather than hardcoding a PPR label.
 - **Closed-shape alias** — lineup snapshots still require `yahoo_player_id`.
-  For Sleeper-namespaced snapshots that field holds the Sleeper native id
-  (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id.
+  On Sleeper bundles that field holds the Sleeper native id
+  (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id; the
+  provider-neutral rename is tracked separately.
 - **Out of scope** — `replace_league_state`, `POST /api/league/bundle`,
   `--publish` / inseason KV, DuckDB PK widen, Worker KV rekey. Cutover is
   worker-first later.
@@ -536,9 +540,9 @@ export FFB_SLEEPER_LEAGUE_ID=1395854363380965376
 export FFB_SLEEPER_USER_ID=1395866680286003200
 uv run ffb season sync 2026 --week 2          # weekly projections + injuries
 # Reuses snapshots/sleeper/players_nfl.json when present (from injuries sync)
-uv run ffb lineup 2026 --league sleeper       # live fetch, then snapshot replay
-uv run ffb lineup 2026 --league sleeper --offline
-# --offline and --refresh cannot be combined
+uv run ffb lineup 2026 --league sleeper       # always a live fetch
+uv run ffb lineup 2026 --league sleeper --offline   # replay the last snapshots
+# --publish and --force are rejected for --league sleeper
 ```
 
 ## Source hygiene

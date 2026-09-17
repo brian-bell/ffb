@@ -1,6 +1,7 @@
 """``ffb lineup --league sleeper`` is fixture-backed and does not write league_*."""
 
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -13,6 +14,13 @@ from ffb.sources.crosswalk import parse_crosswalk
 from ffb.store import Store
 
 runner = CliRunner()
+
+
+def _plain(text):
+    """Strip rich's ANSI so assertions survive a color-capable terminal."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
 FIXTURES = Path(__file__).parent / "fixtures" / "sleeper"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 LEAGUE_ID = config.SLEEPER_LEAGUE_ID
@@ -197,19 +205,14 @@ def test_sleeper_lineup_does_not_write_league_state(tmp_path):
     store.close()
 
 
-def test_sleeper_lineup_snapshots_under_sleeper_namespace(tmp_path):
+def test_sleeper_lineup_writes_no_sit_start_snapshot(tmp_path):
+    """Nothing reads a Sleeper advice snapshot yet; Yahoo keeps lineup/ to itself."""
     env = _seed_store(tmp_path)
     result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
     assert result.exit_code == 0, result.output
-    assert lineup_snapshot_key(2026, 2, league="sleeper") == "lineup/sleeper/2026_week2"
     cache = SnapshotCache(tmp_path / "snapshots")
-    assert cache.has("lineup/sleeper/2026_week2")
-    assert not cache.has("lineup/2026_week2")
-    snapshot = cache.read_json("lineup/sleeper/2026_week2")
-    henry = next(row for row in snapshot["players"] if row["name"] == "Derrick Henry")
-    # Closed snapshot shape keeps yahoo_player_id as the Sleeper native-id alias.
-    assert henry["yahoo_player_id"] == "3198"
-    assert henry["yahoo_player_key"] == "sleeper:3198"
+    assert not cache.has(lineup_snapshot_key(2026, 2))
+    assert not (tmp_path / "snapshots" / "lineup").exists()
 
 
 def test_sleeper_lineup_rejects_non_current_week(tmp_path):
@@ -218,9 +221,10 @@ def test_sleeper_lineup_rejects_non_current_week(tmp_path):
         app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "1"], env=env
     )
     assert result.exit_code == 1
-    assert "current roster week" in result.output
-    assert "week 2" in result.output
-    assert "--week 1" in result.output
+    output = _plain(result.output)
+    assert "current roster week" in output
+    assert "week 2" in output
+    assert "--week 1" in output
     assert "Derrick Henry" not in result.output
 
 
@@ -234,16 +238,23 @@ def test_sleeper_lineup_accepts_explicit_current_week(tmp_path):
     assert "Derrick Henry" in result.output
 
 
-def test_sleeper_lineup_rejects_offline_and_refresh(tmp_path):
+def test_sleeper_lineup_rejects_force(tmp_path):
     env = _seed_store(tmp_path)
     result = runner.invoke(
-        app,
-        ["lineup", "2026", "--league", "sleeper", "--offline", "--refresh"],
-        env=env,
+        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--force"], env=env
+    )
+    assert result.exit_code != 0
+    assert "force" in result.output.lower()
+    assert "Traceback" not in result.output
+
+
+def test_sleeper_lineup_has_no_refresh_flag(tmp_path):
+    """Sit/start refetches every run, so there is nothing for --refresh to do."""
+    env = _seed_store(tmp_path)
+    result = runner.invoke(
+        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--refresh"], env=env
     )
     assert result.exit_code == 2
-    assert "--offline and --refresh cannot be combined" in result.output
-    assert "Traceback" not in result.output
 
 
 def test_sleeper_lineup_rejects_publish(tmp_path):

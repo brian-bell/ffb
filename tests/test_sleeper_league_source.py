@@ -1,4 +1,4 @@
-"""SleeperLeagueSource: snapshot keys, offline replay, no league_* writes."""
+"""SleeperLeagueSource: snapshot keys, fresh-by-default pulls, no league_* writes."""
 
 import json
 from pathlib import Path
@@ -63,9 +63,10 @@ def test_snapshot_keys_are_namespaced_under_sleeper():
 
 def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
     requests = []
-    state = _source(tmp_path, recorder=requests).fetch(2026)
-    assert state.league_key == config.SLEEPER_LEAGUE_KEY
-    assert [team["is_user_team"] for team in state.teams].count(True) == 1
+    bundle = _source(tmp_path, recorder=requests).fetch(2026)
+    assert bundle.league["league_key"] == config.SLEEPER_LEAGUE_KEY
+    assert bundle.data["source"] == "sleeper"
+    assert [team["is_user_team"] for team in bundle.teams].count(True) == 1
     names = {path.name for path in (tmp_path / "snapshots" / "sleeper").glob("*.json")}
     assert f"league_{LEAGUE_ID}_league.json" in names
     assert f"league_{LEAGUE_ID}_rosters.json" in names
@@ -75,7 +76,18 @@ def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
     assert not any("/matchups/" in request.url.path for request in requests)
 
 
-def test_second_fetch_replays_snapshots_without_network(tmp_path):
+def test_second_fetch_refetches_rather_than_replaying_stale_rosters(tmp_path):
+    """Rosters and the NFL week carry no week in their keys; a replay mis-advises."""
+    requests = []
+    _source(tmp_path, recorder=requests).fetch(2026)
+    requests.clear()
+    _source(tmp_path, recorder=requests).fetch(2026)
+    paths = {request.url.path for request in requests}
+    assert f"/v1/league/{LEAGUE_ID}/rosters" in paths
+    assert "/v1/state/nfl" in paths
+
+
+def test_offline_replays_snapshots_without_network(tmp_path):
     _source(tmp_path).fetch(2026)
 
     def no_network(request):
@@ -87,14 +99,11 @@ def test_second_fetch_replays_snapshots_without_network(tmp_path):
         cache=SnapshotCache(tmp_path / "snapshots"),
         transport=httpx.MockTransport(no_network),
     )
-    state = replay.fetch(2026)
-    assert state.current_week == 2
-    assert state.scoring.weights["rec"] == 1.0
-
-
-def test_offline_and_refresh_cannot_combine(tmp_path):
-    with pytest.raises(sl.SleeperLeagueError, match="--offline and --refresh"):
-        _source(tmp_path).fetch(2026, offline=True, refresh=True)
+    bundle = replay.fetch(2026, offline=True)
+    assert bundle.league["current_week"] == 2
+    assert {rule["stat_key"]: rule["points"] for rule in bundle.settings["scoring_rules"]}[
+        "rec"
+    ] == 1.0
 
 
 def test_offline_miss_does_not_call_the_network(tmp_path):
@@ -108,7 +117,7 @@ def test_offline_miss_does_not_call_the_network(tmp_path):
         source.fetch(2026, offline=True)
 
 
-def test_failed_refresh_leaves_known_good_snapshots(tmp_path):
+def test_failed_fetch_leaves_known_good_snapshots(tmp_path):
     source = _source(tmp_path)
     source.fetch(2026)
     before = {path: path.read_bytes() for path in (tmp_path / "snapshots").rglob("*.json")}
@@ -116,7 +125,7 @@ def test_failed_refresh_leaves_known_good_snapshots(tmp_path):
     del routes[f"/v1/league/{LEAGUE_ID}/users"]
     broken = _source(tmp_path, routes=routes)
     with pytest.raises(httpx.HTTPStatusError):
-        broken.fetch(2026, refresh=True)
+        broken.fetch(2026)
     assert {path: path.read_bytes() for path in (tmp_path / "snapshots").rglob("*.json")} == before
 
 
