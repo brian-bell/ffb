@@ -359,7 +359,10 @@ readings. `src/league-keys.ts` owns the encoding and the default.
 
 Routes take an optional `?league=`. Absent means the default league, which is
 what the pre-rekey keys held, so existing callers keep reading their own data; a
-blank value is rejected rather than defaulted.
+blank value is rejected rather than defaulted. The dashboard's season,
+default week and freshness come from the *selected* league's bundle, and the
+`/command` client forwards the page's own `?league=`, so a non-default
+league's published reports are reachable at `/command?league=<key>`.
 
 Writes go only to the new keys. Reads fall back to the old single-league keys
 (`league:bundle:current`, `inseason:v1:...`) when the new one is missing **and**

@@ -583,9 +583,15 @@ def map_state(
             # fails the mapper outright. See parse_scoring_settings.
             "unmapped_scoring_rules": scoring["unmapped_scoring_rules"],
             "provider_settings": {
-                key: settings[key]
-                for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
-                if key in settings
+                **{
+                    key: settings[key]
+                    for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
+                    if key in settings
+                },
+                # The league's live week. Equal to current_week on a normal sync,
+                # but on a backfill current_week is the week being backfilled, and
+                # this is the only record of where the league actually is.
+                "nfl_week": nfl["week"],
             },
         },
         "teams": teams,

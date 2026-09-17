@@ -244,3 +244,41 @@ def test_backfilling_a_past_week_does_not_move_the_league_clock_backwards(store)
         roster["week"] = 2
     store.replace_league_state(parse_bundle(past, season=2024))
     assert store.league_context(2024)["current_week"] == 5
+
+
+def test_stored_defenses_keep_their_canonical_key(store, crosswalk_rows):
+    """A D/ST has its own identity; storing it unmatched mislabels a player that scores."""
+    store.upsert_crosswalk(crosswalk_rows)
+    data = _bundle()
+    data["rosters"][0]["players"] = [
+        {
+            "native_id": "SF",
+            "native_player_key": "sleeper:SF",
+            "name": "49ers",
+            "nfl_team": "SFO",
+            "primary_position": "DEF",
+            "eligible_positions": ["DEF"],
+            "selected_position": "DEF",
+        }
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    [row] = store.league_roster_rows(2024)
+    assert row["player_key"] == "def:SFO"
+    # matched matters: the reader warns that unmatched rows "score zero", which
+    # would be false for a defense that lineup.projection_key resolves anyway.
+    assert row["matched"] is True
+    assert row["primary_position"] == "DEF"
+
+
+def test_first_sync_backfill_keeps_the_live_week_as_current(store):
+    """A backfill must not make a past week the league's current week."""
+    data = _bundle()
+    data["league"] = data["league"] | {"current_week": 2}
+    for roster in data["rosters"]:
+        roster["week"] = 2
+    # The provider reported the live week alongside the backfilled one.
+    data["settings"] = data["settings"] | {
+        "provider_settings": {**data["settings"]["provider_settings"], "nfl_week": 7}
+    }
+    store.replace_league_state(parse_bundle(data, season=2024))
+    assert store.league_context(2024)["current_week"] == 7

@@ -191,8 +191,11 @@ interface LeagueSummary {
   current_week: number | null;
 }
 
-async function leagueSummary(env: InseasonApiEnv): Promise<LeagueSummary> {
-  const text = await getLeagueBundleText(env);
+async function leagueSummary(env: InseasonApiEnv, leagueKey: string): Promise<LeagueSummary> {
+  // Must be the selected league's bundle: this drives the dashboard's season,
+  // its default week, and the synced_at that cardFreshness ages against. Reading
+  // the default league here would date a Sleeper dashboard by Yahoo's clock.
+  const text = await getLeagueBundleText(env, leagueKey);
   if (text === null) return { season: null, synced_at: null, current_week: null };
   try {
     const bundle = JSON.parse(text) as { synced_at?: unknown; league?: { season?: unknown; current_week?: unknown } };
@@ -224,7 +227,7 @@ async function getDashboard(
     return error("invalid_request", "week must be a positive integer", 400);
   }
 
-  const league = await leagueSummary(env);
+  const league = await leagueSummary(env, leagueKey);
   const season = parsePositiveInt(seasonParam) ?? league.season ?? (await publishedBoardSeason(env));
   if (season === null) {
     return error("invalid_request", "season is required until a league bundle or board is published", 400);

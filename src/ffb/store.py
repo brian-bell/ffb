@@ -947,6 +947,32 @@ class Store:
         rows: list[dict[str, Any]] = []
         for roster in bundle.rosters:
             for player in roster["players"]:
+                # A team defense has a canonical identity of its own, so it never
+                # needs the crosswalk: no provider lists a D/ST under a player id.
+                # Without this it stores unmatched, and the reader then warns that
+                # it "did not match the crosswalk and scores zero" when in fact
+                # lineup.projection_key resolves it to def:<team> and it scores.
+                defense = identity.canonical_defense_key(
+                    player["primary_position"], player["nfl_team"]
+                )
+                if defense is not None:
+                    defense_key, defense_team = defense
+                    rows.append(
+                        {
+                            **player,
+                            "team_key": roster["team_key"],
+                            "week": roster["week"],
+                            "player_key": defense_key,
+                            "matched": True,
+                            "full_name": player["name"],
+                            "position": "DEF",
+                            "team": defense_team,
+                            "nfl_team": defense_team,
+                            "primary_position": "DEF",
+                            "eligible_positions": ["DEF"],
+                        }
+                    )
+                    continue
                 match = resolved.get(player["native_id"])
                 rows.append(
                     {
@@ -973,11 +999,17 @@ class Store:
         # Backfilling a past week pins the bundle to that week (the contract
         # requires roster.week == league.current_week), but the league's clock
         # has not gone backwards. Roster rows are keyed by their own week, so
-        # keep the furthest week this league has reached.
+        # keep the furthest week this league has reached: the week already
+        # stored, or the provider's live week when a backfill is the first sync
+        # this league has ever had and there is nothing stored to compare with.
         previous = self.league_context(season, league_key)
-        current_week = league["current_week"]
+        candidates = [int(league["current_week"])]
         if previous is not None:
-            current_week = max(current_week, int(previous["current_week"]))
+            candidates.append(int(previous["current_week"]))
+        live_week = settings["provider_settings"].get("nfl_week")
+        if isinstance(live_week, int) and live_week > 0:
+            candidates.append(live_week)
+        current_week = max(candidates)
         self.conn.execute("BEGIN TRANSACTION")
         try:
             self.conn.execute(

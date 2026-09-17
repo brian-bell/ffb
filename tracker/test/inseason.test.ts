@@ -11,7 +11,7 @@ import {
   parseEnvelope,
   weekFromKey,
 } from "../src/inseason";
-import { LEAGUE_BUNDLE_KEY } from "../src/league-bundle";
+import { LEAGUE_BUNDLE_KEY, leagueBundleKey } from "../src/league-bundle";
 import boardFixture from "./fixtures/board.json";
 import leagueBundle from "./fixtures/league-bundle.json";
 import digestFixture from "./fixtures/inseason/digest.json";
@@ -446,5 +446,37 @@ describe("inseason KV rekey: per-league v2 keys with a v1 dual-read window", () 
     const res = await SELF.fetch("https://x/api/inseason?league=%20", { headers: bearer() });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "invalid_request" });
+  });
+});
+
+
+describe("dashboard league summary follows the selected league", () => {
+  const SLEEPER = "sleeper:1395854363380965376";
+
+  beforeEach(async () => {
+    await clearInseason();
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(boardFixture));
+  });
+
+  it("dates a league's dashboard by its own bundle, not the default league's", async () => {
+    // Only the default league has a bundle stored.
+    await env.BOARD.put(
+      leagueBundleKey("yahoo:470.l.928421"),
+      JSON.stringify({
+        ...leagueBundle,
+        synced_at: "2026-09-01T00:00:00Z",
+        league: { ...leagueBundle.league, season: 2024, current_week: 9 },
+      }),
+    );
+
+    // The default league picks that week up...
+    const yahoo = await view("?season=2024");
+    expect(yahoo.body.week).toBe(9);
+    expect(yahoo.body.league?.synced_at).toBe("2026-09-01T00:00:00Z");
+
+    // ...but Sleeper must not inherit Yahoo's week or synced_at.
+    const sleeper = await view(`?season=2024&league=${encodeURIComponent(SLEEPER)}`);
+    expect(sleeper.body.league).toBeNull();
+    expect(sleeper.body.week).not.toBe(9);
   });
 });
