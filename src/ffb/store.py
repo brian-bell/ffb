@@ -887,8 +887,22 @@ class Store:
         return sorted(rows, key=lambda row: (row["source"], row["full_name"], row["native_id"]))
 
     # --- league state ----------------------------------------------------
+    _STORABLE_BUNDLE_SOURCES = ("yahoo", "fixture")
+
     def replace_league_state(self, bundle: Any) -> dict[str, int]:
-        """Atomically mirror a validated league bundle's state for its season."""
+        """Atomically mirror a validated league bundle's state for its season.
+
+        ``league_*`` is keyed by season alone and every roster id is resolved
+        through the Yahoo crosswalk column, so storing another provider's
+        bundle would both mis-resolve its players and delete the Yahoo state
+        for that season. Refuse until storage is league-aware.
+        """
+        source = bundle.data["source"]
+        if source not in self._STORABLE_BUNDLE_SOURCES:
+            raise ValueError(
+                f"cannot store a {source!r} league bundle: league_* is keyed by season and "
+                "resolves ids through the Yahoo crosswalk. Widen the schema first."
+            )
         league = bundle.league
         settings = bundle.settings
         season = league["season"]

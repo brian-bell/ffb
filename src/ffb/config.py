@@ -240,7 +240,9 @@ SLEEPER_STAT_MAP: dict[str, tuple[str, ...]] = {
     "safe": ("safe",),
     "blk_kick": ("blk_kick",),
     "def_td": ("def_td", "def_fum_td", "pass_int_td"),
-    "st_td": ("def_ret_td",),
+    # A player's own return TD stays on the player row: _normalize_stats only
+    # folds pr_td/def_kr_td into def_ret_td for DEF rows.
+    "st_td": ("pr_td", "def_kr_td"),
     "def_st_td": ("def_ret_td",),
     "def_2pt": ("def_2pt",),
     "ff": ("ff",),

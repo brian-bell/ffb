@@ -19,17 +19,17 @@ def _load(name):
 
 
 def _state(**overrides):
-    return sl.map_state(
-        league=_load("league.json"),
-        rosters=_load("rosters.json"),
-        users=_load("users.json"),
-        state=_load("state_nfl.json"),
-        user_id=USER_ID,
-        season=2026,
-        synced_at=SYNCED_AT,
-        players_by_id=_load("players.json"),
-        **overrides,
-    )
+    kwargs = {
+        "league": _load("league.json"),
+        "rosters": _load("rosters.json"),
+        "users": _load("users.json"),
+        "state": _load("state_nfl.json"),
+        "user_id": USER_ID,
+        "season": 2026,
+        "synced_at": SYNCED_AT,
+        "players_by_id": _load("players.json"),
+    }
+    return sl.map_state(**(kwargs | overrides))
 
 
 def test_flex_slots_collapse_to_two_wrt():
@@ -237,6 +237,29 @@ def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_w
     assert slots["BN"] == 5
     # Fail-loud scoring means nothing is ever silently dropped into unmapped.
     assert bundle.settings["unmapped_scoring_rules"] == []
+
+
+def test_nfl_state_from_another_season_is_rejected():
+    """state/nfl is snapshotted globally, so a stale replay must not set the week."""
+    state = _load("state_nfl.json") | {"season": 2025}
+    with pytest.raises(ValueError, match="does not match league season"):
+        _state(state=state)
+
+
+def test_player_return_tds_are_not_scored_as_the_defense():
+    """st_td is a player's own return TD; _normalize_stats keeps def_ret_td for DEF."""
+    parsed = sl.parse_scoring_settings({"st_td": 6.0, "def_st_td": 6.0, "rec": 1.0})
+    weights = parsed["weights"]
+    assert weights["pr_td"] == 6.0
+    assert weights["def_kr_td"] == 6.0
+    assert weights["def_ret_td"] == 6.0
+
+
+def test_player_and_defense_return_tds_can_score_differently():
+    """They collapsed onto one key before, so unequal values failed to load at all."""
+    weights = sl.parse_scoring_settings({"st_td": 6.0, "def_st_td": 4.0})["weights"]
+    assert weights["pr_td"] == 6.0
+    assert weights["def_ret_td"] == 4.0
 
 
 def test_season_mismatch_is_rejected():

@@ -454,6 +454,13 @@ def map_state(
     """
     nfl = parse_nfl_state(state)
     meta = parse_league_meta(league, current_week=nfl["week"])
+    if nfl["season"] != meta["season"]:
+        # state/nfl is snapshotted globally while league pulls are league-scoped,
+        # so a stale replay could graft another season's week onto this bundle.
+        raise ValueError(
+            f"Sleeper NFL state season {nfl['season']} does not match league season "
+            f"{meta['season']}; refusing to take week {nfl['week']} from it"
+        )
     slots = collapse_roster_positions(meta["roster_positions"])
     scoring = parse_scoring_settings(meta["scoring_settings"])
     user_map = parse_users(users)

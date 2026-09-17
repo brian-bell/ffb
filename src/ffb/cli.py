@@ -142,7 +142,12 @@ def league_sync(  # noqa: B008
             console.print(f"[red]Yahoo fetch failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store = _open_store()
-    result = store.replace_league_state(bundle)
+    try:
+        result = store.replace_league_state(bundle)
+    except ValueError as exc:
+        store.close()
+        console.print(f"[red]League state rejected:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
     store.close()
     console.print(
         f"[green]Synced {label} league state:[/green] {result['teams']} team(s), "
