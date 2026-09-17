@@ -5,11 +5,9 @@ POSTed and checks it is the rendered report wrapped in the closed envelope.
 """
 
 import json
-import re
 from pathlib import Path
 
 import httpx
-from typer.testing import CliRunner
 
 from ffb import cli
 from ffb.cli import app
@@ -17,13 +15,13 @@ from ffb.retro import lineup_snapshot_key
 from ffb.snapshot import SnapshotCache
 from ffb.store import Store
 
+from .cli_plain import PlainCliRunner
 from .test_lineup_cli import _seed_lineup_store
 from .test_ros_cli import _seed_ros_store
 
-runner = CliRunner()
+runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
 ACTUALS = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 ENVELOPE_KEYS = {
     "schema_version",
     "kind",
@@ -228,7 +226,7 @@ def test_ros_publish_rejects_position_filter(tmp_path, monkeypatch):
     assert result.exit_code == 2
     # Rich colours the usage box on CI terminals, splitting option names with
     # escape codes; compare the plain text.
-    assert "--publish" in _ANSI.sub("", result.output)
+    assert "--publish" in result.output
     assert posted == []
 
 

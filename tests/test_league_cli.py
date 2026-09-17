@@ -3,14 +3,14 @@
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from ffb.cli import app
 from ffb.league import parse_bundle
 from ffb.sources import yahoo
 from ffb.yahoo_auth import YahooAuthError
 
-runner = CliRunner()
+from .cli_plain import PlainCliRunner
+
+runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
 XWALK_FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 

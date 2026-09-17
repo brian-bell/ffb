@@ -3,14 +3,14 @@
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from ffb.cli import app
 from ffb.retro import actuals_snapshot_key, lineup_snapshot_key
 from ffb.snapshot import SnapshotCache
 from ffb.store import Store
 
-runner = CliRunner()
+from .cli_plain import PlainCliRunner
+
+runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
 ACTUALS = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
