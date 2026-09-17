@@ -249,3 +249,61 @@ def test_resolve_batch_uses_sleeper_ids_not_yahoo():
     assert defense["matched"] is True
     assert unknown["player_key"] == "sleeper:slow"
     assert unknown["matched"] is False
+
+
+def test_resolve_recomputes_eligible_positions_from_final_position():
+    """Stale Sleeper WR eligibility must not survive a crosswalk RB identity."""
+    from ffb.lineup import can_fill
+
+    player = sl._parse_player(
+        "misfiled",
+        {
+            "first_name": "Misfiled",
+            "last_name": "Back",
+            "position": "WR",
+            "team": "BAL",
+        },
+        selected_position="WR",
+    )
+    assert player["eligible_positions"] == ["WR", "W/R/T"]
+
+    class _Store:
+        def resolve_batch(self, source, native_ids):
+            assert source == "sleeper"
+            return {
+                "misfiled": {
+                    "player_key": "rb-xw",
+                    "full_name": "Misfiled Back",
+                    "position": "RB",
+                    "team": "BAL",
+                }
+            }
+
+    [row] = sl.resolve_sleeper_roster_rows(_Store(), [player])
+    assert row["position"] == "RB"
+    assert row["primary_position"] == "RB"
+    assert row["eligible_positions"] == ["RB", "W/R/T"]
+    assert can_fill(row, "RB") is True
+    assert can_fill(row, "WR") is False
+    assert can_fill(row, "W/R/T") is True
+
+
+def test_resolve_def_overwrites_stale_skill_eligibility():
+    player = {
+        "yahoo_player_id": "SF",
+        "yahoo_player_key": "sleeper:SF",
+        "name": "49ers",
+        "nfl_team": "SFO",
+        "primary_position": "DEF",
+        "eligible_positions": ["WR", "W/R/T"],
+        "selected_position": "DEF",
+    }
+
+    class _Store:
+        def resolve_batch(self, source, native_ids):
+            return {}
+
+    [row] = sl.resolve_sleeper_roster_rows(_Store(), [player])
+    assert row["player_key"] == "def:SFO"
+    assert row["position"] == "DEF"
+    assert row["eligible_positions"] == ["DEF"]

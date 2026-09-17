@@ -234,3 +234,19 @@ def test_default_lineup_still_requires_yahoo_league_state(tmp_path):
     result = runner.invoke(app, ["lineup", "2026"], env=env)
     assert result.exit_code == 1
     assert "league sync" in result.output
+
+
+def test_report_scoring_provenance_does_not_special_case_sleeper(monkeypatch):
+    """Sleeper lineup prints provenance itself; this helper stays Yahoo/fixture."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from ffb import cli as cli_mod
+
+    buffer = StringIO()
+    monkeypatch.setattr(cli_mod, "console", Console(file=buffer, force_terminal=False))
+    cli_mod._report_scoring_provenance(type("L", (), {"scoring_provenance": "sleeper"})())
+    text = buffer.getvalue()
+    assert "Sleeper" not in text
+    assert "mock fixture league settings" in text

@@ -435,6 +435,7 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
                     "team": team,
                     "nfl_team": team,
                     "primary_position": "DEF",
+                    "eligible_positions": _eligible("DEF"),
                 }
             )
             continue
@@ -443,27 +444,31 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
             xw_pos = hit["position"] if hit["position"] in config.FANTASY_POSITIONS else None
             if xw_pos is None and hit["position"] == "PK":
                 xw_pos = "K"
+            position = xw_pos or player["primary_position"]
             rows.append(
                 {
                     **player,
                     "player_key": hit["player_key"],
                     "matched": True,
                     "full_name": hit["full_name"] or player["name"],
-                    "position": xw_pos or player["primary_position"],
+                    "position": position,
                     "team": hit["team"] or player["nfl_team"],
                     "nfl_team": hit["team"] or player["nfl_team"],
-                    "primary_position": xw_pos or player["primary_position"],
+                    "primary_position": position,
+                    "eligible_positions": _eligible(position),
                 }
             )
         else:
+            position = player["primary_position"]
             rows.append(
                 {
                     **player,
                     "player_key": f"sleeper:{native_id}",
                     "matched": False,
                     "full_name": player["name"],
-                    "position": player["primary_position"],
+                    "position": position,
                     "team": player["nfl_team"],
+                    "eligible_positions": _eligible(position),
                 }
             )
     return rows

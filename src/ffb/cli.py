@@ -1664,8 +1664,6 @@ def _report_scoring_provenance(league: object) -> None:
     """Report whether scoring came from configured or synchronized Yahoo rules."""
     if league.scoring_provenance == "configured-yahoo":
         console.print("[dim]Scored with configured Yahoo league settings.[/dim]")
-    elif league.scoring_provenance == "sleeper":
-        console.print("[yellow]Scored with Sleeper league settings (full PPR).[/yellow]")
     else:
         console.print("[yellow]Scored with mock fixture league settings.[/yellow]")
 
