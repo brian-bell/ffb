@@ -573,7 +573,13 @@ def _lineup_sleeper(
         )
         raise typer.Exit(code=1)
     user = user_teams[0]
-    chosen_week = state.current_week if week is None else week
+    if week is not None and week != state.current_week:
+        console.print(
+            f"[red]Sleeper lineup only supports the current roster week "
+            f"(week {state.current_week}); --week {week} is out of scope for this spike.[/red]"
+        )
+        raise typer.Exit(code=1)
+    chosen_week = state.current_week
     roster = next(item for item in state.rosters if item["team_key"] == user["team_key"])
     store = _open_store()
     roster_rows = sleeper_league.resolve_sleeper_roster_rows(store, roster["players"])

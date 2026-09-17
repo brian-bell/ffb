@@ -212,6 +212,28 @@ def test_sleeper_lineup_snapshots_under_sleeper_namespace(tmp_path):
     assert henry["yahoo_player_key"] == "sleeper:3198"
 
 
+def test_sleeper_lineup_rejects_non_current_week(tmp_path):
+    env = _seed_store(tmp_path)
+    result = runner.invoke(
+        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "1"], env=env
+    )
+    assert result.exit_code == 1
+    assert "current roster week" in result.output
+    assert "week 2" in result.output
+    assert "--week 1" in result.output
+    assert "Derrick Henry" not in result.output
+
+
+def test_sleeper_lineup_accepts_explicit_current_week(tmp_path):
+    env = _seed_store(tmp_path)
+    result = runner.invoke(
+        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "2"], env=env
+    )
+    assert result.exit_code == 0, result.output
+    assert "Week 2" in result.output
+    assert "Derrick Henry" in result.output
+
+
 def test_sleeper_lineup_rejects_publish(tmp_path):
     env = _seed_store(tmp_path)
     result = runner.invoke(
