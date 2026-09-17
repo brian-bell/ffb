@@ -8,6 +8,7 @@ import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
 import { handleInseasonApi } from "./inseason-api";
 import { handleLeagueApi } from "./league-api";
+import { handleLeaguesApi } from "./leagues-api";
 import { handleMockApi } from "./mock-api";
 
 export interface Env {
@@ -70,6 +71,13 @@ export default {
       const denied = requireBearer(request, env);
       if (denied) return denied;
       return handleInseasonApi(request, env, url, pathname);
+    }
+
+    // Which leagues the Worker holds a bundle for, for the /command picker.
+    if (pathname === "/api/leagues") {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleLeaguesApi(request, env);
     }
 
     // LeagueBundle v2 ingest sink, one key per league. KV only.

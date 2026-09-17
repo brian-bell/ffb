@@ -242,7 +242,7 @@ Route `GET /command` serves static HTML and a client bundle, same as `/` and
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ FFB Command   Week ‹ 2 ›   Bell Curve   Oldest source: ROS, 6d      │
+│ FFB Command  League [Money League ▾]  Week ‹ 2 ›  Bell Curve  ROS, 6d│
 ├───────────────────────────────────────────────┬──────────────────────┤
 │ LINEUP (2 columns)                            │ NEWS                 │
 │ Δ +5.2 to optimal · moves · close calls       │ flagged roster       │
@@ -255,6 +255,28 @@ Route `GET /command` serves static HTML and a client bundle, same as `/` and
 Between 760 and 1100 px the grid collapses to two columns (lineup full width);
 below that the MVP stacks cards in the future phone order (lineup, news,
 retro, rest of season) without phone-specific design work.
+
+### League picker
+
+The header carries a league `<select>` fed by `GET /api/leagues`. Every report,
+week list and freshness input is per-league, so the league is a page-level
+dimension like the week rather than a card-level filter — it belongs beside the
+week picker and above the grid.
+
+It is hidden whenever there is nothing to choose: one league, or a directory
+that did not load. That failure is deliberately silent — the selected league's
+dashboard has already rendered, and a navigation control that is merely absent
+is better than an error banner over working content. Below 760 px the label is
+dropped and the select narrows, but the picker itself stays: it is the only way
+to reach another league.
+
+Choosing a league is a reload, not a filter. Season, week and `weeks` all
+belong to the league being left, so the view is dropped and the request names
+no week; the API answers with the new league's own current week. `?league=`
+is written to the URL (and the old `week` removed) so the selection is
+shareable and survives a refresh. A `?league=` the directory does not list
+still appears, selected, marked as not published — a bookmark must not be
+quietly redirected to a different league's roster.
 
 ### Card summaries
 

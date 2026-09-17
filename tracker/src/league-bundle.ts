@@ -19,6 +19,30 @@ export function leagueBundleKey(leagueKey: string = DEFAULT_LEAGUE_KEY): string 
   return `league:bundle:${leagueSlug(leagueKey)}:current`;
 }
 
+/** Every bundle key, v1 and v2, shares this prefix — the listing root. */
+export const LEAGUE_BUNDLE_PREFIX = "league:bundle:";
+
+/**
+ * The league a bundle KV key names, or null when the key is not a bundle key.
+ *
+ * Listing `league:bundle:` returns the v1 key alongside the v2 ones, and the v1
+ * key holds exactly the default league's bundle, so it maps there. The slug is
+ * percent-encoded (league keys contain a colon), and a key whose slug does not
+ * decode is not one we wrote.
+ */
+export function leagueKeyFromBundleKey(kvKey: string): string | null {
+  if (kvKey === LEAGUE_BUNDLE_KEY) return DEFAULT_LEAGUE_KEY;
+  if (!kvKey.startsWith(LEAGUE_BUNDLE_PREFIX) || !kvKey.endsWith(":current")) return null;
+  const slug = kvKey.slice(LEAGUE_BUNDLE_PREFIX.length, -":current".length);
+  if (slug === "" || slug.includes(":")) return null;
+  try {
+    const decoded = decodeURIComponent(slug);
+    return decoded === "" ? null : decoded;
+  } catch {
+    return null;
+  }
+}
+
 /** The namespaced league key a parsed bundle belongs to. */
 export function bundleLeagueKey(bundle: LeagueBundle): string {
   return namespacedLeagueKey(bundle.source, bundle.league.league_key);

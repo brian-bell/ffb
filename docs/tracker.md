@@ -181,6 +181,7 @@ work happens in the Worker. The design record is
 | --- | --- |
 | `POST /api/inseason/{kind}` | Validate and store one envelope (`lineup`, `digest`, `retro`, `ros`) |
 | `GET /api/inseason?season=&week=` | Compose the dashboard view for one week |
+| `GET /api/leagues` | List the leagues a bundle is stored for, for the header picker |
 
 Envelopes live under `inseason:v2:{season}:{league}:{kind}:{week}`. The POST route
 reuses the league bundle vocabulary: 400 `invalid_report` for an envelope or
@@ -363,6 +364,24 @@ blank value is rejected rather than defaulted. The dashboard's season,
 default week and freshness come from the *selected* league's bundle, and the
 `/command` client forwards the page's own `?league=`, so a non-default
 league's published reports are reachable at `/command?league=<key>`.
+
+`GET /api/leagues` is how the page learns those keys — a league key is a
+provider id, so nothing on the client can derive one. It lists the
+`league:bundle:` prefix, reads only the header fields out of each bundle
+(never the rosters), and answers `{default_league, leagues[]}`; the default
+league's v2 key wins over its v1 key, and a bundle that will not parse is
+skipped so one bad value cannot make every other league unpickable.
+`src/league-directory.ts` holds the pure ordering (default first, then by
+name) and labelling (the provider is appended only to names that collide).
+
+The `/command` header renders that list as a `<select>`, hidden when there is
+nothing to choose — one league, or a directory that failed to load, which is
+not fatal because the dashboard has already rendered. Choosing a league
+rewrites `?league=` and reloads: season, week and `weeks` are all per-league,
+so the old view is dropped and the request names no week, letting the API
+answer with that league's own current week. The stale `week` goes out of the
+URL with it. A `?league=` the directory does not list is still shown and kept
+selected rather than silently swapped, so a bookmark survives.
 
 Writes go only to the new keys. Reads fall back to the old single-league keys
 (`league:bundle:current`, `inseason:v1:...`) when the new one is missing **and**
