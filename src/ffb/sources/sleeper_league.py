@@ -318,9 +318,7 @@ def parse_roster(
         raise ValueError("roster.reserve must be a list")
     taxi = roster.get("taxi")
     if taxi:
-        raise ValueError(
-            "Sleeper taxi players are unsupported; they would be treated as BN"
-        )
+        raise ValueError("Sleeper taxi players are unsupported; they would be treated as BN")
     slots = starting_slots(roster_positions)
     if len(starters) != len(slots):
         raise ValueError(
