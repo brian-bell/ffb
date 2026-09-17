@@ -506,22 +506,24 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   GET https://api.sleeper.app/v1/league/{league_id}/rosters
   GET https://api.sleeper.app/v1/league/{league_id}/users
   GET https://api.sleeper.app/v1/state/nfl
-  GET https://api.sleeper.app/v1/league/{league_id}/matchups/{week}
   ```
-- **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`,
-  `_matchups_week{N}`, plus `sleeper/state_nfl`. Sit/start advice is written
-  under `lineup/sleeper/{season}_week{N}` so it cannot clobber Yahoo
+  Current-week matchups are unused: starters come from `/rosters`. Retro can
+  add matchups later.
+- **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`, plus
+  `sleeper/state_nfl`. Sit/start advice is written under
+  `lineup/sleeper/{season}_week{N}` so it cannot clobber Yahoo
   `lineup/{season}_week{N}`. Committed offline fixtures live in
   `tests/fixtures/sleeper/`.
 - **Mapping** — `FLEX` → `W/R/T` (this league has two FLEX slots). SUPER_FLEX
   and IDP fail loud. Starters zip with `roster_positions`. `is_user_team` is
   the unique roster whose `owner_id` equals `FFB_SLEEPER_USER_ID`. DEF ids
   such as `SF` become `def:SFO`. Identity uses `resolve_batch("sleeper")`,
-  never `yahoo_id`.
+  never `yahoo_id`. `taxi_slots > 0` or any taxi player on a roster fails
+  loud (taxi would otherwise be treated as BN). This league is `taxi_slots: 0`.
 - **Scoring** — `scoring_settings` maps through `config.SLEEPER_STAT_MAP` into
-  a `ScoringConfig` (this league is full PPR, `rec: 1.0`). Nonzero unmapped
-  keys, including `bonus_*`, raise. The path never falls back to Yahoo
-  `LEAGUE_SCORING`.
+  a `ScoringConfig`. Nonzero unmapped keys, including `bonus_*`, raise. The
+  path never falls back to Yahoo `LEAGUE_SCORING`. The CLI banner says
+  "Sleeper league settings" rather than hardcoding a PPR label.
 - **Closed-shape alias** — lineup snapshots still require `yahoo_player_id`.
   For Sleeper-namespaced snapshots that field holds the Sleeper native id
   (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id.
@@ -536,6 +538,7 @@ uv run ffb season sync 2026 --week 2          # weekly projections + injuries
 # Reuses snapshots/sleeper/players_nfl.json when present (from injuries sync)
 uv run ffb lineup 2026 --league sleeper       # live fetch, then snapshot replay
 uv run ffb lineup 2026 --league sleeper --offline
+# --offline and --refresh cannot be combined
 ```
 
 ## Source hygiene

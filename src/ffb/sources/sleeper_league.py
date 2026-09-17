@@ -11,7 +11,6 @@ Endpoints (no auth)::
     GET https://api.sleeper.app/v1/league/{league_id}/rosters
     GET https://api.sleeper.app/v1/league/{league_id}/users
     GET https://api.sleeper.app/v1/state/nfl
-    GET https://api.sleeper.app/v1/league/{league_id}/matchups/{week}
 
 ``yahoo_player_id`` / ``yahoo_player_key`` on mapped roster rows are Sleeper
 native-id aliases required by the closed lineup-snapshot player shape. They
@@ -98,20 +97,12 @@ def fetch_state(client: httpx.Client) -> Any:
     return _get(client, "/state/nfl")
 
 
-def fetch_matchups(client: httpx.Client, league_id: str, week: int) -> Any:
-    return _get(client, f"/league/{league_id}/matchups/{int(week)}")
-
-
 def snapshot_key(league_id: str, resource: str) -> str:
     return f"sleeper/league_{league_id}_{resource}"
 
 
 def state_snapshot_key() -> str:
     return "sleeper/state_nfl"
-
-
-def matchup_snapshot_key(league_id: str, week: int) -> str:
-    return snapshot_key(league_id, f"matchups_week{int(week)}")
 
 
 # --- pure raw -> sit/start mapping -------------------------------------------
@@ -325,6 +316,11 @@ def parse_roster(
         reserve = []
     if not isinstance(reserve, list):
         raise ValueError("roster.reserve must be a list")
+    taxi = roster.get("taxi")
+    if taxi:
+        raise ValueError(
+            "Sleeper taxi players are unsupported; they would be treated as BN"
+        )
     slots = starting_slots(roster_positions)
     if len(starters) != len(slots):
         raise ValueError(
@@ -515,6 +511,12 @@ def map_state(
         for roster in rosters
     ]
     settings = meta["settings"]
+    taxi_slots = settings.get("taxi_slots")
+    if taxi_slots not in (None, 0):
+        raise ValueError(
+            f"Sleeper taxi_slots={taxi_slots!r} is unsupported "
+            "(taxi players would be treated as BN)"
+        )
     provider_settings = {
         key: settings[key]
         for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
@@ -601,11 +603,6 @@ class SleeperLeagueSource:
                 lambda: fetch_users(client, self.league_id),
             )
             state = pull(state_snapshot_key(), lambda: fetch_state(client))
-            week = parse_nfl_state(state)["week"]
-            pull(
-                matchup_snapshot_key(self.league_id, week),
-                lambda: fetch_matchups(client, self.league_id, week),
-            )
         lookup = players_by_id
         if lookup is None and self.cache.has("sleeper/players_nfl"):
             cached = self.cache.read_json("sleeper/players_nfl")

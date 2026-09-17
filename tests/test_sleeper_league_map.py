@@ -163,6 +163,35 @@ def test_starter_zip_assigns_flex_and_bench():
     assert roster["team_key"] == f"{config.SLEEPER_LEAGUE_KEY}.t.6"
 
 
+def test_taxi_slots_nonzero_fails_loud():
+    league = _load("league.json")
+    league["settings"]["taxi_slots"] = 2
+    with pytest.raises(ValueError, match="taxi_slots"):
+        sl.map_state(
+            league=league,
+            rosters=_load("rosters.json"),
+            users=_load("users.json"),
+            state=_load("state_nfl.json"),
+            user_id=USER_ID,
+            season=2026,
+            synced_at=SYNCED_AT,
+            players_by_id=_load("players.json"),
+        )
+
+
+def test_taxi_players_fail_loud():
+    raw = _load("rosters.json")[0]
+    raw["taxi"] = ["3198"]
+    with pytest.raises(ValueError, match="taxi players are unsupported"):
+        sl.parse_roster(
+            raw,
+            roster_positions=_load("league.json")["roster_positions"],
+            week=2,
+            league_id=config.SLEEPER_LEAGUE_ID,
+            players_by_id=_load("players.json"),
+        )
+
+
 def test_reserve_player_is_ir_not_bench():
     raw = _load("rosters.json")[0]
     raw["reserve"] = ["3198"]
@@ -198,6 +227,7 @@ def test_mapped_state_uses_sleeper_league_key_and_week_from_nfl_state():
     assert state.current_week == 2
     assert state.num_teams == 2
     assert state.provider_settings["playoff_week_start"] == 15
+    assert state.provider_settings["taxi_slots"] == 0
     assert state.provider_settings["max_keepers"] == 1
     assert state.roster_slots["W/R/T"] == 2
     assert state.roster_slots["BN"] == 5

@@ -403,6 +403,8 @@ def lineup(
         raise typer.BadParameter("--league must be yahoo or sleeper")
     if chosen == "yahoo" and (offline or refresh):
         raise typer.BadParameter("--offline and --refresh apply only to --league sleeper")
+    if chosen == "sleeper" and offline and refresh:
+        raise typer.BadParameter("--offline and --refresh cannot be combined")
     if chosen == "sleeper":
         _lineup_sleeper(
             season,
@@ -557,6 +559,9 @@ def _lineup_sleeper(
         raise typer.Exit(code=2) from exc
     try:
         state = source.fetch(season, refresh=refresh, offline=offline)
+    except SleeperLeagueError as exc:
+        console.print(f"[red]Sleeper lineup unavailable:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
     except FileNotFoundError as exc:
         console.print(f"[red]Sleeper snapshots missing:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -600,15 +605,9 @@ def _lineup_sleeper(
         cfg=state.scoring,
     )
     status = _service(store).status(season)
-    apply_injuries = chosen_week == state.current_week
-    injuries = store.injury_rows(season) if apply_injuries else []
+    injuries = store.injury_rows(season)
     store.close()
     _warn_source_states(status, include_adp=False, wanted={"injuries"})
-    if not apply_injuries:
-        console.print(
-            f"[yellow]Injury flags omitted for week {chosen_week}; "
-            f"Sleeper status is current-week only (week {state.current_week}).[/yellow]"
-        )
     if not roster_rows:
         console.print(
             f"[yellow]No roster players for {user['name']} in week {chosen_week}.[/yellow]"
@@ -618,16 +617,10 @@ def _lineup_sleeper(
     report = compare_lineup(players, state.roster_slots)
     advice_key = lineup_snapshot_key(season, chosen_week, league="sleeper")
     exists = cache.has(advice_key)
-    post_hoc = chosen_week < state.current_week
     if exists and not force:
         console.print(
             f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged. "
             f"Re-run with --force to replace it.[/dim]"
-        )
-    elif post_hoc and not force:
-        console.print(
-            f"[yellow]Week {chosen_week} is already past (current week {state.current_week}); "
-            f"post-hoc advice is not snapshotted. Re-run with --force to write it anyway.[/yellow]"
         )
     else:
         if exists:
@@ -652,7 +645,7 @@ def _lineup_sleeper(
             mode=0o600,
         )
     _render_lineup(report, week=chosen_week, team_name=user["name"])
-    console.print("[yellow]Scored with Sleeper league settings (full PPR).[/yellow]")
+    console.print("[yellow]Scored with Sleeper league settings.[/yellow]")
     console.print(
         f"[dim]{state.league_key} — in-memory only; DuckDB league_* and "
         f"--publish remain Yahoo.[/dim]"

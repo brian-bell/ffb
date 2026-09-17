@@ -26,7 +26,6 @@ def _routes():
         f"/v1/league/{LEAGUE_ID}/rosters": _load("rosters.json"),
         f"/v1/league/{LEAGUE_ID}/users": _load("users.json"),
         "/v1/state/nfl": _load("state_nfl.json"),
-        f"/v1/league/{LEAGUE_ID}/matchups/2": _load("matchups_week2.json"),
     }
 
 
@@ -58,7 +57,8 @@ def _source(tmp_path, recorder=None, routes=None):
 def test_snapshot_keys_are_namespaced_under_sleeper():
     assert sl.snapshot_key(LEAGUE_ID, "league") == f"sleeper/league_{LEAGUE_ID}_league"
     assert sl.state_snapshot_key() == "sleeper/state_nfl"
-    assert sl.matchup_snapshot_key(LEAGUE_ID, 2) == f"sleeper/league_{LEAGUE_ID}_matchups_week2"
+    assert not hasattr(sl, "matchup_snapshot_key")
+    assert not hasattr(sl, "fetch_matchups")
 
 
 def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
@@ -71,8 +71,9 @@ def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
     assert f"league_{LEAGUE_ID}_rosters.json" in names
     assert f"league_{LEAGUE_ID}_users.json" in names
     assert "state_nfl.json" in names
-    assert f"league_{LEAGUE_ID}_matchups_week2.json" in names
+    assert f"league_{LEAGUE_ID}_matchups_week2.json" not in names
     assert any(request.url.path.endswith("/state/nfl") for request in requests)
+    assert not any("/matchups/" in request.url.path for request in requests)
 
 
 def test_second_fetch_replays_snapshots_without_network(tmp_path):
@@ -90,6 +91,11 @@ def test_second_fetch_replays_snapshots_without_network(tmp_path):
     state = replay.fetch(2026)
     assert state.current_week == 2
     assert state.scoring.weights["rec"] == 1.0
+
+
+def test_offline_and_refresh_cannot_combine(tmp_path):
+    with pytest.raises(sl.SleeperLeagueError, match="--offline and --refresh"):
+        _source(tmp_path).fetch(2026, offline=True, refresh=True)
 
 
 def test_offline_miss_does_not_call_the_network(tmp_path):

@@ -51,7 +51,6 @@ def _seed_snapshots(tmp_path):
         f"sleeper/league_{LEAGUE_ID}_rosters": "rosters.json",
         f"sleeper/league_{LEAGUE_ID}_users": "users.json",
         "sleeper/state_nfl": "state_nfl.json",
-        f"sleeper/league_{LEAGUE_ID}_matchups_week2": "matchups_week2.json",
         "sleeper/players_nfl": "players.json",
     }
     for key, name in mapping.items():
@@ -184,6 +183,7 @@ def test_sleeper_lineup_prints_sit_start_with_full_ppr(tmp_path):
     # Chase: 10 rec * 1.0 PPR + 80 * 0.1 = 18.0 (Yahoo half-PPR would be 13.0)
     assert "18.0" in output
     assert "Sleeper league settings" in result.output
+    assert "full PPR" not in result.output
     assert "configured Yahoo" not in result.output
 
 
@@ -232,6 +232,18 @@ def test_sleeper_lineup_accepts_explicit_current_week(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Week 2" in result.output
     assert "Derrick Henry" in result.output
+
+
+def test_sleeper_lineup_rejects_offline_and_refresh(tmp_path):
+    env = _seed_store(tmp_path)
+    result = runner.invoke(
+        app,
+        ["lineup", "2026", "--league", "sleeper", "--offline", "--refresh"],
+        env=env,
+    )
+    assert result.exit_code == 2
+    assert "--offline and --refresh cannot be combined" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_sleeper_lineup_rejects_publish(tmp_path):
