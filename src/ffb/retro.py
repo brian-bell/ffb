@@ -44,7 +44,16 @@ _SNAPSHOT_PLAYER_KEYS = {
 }
 
 
-def lineup_snapshot_key(season: int, week: int) -> str:
+def lineup_snapshot_key(season: int, week: int, *, league: str = "yahoo") -> str:
+    """Return the sit/start snapshot key.
+
+    Yahoo (the DuckDB / Worker occupant) keeps ``lineup/{season}_week{N}``.
+    Sleeper is namespaced so this spike cannot clobber Yahoo advice.
+    """
+    if league == "sleeper":
+        return f"lineup/sleeper/{season}_week{week}"
+    if league != "yahoo":
+        raise ValueError(f"unsupported lineup snapshot league {league!r}")
     return f"lineup/{season}_week{week}"
 
 

@@ -135,6 +135,7 @@ def _actuals(*, henry_slot="BN", henry_points=24.0, slow_slot="RB", slow_points=
 
 def test_snapshot_keys_are_week_scoped():
     assert lineup_snapshot_key(2024, 1) == "lineup/2024_week1"
+    assert lineup_snapshot_key(2026, 2, league="sleeper") == "lineup/sleeper/2026_week2"
     assert actuals_snapshot_key(2026, 12) == "actuals/2026_week12"
 
 

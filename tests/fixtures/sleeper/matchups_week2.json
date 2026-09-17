@@ -1,0 +1,16 @@
+[
+  {
+    "roster_id": 6,
+    "matchup_id": 4,
+    "starters": ["qb-test", "slow", "rb-ok", "7564", "wr-ok", "te-ok", "flex", "flex2", "1264", "SF"],
+    "players": ["qb-test", "slow", "rb-ok", "7564", "wr-ok", "te-ok", "flex", "flex2", "1264", "SF", "3198"],
+    "points": 0.0
+  },
+  {
+    "roster_id": 1,
+    "matchup_id": 4,
+    "starters": ["0", "0", "0", "rival-wr", "0", "0", "0", "0", "0", "0"],
+    "players": ["rival-wr"],
+    "points": 0.0
+  }
+]

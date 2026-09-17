@@ -44,6 +44,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | **ESPN news / RSS** | REST JSON (`site.web.api.espn.com`) + RSS (`espn.com`) | none | Headlines for the LLM digest (never numeric) | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
+| **Sleeper league** | REST JSON (`api.sleeper.app`) | none (`FFB_SLEEPER_*`) | Second-league scoring, roster slots, user roster for sit/start | **CLI spike (no DuckDB/KV write)** |
 | Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v1) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
@@ -487,6 +488,55 @@ are not ingested today.
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Same access pattern as the crosswalk.
 - **Sleeper player status + trending adds/drops** (slice 11) — waiver signal.
+
+### Sleeper league (second-league lineup spike)
+
+`src/ffb/sources/sleeper_league.py`. Thin peer of `YahooLeagueSource` for
+Brian's Sleeper league. **Not** a multi-platform framework. Yahoo remains the
+occupant of DuckDB `league_*` and Worker `league:bundle:current`.
+
+- **Identities** (verified via API): username `brianbell84`, user_id
+  `1395866680286003200`, league `2026-ff-nyt`, league_id
+  `1395854363380965376`. Namespaced key: `sleeper:1395854363380965376`
+  (Yahoo mcffl is `yahoo:470.l.928421`).
+- **Env** — `FFB_SLEEPER_LEAGUE_ID` and `FFB_SLEEPER_USER_ID`. No OAuth.
+- **Endpoints**
+  ```
+  GET https://api.sleeper.app/v1/league/{league_id}
+  GET https://api.sleeper.app/v1/league/{league_id}/rosters
+  GET https://api.sleeper.app/v1/league/{league_id}/users
+  GET https://api.sleeper.app/v1/state/nfl
+  GET https://api.sleeper.app/v1/league/{league_id}/matchups/{week}
+  ```
+- **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`,
+  `_matchups_week{N}`, plus `sleeper/state_nfl`. Sit/start advice is written
+  under `lineup/sleeper/{season}_week{N}` so it cannot clobber Yahoo
+  `lineup/{season}_week{N}`. Committed offline fixtures live in
+  `tests/fixtures/sleeper/`.
+- **Mapping** — `FLEX` → `W/R/T` (this league has two FLEX slots). SUPER_FLEX
+  and IDP fail loud. Starters zip with `roster_positions`. `is_user_team` is
+  the unique roster whose `owner_id` equals `FFB_SLEEPER_USER_ID`. DEF ids
+  such as `SF` become `def:SFO`. Identity uses `resolve_batch("sleeper")`,
+  never `yahoo_id`.
+- **Scoring** — `scoring_settings` maps through `config.SLEEPER_STAT_MAP` into
+  a `ScoringConfig` (this league is full PPR, `rec: 1.0`). Nonzero unmapped
+  keys, including `bonus_*`, raise. The path never falls back to Yahoo
+  `LEAGUE_SCORING`.
+- **Closed-shape alias** — lineup snapshots still require `yahoo_player_id`.
+  For Sleeper-namespaced snapshots that field holds the Sleeper native id
+  (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id.
+- **Out of scope** — `replace_league_state`, `POST /api/league/bundle`,
+  `--publish` / inseason KV, DuckDB PK widen, Worker KV rekey. Cutover is
+  worker-first later.
+
+```sh
+export FFB_SLEEPER_LEAGUE_ID=1395854363380965376
+export FFB_SLEEPER_USER_ID=1395866680286003200
+uv run ffb season sync 2026 --week 2          # weekly projections + injuries
+# Reuses snapshots/sleeper/players_nfl.json when present (from injuries sync)
+uv run ffb lineup 2026 --league sleeper       # live fetch, then snapshot replay
+uv run ffb lineup 2026 --league sleeper --offline
+```
 
 ## Source hygiene
 

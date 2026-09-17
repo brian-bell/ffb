@@ -136,6 +136,13 @@ browser authorization (ffb-1ct.2) has not run yet, so live sync is inert until
 a token exists; fixture import still exercises the provider boundary and
 storage model without network access.
 
+`sources/sleeper_league.py` is a thin Sleeper peer for Brian's second league
+(`sleeper:1395854363380965376`). `ffb lineup --league sleeper` fetches or
+replays namespaced snapshots and scores sit/start in memory. It does not call
+`replace_league_state`, does not POST `/api/league/bundle` or `--publish`, and
+does not occupy `league:bundle:current`. DuckDB `league_*` and Worker KV stay
+Yahoo until a later worker-first multi-league cutover.
+
 ## Board contract
 
 `board.json` version 1 is a self-contained envelope:

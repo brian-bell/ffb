@@ -208,6 +208,65 @@ YAHOO_STAT_MAP: dict[int, tuple[str, ...]] = {
     56: ("pts_allow_35p",),
 }
 
+# Namespaced league keys for later DuckDB / Worker KV multi-league storage.
+# Yahoo remains the occupant of league_* and league:bundle:current; this spike
+# uses the Sleeper key in code, comments, and snapshots only.
+YAHOO_LEAGUE_KEY = "yahoo:470.l.928421"
+SLEEPER_LEAGUE_ID = "1395854363380965376"
+SLEEPER_USER_ID = "1395866680286003200"
+SLEEPER_LEAGUE_KEY = f"sleeper:{SLEEPER_LEAGUE_ID}"
+
+# Sleeper scoring_settings key -> our stat keys. Fan-out covers projection
+# aliases (def_td -> def_fum_td/pass_int_td; fgm_50_59 -> fgm_50p) so weekly
+# consensus lines score. Nonzero keys absent here are unsupported and must
+# fail the mapper — never fall back to Yahoo LEAGUE_SCORING.
+SLEEPER_STAT_MAP: dict[str, tuple[str, ...]] = {
+    "pass_yd": ("pass_yd",),
+    "pass_td": ("pass_td",),
+    "pass_int": ("pass_int",),
+    "pass_2pt": ("pass_2pt",),
+    "rush_yd": ("rush_yd",),
+    "rush_td": ("rush_td",),
+    "rush_2pt": ("rush_2pt",),
+    "rec": ("rec",),
+    "rec_yd": ("rec_yd",),
+    "rec_td": ("rec_td",),
+    "rec_2pt": ("rec_2pt",),
+    "fum_lost": ("fum_lost",),
+    "fum_rec": ("fum_rec",),
+    "fum_rec_td": ("fum_rec_td",),
+    "sack": ("sack",),
+    "int": ("int",),
+    "safe": ("safe",),
+    "blk_kick": ("blk_kick",),
+    "def_td": ("def_td", "def_fum_td", "pass_int_td"),
+    "st_td": ("def_ret_td",),
+    "def_st_td": ("def_ret_td",),
+    "def_2pt": ("def_2pt",),
+    "ff": ("ff",),
+    "st_ff": ("st_ff",),
+    "def_st_ff": ("def_st_ff",),
+    "st_fum_rec": ("st_fum_rec",),
+    "def_st_fum_rec": ("def_st_fum_rec",),
+    "pts_allow_0": ("pts_allow_0",),
+    "pts_allow_1_6": ("pts_allow_1_6",),
+    "pts_allow_7_13": ("pts_allow_7_13",),
+    "pts_allow_14_20": ("pts_allow_14_20",),
+    "pts_allow_21_27": ("pts_allow_21_27",),
+    "pts_allow_28_34": ("pts_allow_28_34",),
+    "pts_allow_35p": ("pts_allow_35p",),
+    "fgm_0_19": ("fgm_0_19",),
+    "fgm_20_29": ("fgm_20_29",),
+    "fgm_30_39": ("fgm_30_39",),
+    "fgm_40_49": ("fgm_40_49",),
+    "fgm_50_59": ("fgm_50_59", "fgm_50p"),
+    "fgm_60p": ("fgm_60p",),
+    "fgm_50p": ("fgm_50p",),
+    "xpm": ("xpm",),
+    "fgmiss": ("fgmiss",),
+    "xpmiss": ("xpmiss",),
+}
+
 NFL_TEAM_CODES = frozenset(ESPN_PRO_TEAM_MAP.values())
 # Source/API abbreviations normalized to the MFL-style codes used by the
 # crosswalk and synthetic defense keys.
