@@ -540,6 +540,13 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   silently score zero. The path never falls back to Yahoo `LEAGUE_SCORING`.
   The CLI banner says "Sleeper league settings" rather than hardcoding a PPR
   label.
+- **Eligibility** — `fantasy_positions` is Sleeper's own eligibility list, so a
+  QB/TE is eligible at TE as well as QB. `identity.merge_eligibility` keeps the
+  crosswalk position authoritative — its slots always come first and are always
+  present — and adds only the slots the provider reported beyond its *own*
+  primary position. A WR-tagged RB is therefore an RB and never eligible at WR,
+  while a genuine second position survives. Entries that do not normalize to a
+  modeled position (IDP labels) are ignored.
 - **Provider-neutral identity** — roster and lineup-snapshot rows carry
   `native_id` / `native_player_key`, holding whatever id the bundle's provider
   issued. On Sleeper bundles that is the Sleeper native id

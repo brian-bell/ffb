@@ -379,17 +379,31 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
         "name": name,
         "nfl_team": nfl_team,
         "primary_position": position,
-        "eligible_positions": _eligible(position),
+        "eligible_positions": _eligible(position, meta.get("fantasy_positions")),
         "selected_position": selected_position,
     }
 
 
-def _eligible(position: str) -> list[str]:
-    if position == "RB":
-        return ["RB", "W/R/T"]
-    if position in {"WR", "TE"}:
-        return [position, "W/R/T"]
-    return [position]
+def _eligible(position: str, fantasy_positions: object = None) -> list[str]:
+    """Slots this player can fill, including any second position Sleeper reports.
+
+    Sleeper's ``fantasy_positions`` is the provider's own eligibility list, so a
+    QB/TE is eligible at TE as well as QB. Only entries that normalize to a
+    position we model are admitted; anything else (IDP, taxi labels) is ignored
+    rather than turned into a slot no league has.
+    """
+    slots = identity.slot_eligibility(position)
+    if isinstance(fantasy_positions, list):
+        for raw in fantasy_positions:
+            if not isinstance(raw, str):
+                continue
+            extra = "K" if raw.strip().upper() == "PK" else raw.strip().upper()
+            if extra not in config.FANTASY_POSITIONS or extra == position:
+                continue
+            for slot in identity.slot_eligibility(extra):
+                if slot not in slots:
+                    slots.append(slot)
+    return slots
 
 
 def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -434,7 +448,9 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
                     "team": hit["team"] or player["nfl_team"],
                     "nfl_team": hit["team"] or player["nfl_team"],
                     "primary_position": position,
-                    "eligible_positions": _eligible(position),
+                    "eligible_positions": identity.merge_eligibility(
+                        position, player.get("primary_position"), player.get("eligible_positions")
+                    ),
                 }
             )
         else:
@@ -447,7 +463,9 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
                     "full_name": player["name"],
                     "position": position,
                     "team": player["nfl_team"],
-                    "eligible_positions": _eligible(position),
+                    "eligible_positions": identity.merge_eligibility(
+                        position, player.get("primary_position"), player.get("eligible_positions")
+                    ),
                 }
             )
     return rows

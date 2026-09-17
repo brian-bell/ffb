@@ -1,6 +1,7 @@
 """Pure Sleeper league mappers: slots, scoring, user team, DEF, starter zip."""
 
 import json
+import pathlib
 from pathlib import Path
 
 import pytest
@@ -377,3 +378,86 @@ def test_resolve_def_overwrites_stale_skill_eligibility():
     assert row["player_key"] == "def:SFO"
     assert row["position"] == "DEF"
     assert row["eligible_positions"] == ["DEF"]
+
+
+def test_multi_position_player_keeps_its_second_position_slot():
+    """A QB/TE must be considered for the TE slot, not just QB."""
+    from ffb.lineup import can_fill
+
+    player = sl._parse_player(
+        "dual",
+        {
+            "first_name": "Dual",
+            "last_name": "Threat",
+            "position": "QB",
+            "team": "BAL",
+            "fantasy_positions": ["QB", "TE"],
+        },
+        selected_position="QB",
+    )
+    assert player["eligible_positions"] == ["QB", "TE", "W/R/T"]
+    assert can_fill(player, "QB") is True
+    assert can_fill(player, "TE") is True
+    assert can_fill(player, "W/R/T") is True
+
+
+def test_unmodeled_fantasy_positions_are_ignored():
+    """IDP and other labels must not become slots no league has."""
+    player = sl._parse_player(
+        "idp",
+        {
+            "first_name": "Line",
+            "last_name": "Backer",
+            "position": "RB",
+            "team": "BAL",
+            "fantasy_positions": ["RB", "LB", "DL", 7],
+        },
+        selected_position="RB",
+    )
+    assert player["eligible_positions"] == ["RB", "W/R/T"]
+
+
+def test_stale_provider_primary_position_never_adds_its_own_slot():
+    """The crosswalk position is authoritative; only extra positions survive."""
+    from ffb import identity
+
+    # Sleeper says WR, crosswalk says RB: RB's slots, and no WR.
+    assert identity.merge_eligibility("RB", "WR", ["WR", "W/R/T"]) == ["RB", "W/R/T"]
+    # Sleeper says QB/TE, crosswalk agrees on QB: the TE slot survives.
+    assert identity.merge_eligibility("QB", "QB", ["QB", "TE", "W/R/T"]) == [
+        "QB",
+        "TE",
+        "W/R/T",
+    ]
+    # A misfiled multi-position player keeps only the extra, not the stale primary.
+    assert identity.merge_eligibility("RB", "WR", ["WR", "TE", "W/R/T"]) == [
+        "RB",
+        "W/R/T",
+        "TE",
+    ]
+
+
+def test_stored_rosters_keep_multi_position_eligibility(store, crosswalk_rows):
+    """The live path is the store, so the union has to survive replace_league_state."""
+    from ffb.league import parse_bundle
+
+    store.upsert_crosswalk(crosswalk_rows)
+    data = json.loads(
+        (pathlib.Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json").read_text()
+    )
+    data["rosters"][0]["players"] = [
+        {
+            "native_id": "29279",
+            "native_player_key": "1.p.29279",
+            "name": "Derrick Henry",
+            "nfl_team": "BAL",
+            "primary_position": "RB",
+            "eligible_positions": ["RB", "W/R/T", "TE"],
+            "selected_position": "RB",
+        }
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    [row] = store.league_roster_rows(2024)
+    assert row["primary_position"] == "RB"
+    assert "TE" in row["eligible_positions"]
+    assert row["eligible_positions"][:2] == ["RB", "W/R/T"]

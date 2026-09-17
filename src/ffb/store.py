@@ -960,6 +960,14 @@ class Store:
                         "full_name": match["full_name"] if match else player["name"],
                         "position": match["position"] if match else player["primary_position"],
                         "team": match["team"] if match else player["nfl_team"],
+                        # The resolved position is authoritative, so its slots are
+                        # always present; the provider's extra slots are kept for
+                        # genuine multi-position eligibility.
+                        "eligible_positions": identity.merge_eligibility(
+                            match["position"] if match else player["primary_position"],
+                            player["primary_position"],
+                            player["eligible_positions"],
+                        ),
                     }
                 )
         self.conn.execute("BEGIN TRANSACTION")
