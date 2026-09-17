@@ -223,9 +223,9 @@ Yahoo roster identities.
   (nflverse labels place-kickers `PK`; sources and the league use `K`, and matched
   players adopt the crosswalk's position — without this, `--position K` misses matched
   kickers). Rows without an `mfl_id` are skipped. Empty `yahoo_id` is filled from
-  `stats_id` when that `stats_id` maps to exactly one canonical player; an
-  ambiguous `stats_id` is left unset rather than guessed. Existing `yahoo_id`
-  values are never replaced.
+  `stats_id` when that `stats_id` maps to exactly one canonical player and is not
+  already used as `yahoo_id` on another row; an ambiguous or claimed `stats_id`
+  is left unset rather than guessed. Existing `yahoo_id` values are never replaced.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
   `store.resolve` / `resolve_batch` map a source's native id (`sleeper_id`,
   `espn_id`, or `yahoo_id`) to `player_key`. A native id that maps to more than
@@ -244,7 +244,8 @@ Yahoo roster identities.
     either key makes `has_stale_*_resolution` disagree with ingest forever.
   - nflverse often leaves `yahoo_id` null while `stats_id` holds the Yahoo
     sports/fantasy id (Kyle Monangai: canonical `17066`, `stats_id` `42025`).
-    Parse copies that id only when it uniquely identifies one `mfl_id`.
+    Parse copies that id only when it uniquely identifies one `mfl_id` and is
+    not already claimed as `yahoo_id`.
 
 ### 5. Fantasy Football Calculator — ADP
 

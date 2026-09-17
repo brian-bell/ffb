@@ -109,6 +109,37 @@ def test_existing_yahoo_id_is_not_replaced_by_stats_id():
     assert rows[0]["yahoo_id"] == "33999"
 
 
+def test_claimed_yahoo_id_blocks_unique_stats_id_fill():
+    # A already owns yahoo_id 42025; B's stats_id is unique but collides with
+    # that claim. Filling B would make resolve("yahoo", "42025") ambiguous.
+    rows = parse_crosswalk(
+        [
+            {
+                "mfl_id": 1,
+                "name": "Already Matched",
+                "yahoo_id": "42025",
+                "stats_id": None,
+            },
+            {
+                "mfl_id": 17066,
+                "name": "Kyle Monangai",
+                "yahoo_id": None,
+                "stats_id": 42025,
+            },
+            {
+                "mfl_id": 2,
+                "name": "Unclaimed Rookie",
+                "yahoo_id": None,
+                "stats_id": 99999,
+            },
+        ]
+    )
+    by_key = {r["player_key"]: r for r in rows}
+    assert by_key["1"]["yahoo_id"] == "42025"
+    assert by_key["17066"]["yahoo_id"] is None
+    assert by_key["2"]["yahoo_id"] == "99999"
+
+
 def test_row_without_mfl_id_is_skipped():
     # No canonical key => cannot join; drop rather than invent a key.
     assert all(r["full_name"] != "No Canonical Key" for r in _rows())
