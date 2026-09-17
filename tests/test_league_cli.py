@@ -6,6 +6,7 @@ from pathlib import Path
 from ffb.cli import app
 from ffb.league import parse_bundle
 from ffb.sources import yahoo
+from ffb.store import Store
 from ffb.yahoo_auth import YahooAuthError
 
 from .cli_plain import PlainCliRunner
@@ -15,24 +16,35 @@ FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
 XWALK_FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 
 
-def test_league_sync_refuses_a_sleeper_bundle_and_keeps_yahoo_state(tmp_path):
-    """league_* is season-keyed and Yahoo-resolved: another provider would clobber it."""
-    env = {"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")}
+def test_two_leagues_persist_and_read_back_independently_in_one_season(tmp_path):
+    """league_* is keyed by (season, league_key): one sync must not clobber the other."""
+    db = tmp_path / "ffb.duckdb"
+    env = {"FFB_DB_PATH": str(db)}
     assert (
         runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
         == 0
     )
 
     sleeper = json.loads(FIXTURE.read_text()) | {"source": "sleeper"}
+    sleeper["league"] = sleeper["league"] | {"league_key": "999", "name": "Sleeper League"}
     path = tmp_path / "sleeper_bundle.json"
     path.write_text(json.dumps(sleeper))
     result = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(path)], env=env)
-    assert result.exit_code == 1
-    assert "sleeper" in result.output
-    assert "Traceback" not in result.output
+    assert result.exit_code == 0, result.output
 
-    shown = runner.invoke(app, ["league", "show", "2024"], env=env)
-    assert "Mock League" in shown.output
+    store = Store(db)
+    try:
+        assert store.league_keys(2024) == ["sleeper:999", "yahoo:1.l.mock-1"]
+        yahoo_state = store.league_context(2024, "yahoo:1.l.mock-1")
+        sleeper_state = store.league_context(2024, "sleeper:999")
+        assert yahoo_state["name"] == "Mock League"
+        assert sleeper_state["name"] == "Sleeper League"
+        # Each league keeps its own provider source and raw provider key.
+        assert sleeper_state["source"] == "sleeper"
+        assert sleeper_state["provider_league_key"] == "999"
+        assert yahoo_state["source"] == "fixture"
+    finally:
+        store.close()
 
 
 def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path):

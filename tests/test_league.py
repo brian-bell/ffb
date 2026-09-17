@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from ffb import config
 from ffb.league import parse_bundle
 
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
@@ -73,9 +74,10 @@ def test_replace_league_state_keeps_earlier_rosters_and_resolves_yahoo_ids(store
     }
 
     store.conn.execute(
-        "INSERT INTO league_rosters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO league_rosters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             2024,
+            "yahoo:1.l.mock-1",
             0,
             "1.l.mock-1.t.1",
             "old",
@@ -155,3 +157,73 @@ def test_parse_bundle_rejects_a_bundle_mixing_v1_and_v2_identity_fields():
     data["rosters"][0]["players"][0]["native_id"] = "collide"
     with pytest.raises(ValueError, match="mixes schema-v1 and schema-v2"):
         parse_bundle(data, season=2024)
+
+
+def _stored(store, *, league_key, source, name, synced_at, season=2024):
+    """Persist a minimal league so selection can be exercised across providers."""
+    data = _bundle()
+    data["source"] = source
+    data["synced_at"] = synced_at
+    data["league"] = data["league"] | {"league_key": league_key, "name": name}
+    store.replace_league_state(parse_bundle(data, season=season))
+
+
+def test_resolve_league_key_prefers_explicit_then_yahoo_then_most_recent_sync(store):
+    """Callers that predate the --league selector must keep last-sync-wins behavior."""
+    _stored(
+        store,
+        league_key="1.l.older",
+        source="fixture",
+        name="Older",
+        synced_at="2026-09-01T00:00:00Z",
+    )
+    assert store.resolve_league_key(2024) == "yahoo:1.l.older"
+
+    _stored(
+        store,
+        league_key="1.l.newer",
+        source="fixture",
+        name="Newer",
+        synced_at="2026-09-10T00:00:00Z",
+    )
+    # Alphabetically first is "1.l.newer", but recency is what decides.
+    assert store.league_keys(2024) == ["yahoo:1.l.newer", "yahoo:1.l.older"]
+    assert store.resolve_league_key(2024) == "yahoo:1.l.newer"
+    assert store.resolve_league_key(2024, "yahoo:1.l.older") == "yahoo:1.l.older"
+
+
+def test_replace_league_state_scopes_to_one_league(store):
+    """Syncing one league must not delete another league's state for the season."""
+    _stored(
+        store,
+        league_key="470.l.928421",
+        source="yahoo",
+        name="Yahoo",
+        synced_at="2026-09-01T00:00:00Z",
+    )
+    _stored(
+        store,
+        league_key="1395854363380965376",
+        source="sleeper",
+        name="Sleeper",
+        synced_at="2026-09-10T00:00:00Z",
+    )
+    assert store.league_keys(2024) == [
+        "sleeper:1395854363380965376",
+        "yahoo:470.l.928421",
+    ]
+    # The configured Yahoo league stays the default even though Sleeper is newer.
+    assert store.resolve_league_key(2024) == config.YAHOO_LEAGUE_KEY
+    assert store.league_context(2024, config.YAHOO_LEAGUE_KEY)["name"] == "Yahoo"
+    assert store.league_context(2024, config.SLEEPER_LEAGUE_KEY)["name"] == "Sleeper"
+
+    # Re-syncing Yahoo replaces only Yahoo.
+    _stored(
+        store,
+        league_key="470.l.928421",
+        source="yahoo",
+        name="Yahoo Again",
+        synced_at="2026-09-12T00:00:00Z",
+    )
+    assert store.league_context(2024, config.YAHOO_LEAGUE_KEY)["name"] == "Yahoo Again"
+    assert store.league_context(2024, config.SLEEPER_LEAGUE_KEY)["name"] == "Sleeper"

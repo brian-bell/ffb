@@ -10,12 +10,6 @@ from ffb import config
 
 _SUPPORTED_STARTERS = {"QB", "RB", "WR", "TE", "W/T", "W/R/T", "K", "DEF"}
 
-# Sources whose stored state describes the league ``config.LEAGUE_SCORING`` and
-# ``config.LEAGUE_ROSTER_SLOTS`` were written for. Only these may fall back to
-# those configured values; for any other provider the configured values are a
-# different league's rules and using them would silently mis-score.
-_CONFIGURED_LEAGUE_SOURCES = {"yahoo", "fixture"}
-
 
 class LeagueSettingsUnavailable(ValueError):
     """A league's own settings are unusable and no other league's may stand in."""
@@ -50,12 +44,9 @@ def scoring_from_rules(rules: list[dict[str, Any]]) -> config.ScoringConfig:
 
 def namespaced_league_key(state: dict[str, Any]) -> str:
     """``provider:league_key`` for the stored league, matching ``config``'s vocabulary."""
-    key = str(state.get("league_key") or "")
-    source = str(state.get("source") or "")
-    provider = "yahoo" if source in _CONFIGURED_LEAGUE_SOURCES else source
-    if not provider:
-        return key
-    return key if key.startswith(f"{provider}:") else f"{provider}:{key}"
+    return config.namespaced_league_key(
+        str(state.get("source") or ""), str(state.get("league_key") or "")
+    )
 
 
 def load_league_context(store: Any, season: int) -> LeagueContext:
@@ -84,7 +75,7 @@ def load_league_context(store: Any, season: int) -> LeagueContext:
         )
 
     league_key = namespaced_league_key(state)
-    may_use_configured = state["source"] in _CONFIGURED_LEAGUE_SOURCES
+    may_use_configured = state["source"] in config.YAHOO_BUNDLE_SOURCES
 
     mapped = state["scoring_rules"]
     unmapped = state["unmapped_scoring_rules"]

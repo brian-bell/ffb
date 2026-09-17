@@ -545,9 +545,11 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   issued. On Sleeper bundles that is the Sleeper native id
   (`native_player_key` is `sleeper:<id>`); on Yahoo it is the Yahoo player id.
   Never assume a provider from the field name.
-- **Out of scope** — `replace_league_state`, `POST /api/league/bundle`,
-  `--publish` / inseason KV, DuckDB PK widen, Worker KV rekey. Cutover is
-  worker-first later.
+- **Storage** — `replace_league_state` accepts any provider's bundle and
+  scopes to `(season, league_key)`, so a Sleeper sync persists alongside Yahoo
+  instead of replacing it.
+- **Still to come** — `POST /api/league/bundle` and `--publish` / inseason KV
+  remain Yahoo-only, and Worker KV is not yet rekeyed per league.
 
 ```sh
 export FFB_SLEEPER_LEAGUE_ID=1395854363380965376

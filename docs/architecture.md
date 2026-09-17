@@ -144,6 +144,15 @@ league's own partial rules when it has usable ones and otherwise raises
 the namespaced league key), and `unmodeled_scoring` lists provider stats the
 league scores that no projection source emits.
 
+DuckDB `league_settings` / `league_teams` / `league_rosters` are keyed by
+`(season, league_key)`, where `league_key` is the namespaced `provider:id`
+partition key from `config.namespaced_league_key` and `provider_league_key`
+holds the bundle's own raw `league.league_key`. `replace_league_state` replaces
+one league's state rather than the season's, and resolves roster ids through
+that league's own crosswalk column, so Yahoo and Sleeper coexist in one season.
+Reads take an optional `league_key`; without one they use the season's only
+league, else the configured Yahoo league, else the most recently synced.
+
 `sources/yahoo.py` implements the live `YahooLeagueSource` peer of
 `FixtureLeagueSource` (httpx fetch, snapshot-cached raw pulls, pure mappers),
 with the OAuth2 refresh-token lifecycle in `yahoo_auth.py`. The one-time

@@ -22,7 +22,7 @@ from typing import Any
 
 import duckdb
 
-from ffb import identity
+from ffb import config, identity
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS crosswalk (
@@ -151,24 +151,28 @@ CREATE TABLE IF NOT EXISTS season_source_state (
     PRIMARY KEY (season, source)
 );
 
+-- league_key is the namespaced "<provider>:<id>" partition key (see
+-- config.namespaced_league_key), so two leagues coexist in one season.
+-- provider_league_key is the bundle's own raw league.league_key.
 CREATE TABLE IF NOT EXISTS league_settings (
-    season INTEGER PRIMARY KEY,
-    league_id VARCHAR, league_key VARCHAR, name VARCHAR, current_week INTEGER,
+    season INTEGER, league_key VARCHAR,
+    league_id VARCHAR, provider_league_key VARCHAR, name VARCHAR, current_week INTEGER,
     num_teams INTEGER, source VARCHAR, synced_at VARCHAR,
     roster_slots_json VARCHAR, scoring_rules_json VARCHAR,
-    unmapped_scoring_rules_json VARCHAR, provider_settings_json VARCHAR
+    unmapped_scoring_rules_json VARCHAR, provider_settings_json VARCHAR,
+    PRIMARY KEY (season, league_key)
 );
 CREATE TABLE IF NOT EXISTS league_teams (
-    season INTEGER, team_key VARCHAR, team_id VARCHAR, name VARCHAR,
+    season INTEGER, league_key VARCHAR, team_key VARCHAR, team_id VARCHAR, name VARCHAR,
     managers_json VARCHAR, is_user_team BOOLEAN,
-    PRIMARY KEY (season, team_key)
+    PRIMARY KEY (season, league_key, team_key)
 );
 CREATE TABLE IF NOT EXISTS league_rosters (
-    season INTEGER, week INTEGER, team_key VARCHAR, native_id VARCHAR,
+    season INTEGER, league_key VARCHAR, week INTEGER, team_key VARCHAR, native_id VARCHAR,
     native_player_key VARCHAR, full_name VARCHAR, nfl_team VARCHAR,
     primary_position VARCHAR, eligible_positions_json VARCHAR, selected_position VARCHAR,
     player_key VARCHAR, matched BOOLEAN,
-    PRIMARY KEY (season, week, team_key, native_id)
+    PRIMARY KEY (season, league_key, week, team_key, native_id)
 );
 """
 
@@ -887,27 +891,58 @@ class Store:
         return sorted(rows, key=lambda row: (row["source"], row["full_name"], row["native_id"]))
 
     # --- league state ----------------------------------------------------
-    _STORABLE_BUNDLE_SOURCES = ("yahoo", "fixture")
+
+    def league_keys(self, season: int) -> list[str]:
+        """Namespaced keys of every league stored for a season, in stable order."""
+        return [
+            row[0]
+            for row in self.conn.execute(
+                "SELECT league_key FROM league_settings WHERE season = ? ORDER BY league_key",
+                [season],
+            ).fetchall()
+        ]
+
+    def resolve_league_key(self, season: int, league_key: str | None = None) -> str | None:
+        """Pick which stored league a read applies to.
+
+        An explicit key wins. Otherwise the season's only league is unambiguous;
+        when several are stored, the configured Yahoo league wins, and failing
+        that the most recently synced one, which is what a season-keyed
+        ``league_*`` used to leave behind. This default exists only for callers
+        that predate the selector; ffb-ct7.4 threads ``--league`` through and
+        makes every caller explicit.
+        """
+        if league_key is not None:
+            return league_key
+        keys = self.league_keys(season)
+        if len(keys) == 1:
+            return keys[0]
+        if not keys:
+            return None
+        if config.YAHOO_LEAGUE_KEY in keys:
+            return config.YAHOO_LEAGUE_KEY
+        row = self.conn.execute(
+            "SELECT league_key FROM league_settings WHERE season = ? "
+            "ORDER BY synced_at DESC, league_key ASC LIMIT 1",
+            [season],
+        ).fetchone()
+        return row[0] if row else None
 
     def replace_league_state(self, bundle: Any) -> dict[str, int]:
-        """Atomically mirror a validated league bundle's state for its season.
+        """Atomically mirror a validated league bundle's state for one league.
 
-        ``league_*`` is keyed by season alone and every roster id is resolved
-        through the Yahoo crosswalk column, so storing another provider's
-        bundle would both mis-resolve its players and delete the Yahoo state
-        for that season. Refuse until storage is league-aware.
+        Scoped to ``(season, league_key)``, so syncing one league never deletes
+        another's state for the same season, and roster ids resolve through the
+        crosswalk column for that league's own provider.
         """
-        source = bundle.data["source"]
-        if source not in self._STORABLE_BUNDLE_SOURCES:
-            raise ValueError(
-                f"cannot store a {source!r} league bundle: league_* is keyed by season and "
-                "resolves ids through the Yahoo crosswalk. Widen the schema first."
-            )
         league = bundle.league
         settings = bundle.settings
         season = league["season"]
+        source = bundle.data["source"]
+        league_key = config.namespaced_league_key(source, league["league_key"])
+        provider = config.league_provider(source)
         resolved = self.resolve_batch(
-            "yahoo", [p["native_id"] for r in bundle.rosters for p in r["players"]]
+            provider, [p["native_id"] for r in bundle.rosters for p in r["players"]]
         )
         rows: list[dict[str, Any]] = []
         for roster in bundle.rosters:
@@ -920,7 +955,7 @@ class Store:
                         "week": roster["week"],
                         "player_key": match["player_key"]
                         if match
-                        else f"yahoo:{player['native_id']}",
+                        else f"{provider}:{player['native_id']}",
                         "matched": bool(match),
                         "full_name": match["full_name"] if match else player["name"],
                         "position": match["position"] if match else player["primary_position"],
@@ -929,17 +964,21 @@ class Store:
                 )
         self.conn.execute("BEGIN TRANSACTION")
         try:
-            self.conn.execute("DELETE FROM league_settings WHERE season = ?", [season])
             self.conn.execute(
-                """INSERT INTO league_settings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                "DELETE FROM league_settings WHERE season = ? AND league_key = ?",
+                [season, league_key],
+            )
+            self.conn.execute(
+                """INSERT INTO league_settings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     season,
+                    league_key,
                     league["league_id"],
                     league["league_key"],
                     league["name"],
                     league["current_week"],
                     league["num_teams"],
-                    bundle.data["source"],
+                    source,
                     bundle.data["synced_at"],
                     json.dumps(settings["roster_slots"]),
                     json.dumps(settings["scoring_rules"]),
@@ -947,12 +986,16 @@ class Store:
                     json.dumps(settings["provider_settings"]),
                 ],
             )
-            self.conn.execute("DELETE FROM league_teams WHERE season = ?", [season])
+            self.conn.execute(
+                "DELETE FROM league_teams WHERE season = ? AND league_key = ?",
+                [season, league_key],
+            )
             for team in bundle.teams:
                 self.conn.execute(
-                    "INSERT INTO league_teams VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO league_teams VALUES (?, ?, ?, ?, ?, ?, ?)",
                     [
                         season,
+                        league_key,
                         team["team_key"],
                         team["team_id"],
                         team["name"],
@@ -961,14 +1004,15 @@ class Store:
                     ],
                 )
             self.conn.execute(
-                "DELETE FROM league_rosters WHERE season = ? AND week = ?",
-                [season, league["current_week"]],
+                "DELETE FROM league_rosters WHERE season = ? AND league_key = ? AND week = ?",
+                [season, league_key, league["current_week"]],
             )
             for row in rows:
                 self.conn.execute(
-                    "INSERT INTO league_rosters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO league_rosters VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [
                         season,
+                        league_key,
                         row["week"],
                         row["team_key"],
                         row["native_id"],
@@ -993,19 +1037,33 @@ class Store:
             "unmatched": sum(not r["matched"] for r in rows),
         }
 
-    def league_context(self, season: int) -> dict[str, Any] | None:
-        cursor = self.conn.execute("SELECT * FROM league_settings WHERE season = ?", [season])
+    def league_context(self, season: int, league_key: str | None = None) -> dict[str, Any] | None:
+        key = self.resolve_league_key(season, league_key)
+        if key is None:
+            return None
+        cursor = self.conn.execute(
+            "SELECT * FROM league_settings WHERE season = ? AND league_key = ?", [season, key]
+        )
         values = cursor.fetchone()
         if not values:
             return None
         row = dict(zip([c[0] for c in cursor.description], values, strict=True))
-        for key in ("roster_slots", "scoring_rules", "unmapped_scoring_rules", "provider_settings"):
-            row[key] = json.loads(row.pop(f"{key}_json"))
+        for json_key in (
+            "roster_slots",
+            "scoring_rules",
+            "unmapped_scoring_rules",
+            "provider_settings",
+        ):
+            row[json_key] = json.loads(row.pop(f"{json_key}_json"))
         return row
 
-    def league_teams(self, season: int) -> list[dict[str, Any]]:
+    def league_teams(self, season: int, league_key: str | None = None) -> list[dict[str, Any]]:
+        key = self.resolve_league_key(season, league_key)
+        if key is None:
+            return []
         cursor = self.conn.execute(
-            "SELECT * FROM league_teams WHERE season = ? ORDER BY team_key", [season]
+            "SELECT * FROM league_teams WHERE season = ? AND league_key = ? ORDER BY team_key",
+            [season, key],
         )
         rows = [
             dict(zip([c[0] for c in cursor.description], values, strict=True))
@@ -1015,16 +1073,21 @@ class Store:
             row["managers"] = json.loads(row.pop("managers_json"))
         return rows
 
-    def league_roster_rows(self, season: int, week: int | None = None) -> list[dict[str, Any]]:
+    def league_roster_rows(
+        self, season: int, week: int | None = None, league_key: str | None = None
+    ) -> list[dict[str, Any]]:
+        key = self.resolve_league_key(season, league_key)
+        if key is None:
+            return []
         if week is None:
-            context = self.league_context(season)
+            context = self.league_context(season, key)
             if context is None:
                 return []
             week = context["current_week"]
         cursor = self.conn.execute(
-            "SELECT * FROM league_rosters WHERE season = ? AND week = ? "
+            "SELECT * FROM league_rosters WHERE season = ? AND league_key = ? AND week = ? "
             "ORDER BY team_key, native_id",
-            [season, week],
+            [season, key, week],
         )
         rows = [
             dict(zip([c[0] for c in cursor.description], values, strict=True))
@@ -1034,17 +1097,25 @@ class Store:
             row["eligible_positions"] = json.loads(row.pop("eligible_positions_json"))
         return rows
 
-    def refresh_league_roster_identities(self, season: int, week: int | None = None) -> int:
-        """Re-resolve stored Yahoo roster ids against the current crosswalk.
+    def refresh_league_roster_identities(
+        self, season: int, week: int | None = None, league_key: str | None = None
+    ) -> int:
+        """Re-resolve one league's stored roster ids against the current crosswalk.
 
         League sync freezes ``player_key`` / ``matched`` at write time. A later
-        crosswalk refresh must heal ``yahoo:*`` fallbacks (and un-match vanished
-        ids) so sit/start can join weekly consensus without another league sync.
+        crosswalk refresh must heal ``<provider>:*`` fallbacks (and un-match
+        vanished ids) so sit/start can join weekly consensus without another
+        league sync. Ids resolve through that league's own provider column.
         """
-        rows = self.league_roster_rows(season, week)
+        key = self.resolve_league_key(season, league_key)
+        if key is None:
+            return 0
+        rows = self.league_roster_rows(season, week, key)
         if not rows:
             return 0
-        resolved = self.resolve_batch("yahoo", [row["native_id"] for row in rows])
+        context = self.league_context(season, key)
+        provider = config.league_provider(str(context["source"]) if context else "yahoo")
+        resolved = self.resolve_batch(provider, [row["native_id"] for row in rows])
         changed = 0
         self.conn.execute("BEGIN TRANSACTION")
         try:
@@ -1057,7 +1128,7 @@ class Store:
                     nfl_team = match["team"]
                     position = match["position"]
                 else:
-                    player_key = f"yahoo:{row['native_id']}"
+                    player_key = f"{provider}:{row['native_id']}"
                     matched = False
                     full_name = row["full_name"]
                     nfl_team = row["nfl_team"]
@@ -1070,7 +1141,7 @@ class Store:
                     UPDATE league_rosters
                     SET player_key = ?, matched = ?, full_name = ?,
                         nfl_team = ?, primary_position = ?
-                    WHERE season = ? AND week = ? AND team_key = ?
+                    WHERE season = ? AND league_key = ? AND week = ? AND team_key = ?
                           AND native_id = ?
                     """,
                     [
@@ -1080,6 +1151,7 @@ class Store:
                         nfl_team,
                         position,
                         row["season"],
+                        row["league_key"],
                         row["week"],
                         row["team_key"],
                         row["native_id"],

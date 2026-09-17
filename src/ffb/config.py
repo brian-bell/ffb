@@ -208,13 +208,33 @@ YAHOO_STAT_MAP: dict[int, tuple[str, ...]] = {
     56: ("pts_allow_35p",),
 }
 
-# Namespaced league keys for later DuckDB / Worker KV multi-league storage.
-# Yahoo remains the occupant of league_* and league:bundle:current; this spike
-# uses the Sleeper key in code, comments, and snapshots only.
+# Namespaced league keys: "<provider>:<the provider's own league id>". This is
+# the partition key DuckDB league_* and Worker KV are keyed by, so two leagues
+# coexist in one season. A bundle's own ``league.league_key`` is the provider's
+# raw key; namespaced_league_key turns the pair into this form.
 YAHOO_LEAGUE_KEY = "yahoo:470.l.928421"
 SLEEPER_LEAGUE_ID = "1395854363380965376"
 SLEEPER_USER_ID = "1395866680286003200"
 SLEEPER_LEAGUE_KEY = f"sleeper:{SLEEPER_LEAGUE_ID}"
+
+# Bundle sources that describe the Yahoo league LEAGUE_SCORING / LEAGUE_ROSTER_SLOTS
+# were written for. "fixture" is a Yahoo-shaped mock, so it shares the namespace.
+YAHOO_BUNDLE_SOURCES = frozenset({"yahoo", "fixture"})
+
+
+def league_provider(source: str) -> str:
+    """The league-key namespace (and crosswalk id column) for a bundle source."""
+    return "yahoo" if source in YAHOO_BUNDLE_SOURCES else source
+
+
+def namespaced_league_key(source: str, league_key: str) -> str:
+    """Combine a bundle's source and raw ``league.league_key`` into the partition key."""
+    provider = league_provider(source)
+    key = str(league_key or "")
+    if not provider:
+        return key
+    return key if key.startswith(f"{provider}:") else f"{provider}:{key}"
+
 
 # Sleeper scoring_settings -> our stat keys.
 #
