@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from ffb import config
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
 from ffb.lineup import BENCH_SLOT, NON_STARTING_SLOTS, _assign_optimal, is_starter
 
@@ -44,12 +45,24 @@ _SNAPSHOT_PLAYER_KEYS = {
 }
 
 
-def lineup_snapshot_key(season: int, week: int) -> str:
-    return f"lineup/{season}_week{week}"
+def league_snapshot_segment(league_key: str | None) -> str:
+    """Path segment naming a league, or "" for the one that owned these paths.
+
+    The default league keeps its historic flat paths (``lineup/2026_week3``) so
+    existing snapshots stay readable; any other league nests under its own
+    segment. ``:`` becomes ``_`` because the key is used as a path.
+    """
+    if not league_key or league_key == config.YAHOO_LEAGUE_KEY:
+        return ""
+    return f"{league_key.replace(':', '_')}/"
 
 
-def actuals_snapshot_key(season: int, week: int) -> str:
-    return f"actuals/{season}_week{week}"
+def lineup_snapshot_key(season: int, week: int, league_key: str | None = None) -> str:
+    return f"lineup/{league_snapshot_segment(league_key)}{season}_week{week}"
+
+
+def actuals_snapshot_key(season: int, week: int, league_key: str | None = None) -> str:
+    return f"actuals/{league_snapshot_segment(league_key)}{season}_week{week}"
 
 
 def build_lineup_snapshot(

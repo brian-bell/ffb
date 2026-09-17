@@ -498,18 +498,6 @@ def lineup(
         raise typer.BadParameter("week must be a positive integer")
     store = _open_store()
     league_key = _select_league(store, season, league)
-    # The sit/start snapshot key (lineup/{season}_week{N}) and the tracker's
-    # inseason KV are still keyed for one league, so writing either for a second
-    # league would clobber Yahoo's. ffb-ct7.5 rekeys KV; ffb-ct7.6 opens these up.
-    shared_outputs_ok = league_key.startswith("yahoo:")
-    if not shared_outputs_ok:
-        for flag, unsupported in (("--publish", publish), ("--force", force)):
-            if unsupported:
-                store.close()
-                raise typer.BadParameter(
-                    f"{flag} is not supported for {league_key} yet "
-                    "(sit/start snapshots and tracker KV are keyed for one league)"
-                )
     context = store.league_context(season, league_key)
     if context is None:
         store.close()
@@ -578,15 +566,10 @@ def lineup(
     players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
     report = compare_lineup(players, league_ctx.roster_slots)
     cache = SnapshotCache(paths.snapshot_dir())
-    advice_key = lineup_snapshot_key(season, chosen_week)
+    advice_key = lineup_snapshot_key(season, chosen_week, league_key)
     exists = cache.has(advice_key)
     post_hoc = chosen_week < current_week
-    if not shared_outputs_ok:
-        console.print(
-            f"[dim]No sit/start snapshot written for {league_key}: "
-            f"snapshots/lineup is keyed for one league.[/dim]"
-        )
-    elif exists and not force:
+    if exists and not force:
         console.print(
             f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged. "
             f"Re-run with --force to replace it.[/dim]"
@@ -637,7 +620,8 @@ def lineup(
                     "snapshot_generated_at": snapshot_generated_at,
                 },
                 report=report,
-            )
+            ),
+            league_key=league_key,
         )
 
 
@@ -661,6 +645,15 @@ def retro(
     """Compare a snapshotted sit/start run to ingested weekly actuals."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
+    # One league for the whole command: the actuals snapshot, the sit/start
+    # snapshot and the publish slot must all name the same one.
+    store = _open_store()
+    league_key = _select_league(store, season, league, required=False)
+    stored_week = None
+    stored_context = store.league_context(season, league_key) if league_key else None
+    if stored_context is not None:
+        stored_week = stored_context["current_week"]
+    store.close()
     cache = SnapshotCache(paths.snapshot_dir())
     bundle = None
     if fixture is not None:
@@ -676,7 +669,7 @@ def retro(
                 f"week {chosen_week}.[/red]"
             )
             raise typer.Exit(code=1)
-        key = actuals_snapshot_key(season, chosen_week)
+        key = actuals_snapshot_key(season, chosen_week, league_key)
         if cache.has(key) and not force:
             stored = cache.read_json(key)
             if stored != bundle.data:
@@ -692,17 +685,14 @@ def retro(
     else:
         chosen_week = week
         if chosen_week is None:
-            store = _open_store()
-            context = store.league_context(season, _select_league(store, season, league))
-            store.close()
-            if context is None:
+            if stored_week is None:
                 console.print(
                     f"[red]No weekly actuals for {season}. Pass --fixture PATH or POST "
                     f"a WeeklyActualsBundle to /api/actuals.[/red]"
                 )
                 raise typer.Exit(code=1)
-            chosen_week = context["current_week"]
-        key = actuals_snapshot_key(season, chosen_week)
+            chosen_week = stored_week
+        key = actuals_snapshot_key(season, chosen_week, league_key)
         if cache.has(key):
             try:
                 bundle = parse_actuals(cache.read_json(key), season=season)
@@ -710,9 +700,11 @@ def retro(
                 console.print(f"[red]Stored weekly actuals are invalid:[/red] {exc}")
                 raise typer.Exit(code=1) from exc
         else:
-            bundle = _pull_actuals_from_tracker(cache, season=season, week=chosen_week)
+            bundle = _pull_actuals_from_tracker(
+                cache, season=season, week=chosen_week, league_key=league_key
+            )
 
-    advice_key = lineup_snapshot_key(season, chosen_week)
+    advice_key = lineup_snapshot_key(season, chosen_week, league_key)
     if not cache.has(advice_key):
         console.print(
             f"[red]No sit/start snapshot for {season} week {chosen_week}. "
@@ -741,7 +733,8 @@ def retro(
                 team_name=report["team_name"],
                 context={"actuals_synced_at": bundle.data["synced_at"]},
                 report=report,
-            )
+            ),
+            league_key=league_key,
         )
 
 
@@ -766,8 +759,12 @@ class _TrackerLeagueSource:
         return parse_bundle(payload, season=season)
 
 
-def _publish_report(envelope: dict) -> None:
-    """POST one closed envelope after the report printed; failures exit 1, never log the key."""
+def _publish_report(envelope: dict, league_key: str | None = None) -> None:
+    """POST one closed envelope after the report printed; failures exit 1, never log the key.
+
+    ``league_key`` selects the Worker KV slot; omitting it means the default
+    league, which is what the pre-rekey keys held.
+    """
     kind = envelope["kind"]
     try:
         cfg = TrackerConfig.from_env()
@@ -776,7 +773,7 @@ def _publish_report(envelope: dict) -> None:
         raise typer.Exit(code=1) from exc
     try:
         with _tracker_client() as client:
-            summary = publish_inseason(client, cfg, envelope)
+            summary = publish_inseason(client, cfg, envelope, league_key)
     except TrackerPublishError as exc:
         console.print(f"[red]Tracker rejected the {kind} report:[/red] {exc.error} — {exc.message}")
         raise typer.Exit(code=1) from exc
@@ -787,7 +784,9 @@ def _publish_report(envelope: dict) -> None:
     console.print(f"[green]Published {kind} week {week} to the tracker.[/green]")
 
 
-def _pull_actuals_from_tracker(cache: SnapshotCache, *, season: int, week: int):
+def _pull_actuals_from_tracker(
+    cache: SnapshotCache, *, season: int, week: int, league_key: str | None = None
+):
     """Fetch the Worker's stored bundle, validate it, then snapshot it locally."""
     try:
         cfg = TrackerConfig.from_env()
@@ -814,7 +813,7 @@ def _pull_actuals_from_tracker(cache: SnapshotCache, *, season: int, week: int):
     except ValueError as exc:
         console.print(f"[red]Tracker returned invalid weekly actuals:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    cache.put_json(actuals_snapshot_key(season, week), bundle.data, mode=0o600)
+    cache.put_json(actuals_snapshot_key(season, week, league_key), bundle.data, mode=0o600)
     console.print(f"[dim]Pulled week {week} actuals from the tracker and snapshotted them.[/dim]")
     return bundle
 
@@ -924,7 +923,8 @@ def ros(
                     "playoff_weeks_requested": list(weeks),
                 },
                 report={**report, "playoff_weeks": list(report["playoff_weeks"])},
-            )
+            ),
+            league_key=league_key,
         )
 
 
@@ -1004,7 +1004,8 @@ def digest(
                 team_name=team_name,
                 context={"sources": ready},
                 report=report,
-            )
+            ),
+            league_key=selected,
         )
 
 

@@ -7,6 +7,9 @@ and tracker KV, which are not league-scoped yet.
 
 import json
 from pathlib import Path
+from urllib.parse import quote
+
+import httpx
 
 from ffb import config
 from ffb.cli import app
@@ -234,24 +237,46 @@ def test_sleeper_lineup_is_scored_with_its_own_weights_not_yahoos(tmp_path):
     assert "fgmiss" in context.unmodeled_scoring
 
 
-def test_sleeper_lineup_writes_no_sit_start_snapshot(tmp_path):
-    """snapshots/lineup is keyed for one league, so Sleeper must not write there."""
+def test_sleeper_lineup_snapshots_under_its_own_league_not_yahoos(tmp_path):
+    """Snapshot keys carry the league, so Sleeper cannot overwrite Yahoo's advice."""
     env = _synced(tmp_path)
     result = runner.invoke(app, LINEUP, env=env)
     assert result.exit_code == 0, result.output
-    assert "No sit/start snapshot written" in result.output
     cache = SnapshotCache(tmp_path / "snapshots")
+    assert cache.has(lineup_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+    # The configured Yahoo league's flat path stays untouched.
     assert not cache.has(lineup_snapshot_key(2026, 2))
-    assert not (tmp_path / "snapshots" / "lineup").exists()
 
 
-def test_sleeper_lineup_rejects_force_and_publish(tmp_path):
+def test_sleeper_lineup_publishes_to_its_own_kv_slot(tmp_path, monkeypatch):
+    """--publish works for Sleeper now, and names its league on the request."""
     env = _synced(tmp_path)
-    for flag in ("--force", "--publish"):
-        result = runner.invoke(app, [*LINEUP, flag], env=env)
-        assert result.exit_code != 0, flag
-        assert flag.lstrip("-") in result.output.lower()
-        assert "Traceback" not in result.output
+    posted = []
+
+    def fake_post(self, url, **kwargs):
+        posted.append({"url": str(httpx.URL(url, params=kwargs.get("params") or {}))})
+
+        class _Response:
+            status_code = 200
+            reason_phrase = "OK"
+
+            @staticmethod
+            def json():
+                return {"kind": "lineup", "season": 2026, "week": 2}
+
+        return _Response()
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    result = runner.invoke(
+        app,
+        [*LINEUP, "--publish"],
+        env={**env, "FFB_TRACKER_URL": "https://tracker.test", "FFB_TRACKER_API_KEY": "k"},
+    )
+    assert result.exit_code == 0, result.output
+    assert posted, "publish did not reach the tracker"
+    assert posted[0]["url"].endswith(
+        f"/api/inseason/lineup?league={quote(config.SLEEPER_LEAGUE_KEY, safe='')}"
+    )
 
 
 def test_sleeper_lineup_for_a_week_without_data_says_which_week(tmp_path):
