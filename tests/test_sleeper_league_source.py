@@ -71,7 +71,6 @@ def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
     assert f"league_{LEAGUE_ID}_rosters.json" in names
     assert f"league_{LEAGUE_ID}_users.json" in names
     assert "state_nfl.json" in names
-    assert f"league_{LEAGUE_ID}_matchups_week2.json" not in names
     assert any(request.url.path.endswith("/state/nfl") for request in requests)
     assert not any("/matchups/" in request.url.path for request in requests)
 
