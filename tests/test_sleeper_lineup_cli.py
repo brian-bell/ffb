@@ -63,6 +63,7 @@ def _seed_snapshots(tmp_path):
         f"sleeper/league_{LEAGUE_ID}_users": "users.json",
         "sleeper/state_nfl": "state_nfl.json",
         "sleeper/players_nfl": "players.json",
+        f"sleeper/league_{LEAGUE_ID}_matchups_week2": "matchups_week2.json",
     }
     for key, name in mapping.items():
         cache.put_json(key, json.loads((FIXTURES / name).read_text()))
@@ -337,3 +338,32 @@ def test_lineup_names_an_unknown_league_rather_than_guessing(tmp_path):
     assert result.exit_code == 1
     assert "yahoo" in result.output.lower()
     assert config.SLEEPER_LEAGUE_KEY in result.output
+
+
+def test_backfilled_week_reads_matchup_starters_not_current_rosters(tmp_path):
+    """The whole point of /matchups: a past week's lineup is recoverable."""
+    env = _seed_store(tmp_path)
+    backfill = runner.invoke(app, [*SYNC, "--week", "2"], env=env)
+    assert backfill.exit_code == 0, backfill.output
+    assert "week 2" in backfill.output
+
+    store = Store(env["FFB_DB_PATH"])
+    try:
+        rows = store.league_roster_rows(2026, week=2, league_key=config.SLEEPER_LEAGUE_KEY)
+    finally:
+        store.close()
+    started = {row["native_id"] for row in rows if row["selected_position"] != "BN"}
+    # Week 2 started Derrick Henry (3198); current /rosters starts Slow Back.
+    assert "3198" in started
+    assert "slow" not in started
+
+
+def test_league_sync_week_applies_only_to_a_live_sleeper_sync(tmp_path):
+    env = _seed_store(tmp_path)
+    fixture = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
+    result = runner.invoke(
+        app, ["league", "sync", "2024", "--fixture", str(fixture), "--week", "2"], env=env
+    )
+    assert result.exit_code != 0
+    assert "week" in result.output.lower()
+    assert "Traceback" not in result.output

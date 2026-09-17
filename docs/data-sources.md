@@ -559,10 +559,16 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
 - **Commands** — `lineup`, `retro`, `ros` and `digest` take `--league`
   (a provider name or a full league key). There is no provider-specific command
   body: Sleeper is the Yahoo path pointed at a different stored league.
-- **Still Yahoo-only** — the sit/start snapshot (`snapshots/lineup/`) and the
-  tracker's inseason KV are not league-scoped, so `lineup --league sleeper`
-  refuses `--publish` / `--force` and writes no snapshot. `POST
-  /api/league/bundle` is likewise Yahoo-only until the Worker KV rekey.
+- **Historical weeks** — `/rosters` is current state and cannot say who started
+  in a past week. `ffb league sync SEASON --league sleeper --week N` backfills
+  week N from `/matchups`, whose entries carry that week's starters. Unlike the
+  current-state keys, `sleeper/league_{id}_matchups_week{N}` really is a cache:
+  a past week never changes. A backfilled bundle is pinned to week N (the
+  contract requires `roster.week == league.current_week`), but
+  `replace_league_state` keeps the furthest week the league has reached, so a
+  backfill never moves the league's clock backwards.
+- **Publishing** — snapshot keys and Worker KV carry the league, so
+  `--publish` / `--force` work for Sleeper and land in its own slots.
 
 ```sh
 export FFB_SLEEPER_LEAGUE_ID=1395854363380965376

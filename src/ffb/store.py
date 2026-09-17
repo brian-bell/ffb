@@ -970,6 +970,14 @@ class Store:
                         ),
                     }
                 )
+        # Backfilling a past week pins the bundle to that week (the contract
+        # requires roster.week == league.current_week), but the league's clock
+        # has not gone backwards. Roster rows are keyed by their own week, so
+        # keep the furthest week this league has reached.
+        previous = self.league_context(season, league_key)
+        current_week = league["current_week"]
+        if previous is not None:
+            current_week = max(current_week, int(previous["current_week"]))
         self.conn.execute("BEGIN TRANSACTION")
         try:
             self.conn.execute(
@@ -984,7 +992,7 @@ class Store:
                     league["league_id"],
                     league["league_key"],
                     league["name"],
-                    league["current_week"],
+                    current_week,
                     league["num_teams"],
                     source,
                     bundle.data["synced_at"],

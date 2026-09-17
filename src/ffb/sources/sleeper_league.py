@@ -77,8 +77,22 @@ def fetch_state(client: httpx.Client) -> Any:
     return _get(client, "/state/nfl")
 
 
+def fetch_matchups(client: httpx.Client, league_id: str, week: int) -> Any:
+    """One entry per roster for a completed week, carrying that week's starters."""
+    return _get(client, f"/league/{league_id}/matchups/{week}")
+
+
 def snapshot_key(league_id: str, resource: str) -> str:
     return f"sleeper/league_{league_id}_{resource}"
+
+
+def matchups_snapshot_key(league_id: str, week: int) -> str:
+    """Week-scoped, so unlike /rosters this snapshot really is a cache.
+
+    A past week's matchups never change, so replaying one serves the same
+    starters the live endpoint would.
+    """
+    return f"sleeper/league_{league_id}_matchups_week{week}"
 
 
 def state_snapshot_key() -> str:
@@ -286,6 +300,27 @@ def starting_slots(roster_positions: list[str]) -> list[str]:
     ]
 
 
+def matchup_as_roster(matchup: Any) -> dict[str, Any]:
+    """Adapt one /matchups entry to the /rosters shape ``parse_roster`` expects.
+
+    A matchup carries the starters as they stood for that week, which is the
+    whole point: /rosters is current state and cannot answer "who did I start in
+    week 2". It has no reserve or taxi list, so those are empty — an IR player
+    that week simply appears as a bench player.
+    """
+    if not isinstance(matchup, dict):
+        raise ValueError("Sleeper matchup must be an object")
+    if "roster_id" not in matchup:
+        raise ValueError("Sleeper matchup is missing roster_id")
+    return {
+        "roster_id": matchup.get("roster_id"),
+        "players": matchup.get("players") or [],
+        "starters": matchup.get("starters") or [],
+        "reserve": [],
+        "taxi": None,
+    }
+
+
 def parse_roster(
     roster: Any,
     *,
@@ -471,6 +506,15 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
     return rows
 
 
+def _week_rosters(rosters: Any, matchups: Any) -> list[Any]:
+    """Current-state rosters, or one adapted roster per matchup for a past week."""
+    if matchups is None:
+        return list(rosters) if isinstance(rosters, list) else rosters
+    if not isinstance(matchups, list) or not matchups:
+        raise ValueError("Sleeper matchups must be a nonempty list")
+    return [matchup_as_roster(matchup) for matchup in matchups]
+
+
 def map_state(
     *,
     league: Any,
@@ -481,6 +525,8 @@ def map_state(
     season: int,
     synced_at: str,
     players_by_id: Mapping[str, Any] | None = None,
+    week: int | None = None,
+    matchups: Any = None,
 ) -> LeagueBundle:
     """Pure raw responses -> the provider-neutral ``LeagueBundle`` contract.
 
@@ -489,7 +535,12 @@ def map_state(
     fail-loud scoring) are enforced here.
     """
     nfl = parse_nfl_state(state)
-    meta = parse_league_meta(league, current_week=nfl["week"])
+    # A backfill pins the bundle to the requested week; the bundle contract
+    # requires every roster's week to equal league.current_week, so a past week
+    # is what this bundle is "current" for. The store keys rosters by their own
+    # week column and will not move the league's clock backwards.
+    bundle_week = nfl["week"] if week is None else week
+    meta = parse_league_meta(league, current_week=bundle_week)
     if nfl["season"] != meta["season"]:
         # state/nfl is snapshotted globally while league pulls are league-scoped,
         # so a stale replay could graft another season's week onto this bundle.
@@ -538,6 +589,8 @@ def map_state(
             },
         },
         "teams": teams,
+        # A backfill reads that week's starters from /matchups; a current-week
+        # sync reads them from /rosters, which is current state only.
         "rosters": [
             parse_roster(
                 roster,
@@ -546,7 +599,7 @@ def map_state(
                 league_id=meta["league_id"],
                 players_by_id=players_by_id,
             )
-            for roster in rosters
+            for roster in _week_rosters(rosters, matchups)
         ],
     }
     return parse_bundle(payload, season=season)
@@ -577,6 +630,7 @@ class SleeperLeagueSource:
         *,
         offline: bool = False,
         players_by_id: Mapping[str, Any] | None = None,
+        week: int | None = None,
     ) -> LeagueBundle:
         """Pull live league state, or replay the last snapshots when ``offline``.
 
@@ -584,6 +638,10 @@ class SleeperLeagueSource:
         carry no week, so a cached replay silently serves last week's starters
         and week number. Sit/start therefore refetches every run by default;
         snapshots exist for ``--offline`` and for post-mortem, not as a cache.
+
+        ``week`` backfills a past week from ``/matchups``, which carries the
+        starters as they stood then. /rosters cannot answer that question at
+        all, so without it a week that was never synced live is unrecoverable.
         """
         from ffb.snapshot import SnapshotPolicy
 
@@ -613,6 +671,12 @@ class SleeperLeagueSource:
                 lambda: fetch_users(client, self.league_id),
             )
             state = pull(state_snapshot_key(), lambda: fetch_state(client))
+            matchups = None
+            if week is not None:
+                matchups = pull(
+                    matchups_snapshot_key(self.league_id, week),
+                    lambda: fetch_matchups(client, self.league_id, week),
+                )
         lookup = players_by_id
         if lookup is None and self.cache.has("sleeper/players_nfl"):
             cached = self.cache.read_json("sleeper/players_nfl")
@@ -626,6 +690,8 @@ class SleeperLeagueSource:
             season=season,
             synced_at=self._synced_at(cached_keys),
             players_by_id=lookup,
+            week=week,
+            matchups=matchups,
         )
         for key, data in staged.items():
             self.cache.put_json(key, data)

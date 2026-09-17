@@ -227,3 +227,20 @@ def test_replace_league_state_scopes_to_one_league(store):
     )
     assert store.league_context(2024, config.YAHOO_LEAGUE_KEY)["name"] == "Yahoo Again"
     assert store.league_context(2024, config.SLEEPER_LEAGUE_KEY)["name"] == "Sleeper"
+
+
+def test_backfilling_a_past_week_does_not_move_the_league_clock_backwards(store):
+    """A backfill pins its bundle to a past week; the league's week must not follow."""
+    data = _bundle()
+    data["league"] = data["league"] | {"current_week": 5}
+    for roster in data["rosters"]:
+        roster["week"] = 5
+    store.replace_league_state(parse_bundle(data, season=2024))
+    assert store.league_context(2024)["current_week"] == 5
+
+    past = _bundle()
+    past["league"] = past["league"] | {"current_week": 2}
+    for roster in past["rosters"]:
+        roster["week"] = 2
+    store.replace_league_state(parse_bundle(past, season=2024))
+    assert store.league_context(2024)["current_week"] == 5

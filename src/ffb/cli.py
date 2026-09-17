@@ -115,6 +115,11 @@ def league_sync(  # noqa: B008
     offline: bool = typer.Option(
         False, "--offline", help="Sleeper only: replay snapshots; never hit the network."
     ),
+    week: int | None = typer.Option(
+        None,
+        "--week",
+        help="Sleeper only: backfill a past week's starters from /matchups.",
+    ),
 ) -> None:
     """Validate and atomically import live, tracker, or fixture-backed league state."""
     if from_tracker and (fixture is not None or refresh):
@@ -124,6 +129,14 @@ def league_sync(  # noqa: B008
         raise typer.BadParameter("--league must be yahoo or sleeper")
     if offline and provider != "sleeper":
         raise typer.BadParameter("--offline applies only to --league sleeper")
+    if week is not None:
+        if week < 1:
+            raise typer.BadParameter("week must be a positive integer")
+        if provider != "sleeper" or fixture is not None or from_tracker:
+            raise typer.BadParameter(
+                "--week backfills a past week from Sleeper's /matchups; it applies "
+                "only to a live --league sleeper sync"
+            )
     sleeper_live = provider == "sleeper" and fixture is None and not from_tracker
     if fixture is not None:
         source: object = FixtureLeagueSource(fixture)
@@ -158,7 +171,7 @@ def league_sync(  # noqa: B008
         # SleeperLeagueSource replays snapshots rather than caching them, so it
         # takes --offline where the Yahoo/fixture sources take --refresh.
         bundle = (
-            source.fetch(season, offline=offline)
+            source.fetch(season, offline=offline, week=week)
             if sleeper_live
             else source.fetch(season, refresh=refresh)
         )
@@ -191,11 +204,17 @@ def league_sync(  # noqa: B008
         console.print(f"[red]League state rejected:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store.close()
+    scope = "" if week is None else f" for week {week}"
     console.print(
-        f"[green]Synced {label} league state:[/green] {result['teams']} team(s), "
+        f"[green]Synced {label} league state{scope}:[/green] {result['teams']} team(s), "
         f"{result['players']} roster player(s), {result['matched']} matched, "
         f"{result['unmatched']} unmatched."
     )
+    if week is not None:
+        console.print(
+            f"[dim]Backfilled week {week} starters from /matchups; the league's "
+            f"current week is unchanged.[/dim]"
+        )
 
 
 @league_app.command("show")
