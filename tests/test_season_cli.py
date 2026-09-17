@@ -5,15 +5,16 @@ from pathlib import Path
 
 import httpx
 import pytest
-from typer.testing import CliRunner
 
 from ffb.cli import app
 from ffb.snapshot import SnapshotCache
 from ffb.sources import crosswalk, espn, espn_news, ffc, schedule, sleeper, sleeper_players
 from ffb.store import Store
 
+from .cli_plain import PlainCliRunner
+
 FIXTURES = Path(__file__).parent / "fixtures"
-runner = CliRunner()
+runner = PlainCliRunner()
 
 
 def _env(tmp_path):

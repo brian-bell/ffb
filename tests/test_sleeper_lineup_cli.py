@@ -1,10 +1,7 @@
 """``ffb lineup --league sleeper`` is fixture-backed and does not write league_*."""
 
 import json
-import re
 from pathlib import Path
-
-from typer.testing import CliRunner
 
 from ffb import config
 from ffb.cli import app
@@ -13,12 +10,9 @@ from ffb.snapshot import SnapshotCache
 from ffb.sources.crosswalk import parse_crosswalk
 from ffb.store import Store
 
-runner = CliRunner()
+from .cli_plain import PlainCliRunner
 
-
-def _plain(text):
-    """Strip rich's ANSI so assertions survive a color-capable terminal."""
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+runner = PlainCliRunner()
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sleeper"
@@ -221,7 +215,7 @@ def test_sleeper_lineup_rejects_non_current_week(tmp_path):
         app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "1"], env=env
     )
     assert result.exit_code == 1
-    output = _plain(result.output)
+    output = result.output
     assert "current roster week" in output
     assert "week 2" in output
     assert "--week 1" in output
@@ -275,7 +269,7 @@ def test_sleeper_lineup_warns_about_unmatched_roster_players(tmp_path):
     store.close()
     result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
     assert result.exit_code == 0, result.output
-    output = _plain(result.output)
+    output = result.output
     assert "did not match the crosswalk" in output
     assert "score zero" in output
 

@@ -3,13 +3,13 @@
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from ffb.cli import app
 from ffb.sources.crosswalk import parse_crosswalk
 from ffb.store import Store
 
-runner = CliRunner()
+from .cli_plain import PlainCliRunner
+
+runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 NEWS = Path(__file__).parent / "fixtures" / "espn_news_sample.json"
