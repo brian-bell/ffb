@@ -35,7 +35,18 @@ def snapshot_key() -> str:
 
 
 # Columns pulled from the wide ff_playerids frame into the snapshot.
-_FETCH_COLS = ("mfl_id", "sleeper_id", "espn_id", "yahoo_id", "gsis_id", "name", "position", "team")
+# stats_id is parse-only: used to fill empty yahoo_id when unique, never stored.
+_FETCH_COLS = (
+    "mfl_id",
+    "sleeper_id",
+    "espn_id",
+    "yahoo_id",
+    "gsis_id",
+    "stats_id",
+    "name",
+    "position",
+    "team",
+)
 
 
 def fetch_playerids() -> list[dict[str, Any]]:
@@ -77,9 +88,12 @@ def parse_crosswalk(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Normalize ff_playerids records into crosswalk spine rows.
 
     Rows without an ``mfl_id`` (no canonical key possible) are logged and
-    skipped. Never raises on a malformed row.
+    skipped. Never raises on a malformed row. Empty ``yahoo_id`` is filled from
+    ``stats_id`` only when that ``stats_id`` maps to exactly one canonical and is
+    not already present as ``yahoo_id`` on another row.
     """
     rows: list[dict[str, Any]] = []
+    stats_ids: list[str | None] = []
     for item in raw:
         try:
             player_key = _id_str(item.get("mfl_id"))
@@ -95,7 +109,31 @@ def parse_crosswalk(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
             for col in _ID_COLS:
                 row[col] = _id_str(item.get(col))
+            stats_id = _id_str(item.get("stats_id"))
             rows.append(row)
+            stats_ids.append(stats_id)
         except (KeyError, TypeError, ValueError) as exc:
             log.warning("skip malformed crosswalk row %s: %s", item.get("mfl_id"), exc)
+    _fill_yahoo_from_unique_stats_id(rows, stats_ids)
     return rows
+
+
+def _fill_yahoo_from_unique_stats_id(
+    rows: list[dict[str, Any]], stats_ids: list[str | None]
+) -> None:
+    """Copy unique unclaimed ``stats_id`` onto empty ``yahoo_id``.
+
+    Skip when ``stats_id`` is shared across canonicals or already used as
+    ``yahoo_id`` on any row, so a fill cannot turn a unique Yahoo match
+    ambiguous.
+    """
+    owners: dict[str, set[str]] = {}
+    claimed = {row["yahoo_id"] for row in rows if row["yahoo_id"] is not None}
+    for row, stats_id in zip(rows, stats_ids, strict=True):
+        if stats_id is None:
+            continue
+        owners.setdefault(stats_id, set()).add(row["player_key"])
+    unique = {stats_id for stats_id, keys in owners.items() if len(keys) == 1} - claimed
+    for row, stats_id in zip(rows, stats_ids, strict=True):
+        if row["yahoo_id"] is None and stats_id in unique:
+            row["yahoo_id"] = stats_id
