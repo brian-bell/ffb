@@ -49,7 +49,7 @@ def namespaced_league_key(state: dict[str, Any]) -> str:
     )
 
 
-def load_league_context(store: Any, season: int) -> LeagueContext:
+def load_league_context(store: Any, season: int, league_key: str | None = None) -> LeagueContext:
     """Return a league's own settings, falling back only within that same league.
 
     The configured ``config.LEAGUE_*`` values describe Brian's Yahoo league. They
@@ -59,7 +59,7 @@ def load_league_context(store: Any, season: int) -> LeagueContext:
     than borrowing, and uses the league's own partial rules when it has usable
     ones.
     """
-    state = store.league_context(season)
+    state = store.league_context(season, league_key)
     if state is None:
         # Nothing synced yet: the configured Yahoo league is the only league
         # there is, so this is that league's own settings, not a borrow.

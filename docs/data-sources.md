@@ -547,9 +547,15 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   Never assume a provider from the field name.
 - **Storage** — `replace_league_state` accepts any provider's bundle and
   scopes to `(season, league_key)`, so a Sleeper sync persists alongside Yahoo
-  instead of replacing it.
-- **Still to come** — `POST /api/league/bundle` and `--publish` / inseason KV
-  remain Yahoo-only, and Worker KV is not yet rekeyed per league.
+  instead of replacing it. `ffb league sync SEASON --league sleeper [--offline]`
+  writes it.
+- **Commands** — `lineup`, `retro`, `ros` and `digest` take `--league`
+  (a provider name or a full league key). There is no provider-specific command
+  body: Sleeper is the Yahoo path pointed at a different stored league.
+- **Still Yahoo-only** — the sit/start snapshot (`snapshots/lineup/`) and the
+  tracker's inseason KV are not league-scoped, so `lineup --league sleeper`
+  refuses `--publish` / `--force` and writes no snapshot. `POST
+  /api/league/bundle` is likewise Yahoo-only until the Worker KV rekey.
 
 ```sh
 export FFB_SLEEPER_LEAGUE_ID=1395854363380965376

@@ -153,6 +153,12 @@ that league's own crosswalk column, so Yahoo and Sleeper coexist in one season.
 Reads take an optional `league_key`; without one they use the season's only
 league, else the configured Yahoo league, else the most recently synced.
 
+`lineup`, `retro`, `ros` and `digest` expose that as `--league`, resolved once
+by `cli._select_league` and threaded into `store.league_context` /
+`league_teams` / `league_roster_rows` and `load_league_context`. There are no
+provider-specific command bodies; a second provider is a second stored league,
+not a second code path.
+
 `sources/yahoo.py` implements the live `YahooLeagueSource` peer of
 `FixtureLeagueSource` (httpx fetch, snapshot-cached raw pulls, pure mappers),
 with the OAuth2 refresh-token lifecycle in `yahoo_auth.py`. The one-time

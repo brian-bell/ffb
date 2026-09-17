@@ -10,7 +10,7 @@ class _Store:
     def __init__(self, value):
         self.value = value
 
-    def league_context(self, season):
+    def league_context(self, season, league_key=None):
         return self.value
 
 

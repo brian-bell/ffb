@@ -32,7 +32,7 @@ from ffb.claude import (
 from ffb.consensus import consensus_rows
 from ffb.inseason import build_envelope, utc_now
 from ffb.league import FixtureLeagueSource, parse_bundle
-from ffb.league_context import load_league_context, roster_slot_counts, scoring_from_rules
+from ffb.league_context import load_league_context
 from ffb.lineup import (
     attach_injuries,
     attach_weekly_points,
@@ -106,10 +106,25 @@ def league_sync(  # noqa: B008
         "--from-tracker",
         help="Pull the Worker's last accepted LeagueBundle (GET /api/league/bundle).",
     ),
+    league: str = typer.Option(
+        "yahoo",
+        "--league",
+        help="Which live provider to sync: yahoo (default) or sleeper. "
+        "Ignored for --fixture and --from-tracker, whose bundle names its own source.",
+    ),
+    offline: bool = typer.Option(
+        False, "--offline", help="Sleeper only: replay snapshots; never hit the network."
+    ),
 ) -> None:
-    """Validate and atomically import live Yahoo, tracker, or fixture-backed league state."""
+    """Validate and atomically import live, tracker, or fixture-backed league state."""
     if from_tracker and (fixture is not None or refresh):
         raise typer.BadParameter("--from-tracker cannot be combined with --fixture or --refresh")
+    provider = league.strip().lower()
+    if provider not in {"yahoo", "sleeper"}:
+        raise typer.BadParameter("--league must be yahoo or sleeper")
+    if offline and provider != "sleeper":
+        raise typer.BadParameter("--offline applies only to --league sleeper")
+    sleeper_live = provider == "sleeper" and fixture is None and not from_tracker
     if fixture is not None:
         source: object = FixtureLeagueSource(fixture)
     elif from_tracker:
@@ -118,15 +133,41 @@ def league_sync(  # noqa: B008
         except TrackerConfigError as exc:
             console.print(f"[red]Tracker league sync unavailable:[/red] {exc}")
             raise typer.Exit(code=2) from exc
+    elif sleeper_live:
+        try:
+            source = sleeper_league.league_source_from_env(SnapshotCache(paths.snapshot_dir()))
+        except SleeperLeagueError as exc:
+            console.print(f"[red]Sleeper league sync unavailable:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
     else:
         try:
             source = yahoo.league_source_from_env(SnapshotCache(paths.snapshot_dir()))
         except YahooAuthError as exc:
             console.print(f"[red]Live Yahoo sync unavailable:[/red] {exc}")
             raise typer.Exit(code=2) from exc
-    label = "fixture/mock" if fixture is not None else "tracker" if from_tracker else "live Yahoo"
+    label = (
+        "fixture/mock"
+        if fixture is not None
+        else "tracker"
+        if from_tracker
+        else "live Sleeper"
+        if sleeper_live
+        else "live Yahoo"
+    )
     try:
-        bundle = source.fetch(season, refresh=refresh)
+        # SleeperLeagueSource replays snapshots rather than caching them, so it
+        # takes --offline where the Yahoo/fixture sources take --refresh.
+        bundle = (
+            source.fetch(season, offline=offline)
+            if sleeper_live
+            else source.fetch(season, refresh=refresh)
+        )
+    except SleeperLeagueError as exc:
+        console.print(f"[red]Sleeper league unavailable:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    except FileNotFoundError as exc:
+        console.print(f"[red]Sleeper snapshots missing:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
     except ValueError as exc:
         noun = "fixture" if fixture is not None else "state"
         console.print(f"[red]League {noun} rejected:[/red] {exc}")
@@ -139,7 +180,8 @@ def league_sync(  # noqa: B008
             # Never echo the exception body: the request carried the bearer key.
             console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
         else:
-            console.print(f"[red]Yahoo fetch failed:[/red] {exc}")
+            who = "Sleeper" if sleeper_live else "Yahoo"
+            console.print(f"[red]{who} fetch failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store = _open_store()
     try:
@@ -374,6 +416,67 @@ def season_unmatched(
     console.print(table)
 
 
+#: --league accepts a provider name ("yahoo", "sleeper") or a full namespaced
+#: league key ("sleeper:1395854363380965376"), so one selector serves every
+#: in-season command and no command grows a provider-specific body.
+LEAGUE_OPTION_HELP = (
+    "Which stored league to read: a provider name (yahoo, sleeper) or a full "
+    "league key. Defaults to the season's only league, else Yahoo."
+)
+
+
+def _no_league_state(season: int) -> None:
+    console.print(
+        f"[yellow]No league state for {season}. Run: ffb league sync "
+        f"{season} --fixture PATH[/yellow]"
+    )
+
+
+def _select_league(
+    store: Store, season: int, league: str | None, *, required: bool = True
+) -> str | None:
+    """Resolve --league to one stored league key, or exit with a listing.
+
+    ``required=False`` returns ``None`` when the season has no stored league, for
+    commands (ros, digest) that still render without it. An explicit --league
+    that names nothing always errors, whatever ``required`` says: the caller
+    asked for a specific league and silently ignoring that would mislead.
+    """
+    keys = store.league_keys(season)
+    if not keys:
+        if not required and league is None:
+            return None
+        store.close()
+        _no_league_state(season)
+        raise typer.Exit(code=1)
+    if league is None:
+        selected = store.resolve_league_key(season)
+        if selected is None:
+            if not required:
+                return None
+            store.close()
+            _no_league_state(season)
+            raise typer.Exit(code=1)
+        return selected
+    want = league.strip().lower()
+    if want in keys:
+        return want
+    matches = [key for key in keys if key.split(":", 1)[0] == want]
+    if len(matches) == 1:
+        return matches[0]
+    store.close()
+    if not matches:
+        console.print(
+            f"[red]No {want!r} league stored for {season}.[/red] Stored: {', '.join(keys)}."
+        )
+    else:
+        console.print(
+            f"[red]Several {want!r} leagues stored for {season}; name one.[/red] "
+            f"Stored: {', '.join(matches)}."
+        )
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def lineup(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
@@ -388,37 +491,32 @@ def lineup(
     publish: bool = typer.Option(
         False, "--publish", help="POST the rendered report to the tracker command center."
     ),
-    league: str = typer.Option(
-        "yahoo",
-        "--league",
-        help="yahoo (default, stored DuckDB) or sleeper (in-memory; no league_* write).",
-    ),
-    offline: bool = typer.Option(
-        False, "--offline", help="Sleeper only: replay snapshots; never hit the network."
-    ),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
 ) -> None:
     """Compare the user team's stored lineup to optimal weekly starters."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
-    chosen = league.lower()
-    if chosen not in {"yahoo", "sleeper"}:
-        raise typer.BadParameter("--league must be yahoo or sleeper")
-    if chosen == "yahoo" and offline:
-        raise typer.BadParameter("--offline applies only to --league sleeper")
-    if chosen == "sleeper":
-        _lineup_sleeper(season, week=week, force=force, publish=publish, offline=offline)
-        return
     store = _open_store()
-    context = store.league_context(season)
+    league_key = _select_league(store, season, league)
+    # The sit/start snapshot key (lineup/{season}_week{N}) and the tracker's
+    # inseason KV are still keyed for one league, so writing either for a second
+    # league would clobber Yahoo's. ffb-ct7.5 rekeys KV; ffb-ct7.6 opens these up.
+    shared_outputs_ok = league_key.startswith("yahoo:")
+    if not shared_outputs_ok:
+        for flag, unsupported in (("--publish", publish), ("--force", force)):
+            if unsupported:
+                store.close()
+                raise typer.BadParameter(
+                    f"{flag} is not supported for {league_key} yet "
+                    "(sit/start snapshots and tracker KV are keyed for one league)"
+                )
+    context = store.league_context(season, league_key)
     if context is None:
         store.close()
-        console.print(
-            f"[yellow]No league state for {season}. Run: ffb league sync "
-            f"{season} --fixture PATH[/yellow]"
-        )
+        _no_league_state(season)
         raise typer.Exit(code=1)
     chosen_week = context["current_week"] if week is None else week
-    teams = store.league_teams(season)
+    teams = store.league_teams(season, league_key)
     user_teams = [team for team in teams if team["is_user_team"]]
     if len(user_teams) != 1:
         store.close()
@@ -427,10 +525,10 @@ def lineup(
         )
         raise typer.Exit(code=1)
     user = user_teams[0]
-    store.refresh_league_roster_identities(season, chosen_week)
+    store.refresh_league_roster_identities(season, chosen_week, league_key)
     roster_rows = [
         row
-        for row in store.league_roster_rows(season, week=chosen_week)
+        for row in store.league_roster_rows(season, week=chosen_week, league_key=league_key)
         if row["team_key"] == user["team_key"]
     ]
     scope = config.projection_scope(chosen_week)
@@ -444,13 +542,13 @@ def lineup(
             f"Run: ffb season sync {season} --week {chosen_week}[/red]"
         )
         raise typer.Exit(code=1)
-    league = load_league_context(store, season)
+    league_ctx = load_league_context(store, season, league_key)
     consensus = consensus_rows(
         store,
         season=season,
         week=chosen_week,
         sources=active_sources,
-        cfg=league.scoring,
+        cfg=league_ctx.scoring,
     )
     status = _service(store).status(season)
     current_week = context["current_week"]
@@ -468,13 +566,27 @@ def lineup(
             f"[yellow]No roster players for {user['name']} in week {chosen_week}.[/yellow]"
         )
         raise typer.Exit(code=1)
+    unmatched = [row for row in roster_rows if not row["matched"]]
+    if unmatched:
+        # An unmatched id draws no projection, so it scores zero and is advised
+        # to sit. Say so rather than letting it look like a real recommendation.
+        console.print(
+            f"[yellow]{len(unmatched)} roster player(s) did not match the crosswalk and "
+            f"score zero: {', '.join(row['full_name'] for row in unmatched)}. "
+            f"Run: ffb season sync {season}[/yellow]"
+        )
     players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
-    report = compare_lineup(players, league.roster_slots)
+    report = compare_lineup(players, league_ctx.roster_slots)
     cache = SnapshotCache(paths.snapshot_dir())
     advice_key = lineup_snapshot_key(season, chosen_week)
     exists = cache.has(advice_key)
     post_hoc = chosen_week < current_week
-    if exists and not force:
+    if not shared_outputs_ok:
+        console.print(
+            f"[dim]No sit/start snapshot written for {league_key}: "
+            f"snapshots/lineup is keyed for one league.[/dim]"
+        )
+    elif exists and not force:
         console.print(
             f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged. "
             f"Re-run with --force to replace it.[/dim]"
@@ -500,14 +612,14 @@ def lineup(
                 generated_at=snapshot_now(),
                 team_key=user["team_key"],
                 team_name=user["name"],
-                roster_slots=league.roster_slots,
+                roster_slots=league_ctx.roster_slots,
                 players=players,
                 report=report,
             ),
             mode=0o600,
         )
     _render_lineup(report, week=chosen_week, team_name=user["name"])
-    _report_scoring_provenance(league)
+    _report_scoring_provenance(league_ctx)
     if publish:
         snapshot_generated_at = (
             cache.read_json(advice_key)["generated_at"] if cache.has(advice_key) else None
@@ -529,104 +641,6 @@ def lineup(
         )
 
 
-def _lineup_sleeper(
-    season: int,
-    *,
-    week: int | None,
-    force: bool,
-    publish: bool,
-    offline: bool,
-) -> None:
-    """Sit/start for the Sleeper league without writing DuckDB league_* or KV."""
-    for flag, unsupported in (("--publish", publish), ("--force", force)):
-        if unsupported:
-            raise typer.BadParameter(
-                f"{flag} is not supported for --league sleeper "
-                "(Worker KV and sit/start snapshots remain Yahoo)"
-            )
-    cache = SnapshotCache(paths.snapshot_dir())
-    try:
-        source = sleeper_league.league_source_from_env(cache)
-        bundle = source.fetch(season, offline=offline)
-    except SleeperLeagueError as exc:
-        console.print(f"[red]Sleeper lineup unavailable:[/red] {exc}")
-        raise typer.Exit(code=2) from exc
-    except FileNotFoundError as exc:
-        console.print(f"[red]Sleeper snapshots missing:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except ValueError as exc:
-        console.print(f"[red]Sleeper league rejected:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
-    except httpx.HTTPError as exc:
-        console.print(f"[red]Sleeper fetch failed:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
-    league_meta = bundle.league
-    current_week = league_meta["current_week"]
-    user_teams = [team for team in bundle.teams if team["is_user_team"]]
-    if len(user_teams) != 1:
-        console.print(
-            "[red]Sit/start needs exactly one Sleeper team for FFB_SLEEPER_USER_ID.[/red]"
-        )
-        raise typer.Exit(code=1)
-    user = user_teams[0]
-    if week is not None and week != current_week:
-        console.print(
-            f"[red]Sleeper lineup only supports the current roster week "
-            f"week {current_week}; --week {week} is out of scope for this spike.[/red]"
-        )
-        raise typer.Exit(code=1)
-    roster = next(item for item in bundle.rosters if item["team_key"] == user["team_key"])
-    store = _open_store()
-    roster_rows = sleeper_league.resolve_sleeper_roster_rows(store, roster["players"])
-    scope = config.projection_scope(current_week)
-    unmatched = [row for row in roster_rows if not row["matched"]]
-    if unmatched:
-        # An unmatched id draws no projection, so it scores zero and is advised
-        # to sit. Say so rather than letting it look like a real recommendation.
-        console.print(
-            f"[yellow]{len(unmatched)} roster player(s) did not match the crosswalk and "
-            f"score zero: {', '.join(row['full_name'] for row in unmatched)}. "
-            f"Run: ffb season sync {season}[/yellow]"
-        )
-    active_sources = [name for name in _SOURCE_COLUMNS if store.has_season(season, name, scope)]
-    if not active_sources:
-        store.close()
-        console.print(
-            f"[red]No weekly projection sources for {season} week {current_week}. "
-            f"Run: ffb season sync {season} --week {current_week}[/red]"
-        )
-        raise typer.Exit(code=1)
-    consensus = consensus_rows(
-        store,
-        season=season,
-        week=current_week,
-        sources=active_sources,
-        cfg=scoring_from_rules(bundle.settings["scoring_rules"]),
-    )
-    status = _service(store).status(season)
-    injuries = store.injury_rows(season)
-    store.close()
-    _warn_source_states(status, include_adp=False, wanted={"injuries"})
-    if not roster_rows:
-        console.print(
-            f"[yellow]No roster players for {user['name']} in week {current_week}.[/yellow]"
-        )
-        raise typer.Exit(code=1)
-    if len(active_sources) < len(_SOURCE_COLUMNS):
-        console.print(
-            f"[yellow]Scored with {len(active_sources)} projection source(s): "
-            f"{', '.join(active_sources)}.[/yellow]"
-        )
-    players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
-    report = compare_lineup(players, roster_slot_counts(bundle.settings["roster_slots"]))
-    _render_lineup(report, week=current_week, team_name=user["name"])
-    console.print("[yellow]Scored with Sleeper league settings.[/yellow]")
-    console.print(
-        f"[dim]{league_meta['league_key']} — in-memory only; DuckDB league_* and "
-        f"--publish remain Yahoo.[/dim]"
-    )
-
-
 @app.command()
 def retro(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
@@ -642,6 +656,7 @@ def retro(
     publish: bool = typer.Option(
         False, "--publish", help="POST the rendered report to the tracker command center."
     ),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
 ) -> None:
     """Compare a snapshotted sit/start run to ingested weekly actuals."""
     if week is not None and week < 1:
@@ -678,7 +693,7 @@ def retro(
         chosen_week = week
         if chosen_week is None:
             store = _open_store()
-            context = store.league_context(season)
+            context = store.league_context(season, _select_league(store, season, league))
             store.close()
             if context is None:
                 console.print(
@@ -821,6 +836,7 @@ def ros(
         "--publish",
         help="POST the full all-position report to the tracker command center.",
     ),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
 ) -> None:
     """Print rest-of-season consensus, playoff slate, and bye planning."""
     if publish and pos:
@@ -845,26 +861,31 @@ def ros(
             f"playoff slates will be empty. Run `ffb season sync {season} "
             f"--source schedule`.[/yellow]"
         )
-    league = load_league_context(store, season)
+    league_key = _select_league(store, season, league, required=False)
+    league_ctx = load_league_context(store, season, league_key)
     consensus = consensus_rows(
         store,
         season=season,
         position=None,
         sources=active_sources,
-        cfg=league.scoring,
+        cfg=league_ctx.scoring,
     )
     byes = store.team_bye_rows(season)
     roster: list[dict] = []
     team_name: str | None = None
-    context = store.league_context(season)
+    context = store.league_context(season, league_key) if league_key else None
     if context is not None:
-        user_teams = [team for team in store.league_teams(season) if team["is_user_team"]]
+        user_teams = [
+            team for team in store.league_teams(season, league_key) if team["is_user_team"]
+        ]
         if len(user_teams) == 1:
             team_name = user_teams[0]["name"]
-            store.refresh_league_roster_identities(season, context["current_week"])
+            store.refresh_league_roster_identities(season, context["current_week"], league_key)
             roster = [
                 row
-                for row in store.league_roster_rows(season, week=context["current_week"])
+                for row in store.league_roster_rows(
+                    season, week=context["current_week"], league_key=league_key
+                )
                 if row["team_key"] == user_teams[0]["team_key"]
             ]
     store.close()
@@ -888,7 +909,7 @@ def ros(
         console.print(f"[yellow]No rest-of-season projections for {season} ({scope}).[/yellow]")
         raise typer.Exit(code=0)
     _render_ros(report, season=season, pos=pos, limit=limit)
-    _report_scoring_provenance(league)
+    _report_scoring_provenance(league_ctx)
     if publish:
         assert context is not None
         _publish_report(
@@ -916,22 +937,24 @@ def digest(
     publish: bool = typer.Option(
         False, "--publish", help="POST the rendered report to the tracker command center."
     ),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
 ) -> None:
     """Injury and headline context for the user roster and unrostered mentions."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
     store = _open_store()
-    context = store.league_context(season)
+    selected = _select_league(store, season, league, required=False)
+    context = store.league_context(season, selected) if selected else None
     chosen_week = week
     team_name = None
     roster_rows: list[dict] = []
     league_keys: set[str] = set()
     if context is not None:
         chosen_week = context["current_week"] if week is None else week
-        store.refresh_league_roster_identities(season, chosen_week)
-        teams = store.league_teams(season)
+        store.refresh_league_roster_identities(season, chosen_week, selected)
+        teams = store.league_teams(season, selected)
         user_teams = [team for team in teams if team["is_user_team"]]
-        all_roster = store.league_roster_rows(season, week=chosen_week)
+        all_roster = store.league_roster_rows(season, week=chosen_week, league_key=selected)
         league_keys = {row["player_key"] for row in all_roster if row.get("matched")}
         if len(user_teams) == 1:
             team_name = user_teams[0]["name"]
@@ -940,10 +963,7 @@ def digest(
             ]
     elif week is None:
         store.close()
-        console.print(
-            f"[yellow]No league state for {season}. Run: ffb league sync "
-            f"{season} --fixture PATH[/yellow]"
-        )
+        _no_league_state(season)
         raise typer.Exit(code=1)
     status = _service(store).status(season)
     injuries = store.injury_rows(season)
