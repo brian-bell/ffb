@@ -595,7 +595,7 @@ class SleeperLeagueSource:
                 snapshot_key(self.league_id, "users"),
                 lambda: fetch_users(client, self.league_id),
             )
-            state = pull(state_snapshot_key(), fetch_state)
+            state = pull(state_snapshot_key(), lambda: fetch_state(client))
             week = parse_nfl_state(state)["week"]
             pull(
                 matchup_snapshot_key(self.league_id, week),
