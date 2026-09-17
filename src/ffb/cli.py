@@ -574,6 +574,15 @@ def _lineup_sleeper(
     store = _open_store()
     roster_rows = sleeper_league.resolve_sleeper_roster_rows(store, roster["players"])
     scope = config.projection_scope(current_week)
+    unmatched = [row for row in roster_rows if not row["matched"]]
+    if unmatched:
+        # An unmatched id draws no projection, so it scores zero and is advised
+        # to sit. Say so rather than letting it look like a real recommendation.
+        console.print(
+            f"[yellow]{len(unmatched)} roster player(s) did not match the crosswalk and "
+            f"score zero: {', '.join(row['full_name'] for row in unmatched)}. "
+            f"Run: ffb season sync {season}[/yellow]"
+        )
     active_sources = [name for name in _SOURCE_COLUMNS if store.has_season(season, name, scope)]
     if not active_sources:
         store.close()

@@ -337,8 +337,6 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
         position = "DEF"
     elif isinstance(raw_position, str) and raw_position:
         position = "K" if raw_position == "PK" else raw_position
-    elif team_from_id:
-        position = "DEF"
     else:
         # Crosswalk resolution fills this later; do not guess a skill position.
         position = "UNK"
@@ -355,8 +353,9 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
             team_code.strip().upper() if isinstance(team_code, str) and team_code.strip() else None
         )
     return {
-        # Spike alias: closed lineup snapshots require yahoo_player_id.
-        # Value is the Sleeper native id, not a Yahoo id.
+        # Bundle-contract alias: the player shape requires yahoo_player_id.
+        # Value is the Sleeper native id, not a Yahoo id, until the
+        # provider-neutral rename lands.
         "yahoo_player_id": player_id,
         "yahoo_player_key": f"sleeper:{player_id}",
         "name": name,
@@ -582,20 +581,23 @@ class SleeperLeagueSource:
             state=state,
             user_id=self.user_id,
             season=season,
-            synced_at=self._synced_at(cached_keys, fetched_any=bool(staged)),
+            synced_at=self._synced_at(cached_keys),
             players_by_id=lookup,
         )
         for key, data in staged.items():
             self.cache.put_json(key, data)
         return mapped
 
-    def _synced_at(self, cached_keys: list[str], *, fetched_any: bool) -> str:
+    def _synced_at(self, cached_keys: list[str]) -> str:
+        """Age of the state behind this bundle.
+
+        A run is either wholly live or wholly replayed, so this is ``now`` for a
+        live pull and the oldest replayed snapshot's mtime under ``--offline``.
+        """
         now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         stamps = [
             meta.modified_at for meta in map(self.cache.metadata, cached_keys) if meta is not None
         ]
-        if fetched_any:
-            stamps.append(now)
         return min(stamps) if stamps else now
 
 

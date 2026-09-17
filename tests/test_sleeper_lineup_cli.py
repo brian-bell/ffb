@@ -266,6 +266,20 @@ def test_sleeper_lineup_rejects_publish(tmp_path):
     assert "publish" in result.output.lower()
 
 
+def test_sleeper_lineup_warns_about_unmatched_roster_players(tmp_path):
+    """An unmatched id scores zero and is advised to sit; that must not look real."""
+    env = _seed_store(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.conn.execute("DELETE FROM crosswalk WHERE sleeper_id = '3198'")
+    store.close()
+    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
+    assert result.exit_code == 0, result.output
+    output = _plain(result.output)
+    assert "did not match the crosswalk" in output
+    assert "score zero" in output
+
+
 def test_sleeper_lineup_requires_env(tmp_path):
     env = _seed_store(tmp_path)
     del env["FFB_SLEEPER_LEAGUE_ID"]
