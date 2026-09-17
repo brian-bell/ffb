@@ -404,7 +404,8 @@ def lineup(
     if chosen == "yahoo" and (offline or refresh):
         raise typer.BadParameter("--offline and --refresh apply only to --league sleeper")
     if chosen == "sleeper" and offline and refresh:
-        raise typer.BadParameter("--offline and --refresh cannot be combined")
+        console.print("[red]--offline and --refresh cannot be combined[/red]")
+        raise typer.Exit(code=2)
     if chosen == "sleeper":
         _lineup_sleeper(
             season,
