@@ -10,7 +10,7 @@ function expectReject(payload: unknown, season: number | undefined, message: str
   expect(() => parseBundle(payload, season)).toThrow(message);
 }
 
-describe("parseBundle closed LeagueBundle v1", () => {
+describe("parseBundle closed LeagueBundle v2", () => {
   it("accepts the committed minimal fixture", () => {
     expect(parseBundle(fixtureJson, 2024)).toEqual(fixtureJson);
     expect(parseBundle(fixtureJson)).toEqual(fixtureJson);
@@ -29,7 +29,7 @@ describe("parseBundle closed LeagueBundle v1", () => {
   });
 
   it.each([
-    [{ schema_version: 2 }, "schema_version"],
+    [{ schema_version: 3 }, "schema_version"],
     [{ extra: "typo" }, "unknown"],
     [{ rosters: [] }, "every team"],
     [{ source: "sleeper" }, "fixture or yahoo"],
@@ -47,8 +47,8 @@ describe("parseBundle closed LeagueBundle v1", () => {
     const extra = bundle();
     (extra.rosters as Array<{ players: unknown[] }>)[0]!.players = [
       {
-        yahoo_player_id: "29279",
-        yahoo_player_key: "1.p.29279",
+        native_id: "29279",
+        native_player_key: "1.p.29279",
         name: "Derrick Henry",
         nfl_team: "BAL",
         primary_position: "RB",
@@ -62,8 +62,8 @@ describe("parseBundle closed LeagueBundle v1", () => {
     const missing = bundle();
     (missing.rosters as Array<{ players: unknown[] }>)[0]!.players = [
       {
-        yahoo_player_id: "29279",
-        yahoo_player_key: "1.p.29279",
+        native_id: "29279",
+        native_player_key: "1.p.29279",
         name: "Derrick Henry",
         nfl_team: "BAL",
         primary_position: "RB",
@@ -73,10 +73,10 @@ describe("parseBundle closed LeagueBundle v1", () => {
     expectReject(missing, 2024, "unknown or missing fields");
   });
 
-  it("rejects duplicate Yahoo player IDs and incomplete team coverage", () => {
+  it("rejects duplicate native player IDs and incomplete team coverage", () => {
     const player = {
-      yahoo_player_id: "29279",
-      yahoo_player_key: "1.p.29279",
+      native_id: "29279",
+      native_player_key: "1.p.29279",
       name: "Derrick Henry",
       nfl_team: "BAL",
       primary_position: "RB",
@@ -84,8 +84,8 @@ describe("parseBundle closed LeagueBundle v1", () => {
       selected_position: "RB",
     };
     const duplicate = bundle();
-    (duplicate.rosters as Array<{ players: unknown[] }>)[0]!.players = [player, { ...player, yahoo_player_key: "1.p.other" }];
-    expectReject(duplicate, 2024, "Yahoo player IDs must be unique across league rosters");
+    (duplicate.rosters as Array<{ players: unknown[] }>)[0]!.players = [player, { ...player, native_player_key: "1.p.other" }];
+    expectReject(duplicate, 2024, "native player IDs must be unique across league rosters");
 
     const uncovered = bundle({
       league: { ...fixtureJson.league, num_teams: 2 },
@@ -136,6 +136,41 @@ describe("parseBundle closed LeagueBundle v1", () => {
       }),
       2024,
       "must be a finite number",
+    );
+  });
+});
+
+describe("parseBundle schema-v1 back-compat shim", () => {
+  const v1Player = {
+    yahoo_player_id: "29279",
+    yahoo_player_key: "1.p.29279",
+    name: "Derrick Henry",
+    nfl_team: "BAL",
+    primary_position: "RB",
+    eligible_positions: ["RB"],
+    selected_position: "RB",
+  };
+
+  function v1Bundle(player: Record<string, unknown> = v1Player): Record<string, unknown> {
+    const data = bundle({ schema_version: 1 });
+    const rosters = data.rosters as Array<Record<string, unknown>>;
+    rosters[0]!.players = [player];
+    return data;
+  }
+
+  it("upgrades a v1 bundle's identity fields to the v2 spelling", () => {
+    const parsed = parseBundle(v1Bundle(), 2024);
+    expect(parsed.schema_version).toBe(2);
+    const players = parsed.rosters[0]!.players as unknown as Array<Record<string, unknown>>;
+    expect(players[0]).toMatchObject({ native_id: "29279", native_player_key: "1.p.29279" });
+    expect(players[0]).not.toHaveProperty("yahoo_player_id");
+  });
+
+  it("rejects a bundle that mixes v1 and v2 identity fields", () => {
+    expectReject(
+      v1Bundle({ ...v1Player, native_id: "collide" }),
+      2024,
+      "mixes schema-v1 and schema-v2",
     );
   });
 });

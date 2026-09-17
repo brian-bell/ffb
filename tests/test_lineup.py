@@ -15,7 +15,7 @@ from ffb.lineup import (
 
 def _roster(**changes):
     row = {
-        "yahoo_player_id": "1",
+        "native_id": "1",
         "full_name": "Player",
         "nfl_team": "BAL",
         "primary_position": "RB",
@@ -59,14 +59,14 @@ def test_projection_key_joins_unmatched_defenses_by_nfl_team():
 
 
 def test_projection_key_does_not_guess_unmatched_skill_players():
-    assert projection_key(_roster(full_name="Kyle Monangai", yahoo_player_id="42025")) is None
+    assert projection_key(_roster(full_name="Kyle Monangai", native_id="42025")) is None
 
 
 def test_optimal_starts_higher_weekly_rb_over_current_starter():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="55501",
+                native_id="55501",
                 full_name="Slow Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -74,7 +74,7 @@ def test_optimal_starts_higher_weekly_rb_over_current_starter():
                 matched=True,
             ),
             _roster(
-                yahoo_player_id="29279",
+                native_id="29279",
                 full_name="Derrick Henry",
                 selected_position="BN",
                 player_key="12626",
@@ -98,7 +98,7 @@ def test_restrictive_flex_is_claimed_before_broader_flex():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="w1",
+                native_id="w1",
                 full_name="Top WR",
                 primary_position="WR",
                 eligible_positions=["WR", "W/T", "W/R/T"],
@@ -107,7 +107,7 @@ def test_restrictive_flex_is_claimed_before_broader_flex():
                 matched=True,
             ),
             _roster(
-                yahoo_player_id="r1",
+                native_id="r1",
                 full_name="Top RB",
                 primary_position="RB",
                 selected_position="BN",
@@ -115,7 +115,7 @@ def test_restrictive_flex_is_claimed_before_broader_flex():
                 matched=True,
             ),
             _roster(
-                yahoo_player_id="t1",
+                native_id="t1",
                 full_name="Backup TE",
                 nfl_team="DET",
                 primary_position="TE",
@@ -137,7 +137,7 @@ def test_unmatched_defense_receives_weekly_points_via_team_key():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="100025",
+                native_id="100025",
                 full_name="49ers",
                 nfl_team="SFO",
                 primary_position="DEF",
@@ -159,14 +159,14 @@ def test_missing_weekly_points_are_excluded_from_optimal_and_listed():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="42025",
+                native_id="42025",
                 full_name="Rookie Bench",
                 selected_position="RB",
                 player_key="yahoo:42025",
                 matched=False,
             ),
             _roster(
-                yahoo_player_id="29279",
+                native_id="29279",
                 full_name="Derrick Henry",
                 selected_position="BN",
                 player_key="12626",
@@ -187,7 +187,7 @@ def test_unprojected_starter_is_not_sat_when_no_replacement_is_assigned():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="42025",
+                native_id="42025",
                 full_name="Rookie QB",
                 primary_position="QB",
                 eligible_positions=["QB"],
@@ -215,7 +215,7 @@ def test_aligned_rows_pair_by_slot_when_optimal_qb_is_vacant():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="qb1",
+                native_id="qb1",
                 full_name="Unprojected QB",
                 primary_position="QB",
                 eligible_positions=["QB"],
@@ -224,7 +224,7 @@ def test_aligned_rows_pair_by_slot_when_optimal_qb_is_vacant():
                 matched=False,
             ),
             _roster(
-                yahoo_player_id="rb1",
+                native_id="rb1",
                 full_name="Projected RB",
                 selected_position="RB",
                 player_key="rb1",
@@ -248,7 +248,7 @@ def test_equal_weekly_points_keep_the_current_starter():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="100014",
+                native_id="100014",
                 full_name="Rams",
                 nfl_team="LAR",
                 primary_position="DEF",
@@ -258,7 +258,7 @@ def test_equal_weekly_points_keep_the_current_starter():
                 matched=False,
             ),
             _roster(
-                yahoo_player_id="100033",
+                native_id="100033",
                 full_name="Ravens",
                 nfl_team="BAL",
                 primary_position="DEF",
@@ -281,14 +281,14 @@ def test_close_call_flags_bench_within_threshold_of_a_starter_slot():
     players = attach_weekly_points(
         [
             _roster(
-                yahoo_player_id="start",
+                native_id="start",
                 full_name="Starter RB",
                 selected_position="RB",
                 player_key="start",
                 matched=True,
             ),
             _roster(
-                yahoo_player_id="bench",
+                native_id="bench",
                 full_name="Close RB",
                 selected_position="BN",
                 player_key="bench",
@@ -323,14 +323,14 @@ def test_attach_injuries_joins_matched_status_onto_current_and_optimal_rows():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="start",
+                    native_id="start",
                     full_name="Starter RB",
                     selected_position="RB",
                     player_key="start",
                     matched=True,
                 ),
                 _roster(
-                    yahoo_player_id="bench",
+                    native_id="bench",
                     full_name="Bench RB",
                     selected_position="BN",
                     player_key="bench",
@@ -380,14 +380,14 @@ def test_out_starter_is_sat_for_healthy_backup():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="out",
+                    native_id="out",
                     full_name="Out Starter",
                     selected_position="RB",
                     player_key="out",
                     matched=True,
                 ),
                 _roster(
-                    yahoo_player_id="backup",
+                    native_id="backup",
                     full_name="Healthy Backup",
                     selected_position="BN",
                     player_key="backup",
@@ -417,14 +417,14 @@ def test_unavailable_status_is_not_started(status):
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="down",
+                    native_id="down",
                     full_name="Unavailable Star",
                     selected_position="BN",
                     player_key="down",
                     matched=True,
                 ),
                 _roster(
-                    yahoo_player_id="ok",
+                    native_id="ok",
                     full_name="Healthy Starter",
                     selected_position="RB",
                     player_key="ok",
@@ -447,14 +447,14 @@ def test_questionable_player_can_still_be_the_optimal_starter():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="q",
+                    native_id="q",
                     full_name="Questionable Star",
                     selected_position="BN",
                     player_key="q",
                     matched=True,
                 ),
                 _roster(
-                    yahoo_player_id="ok",
+                    native_id="ok",
                     full_name="Healthy Backup",
                     selected_position="RB",
                     player_key="ok",
@@ -477,7 +477,7 @@ def test_out_starter_is_not_retained_when_the_slot_has_no_replacement():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="out",
+                    native_id="out",
                     full_name="Out QB",
                     primary_position="QB",
                     eligible_positions=["QB"],
@@ -510,14 +510,14 @@ def test_unavailable_bench_is_not_a_close_call():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="start",
+                    native_id="start",
                     full_name="Starter RB",
                     selected_position="RB",
                     player_key="start",
                     matched=True,
                 ),
                 _roster(
-                    yahoo_player_id="bench",
+                    native_id="bench",
                     full_name="Out Close RB",
                     selected_position="BN",
                     player_key="bench",
@@ -539,7 +539,7 @@ def test_questionable_starter_still_counts_in_current_total():
         attach_weekly_points(
             [
                 _roster(
-                    yahoo_player_id="q",
+                    native_id="q",
                     full_name="Questionable Starter",
                     selected_position="RB",
                     player_key="q",

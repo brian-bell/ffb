@@ -124,9 +124,17 @@ team. Unknown evidence is negative.
 
 ## League context
 
-`league.py` validates the closed provider-neutral `LeagueBundle` v1 before any
-write. `league_context.py` loads synchronized scoring, roster slots, and team
-count independently, falling back component by component to the confirmed
+`league.py` validates the closed provider-neutral `LeagueBundle` v2 before any
+write. Schema v2 renamed the roster identity fields `yahoo_player_id` /
+`yahoo_player_key` to the provider-neutral `native_id` / `native_player_key`,
+because Sleeper bundles carried Sleeper ids under Yahoo-shaped names.
+`parse_bundle` and `parse_actuals` still accept a `schema_version: 1` payload
+and upgrade it in place — bundles written before the cutover are at rest in
+Worker KV and in `snapshots/` — and reject one that carries both spellings.
+The Worker mirrors both shims. Remove them once no v1 payload remains.
+
+`league_context.py` loads synchronized scoring, roster slots, and team count
+independently, falling back component by component to the confirmed
 10-team Yahoo settings in `config.py`.
 
 `sources/yahoo.py` implements the live `YahooLeagueSource` peer of
@@ -167,10 +175,10 @@ and a coordinated tracker update.
 ## Tracker boundary
 
 The Worker streams the current board from KV key `board:current`. The last
-valid `LeagueBundle` v1 is stored under a separate KV key,
+valid `LeagueBundle` v2 is stored under a separate KV key,
 `league:bundle:current`, so a producer can POST league state without writing
 DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
-`WeeklyActualsBundle` v1 and stores it under `actuals:v1:{season}:{week}` in the
+`WeeklyActualsBundle` v2 and stores it under `actuals:v1:{season}:{week}` in the
 same KV namespace, never DuckDB. `POST /api/inseason/{kind}` stores the CLI's
 published in-season report envelopes under `inseason:v1:{season}:{kind}:{week}`
 and `GET /api/inseason` composes the read-only `/command` dashboard from them.

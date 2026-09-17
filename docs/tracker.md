@@ -8,7 +8,7 @@ draft at `/`, and provides an isolated roster-aware simulation at `/mock`.
 
 The immutable board blob lives in KV under `board:current`; the Worker streams
 it verbatim from authenticated `GET /api/board`. The last valid `LeagueBundle`
-v1 lives under `league:bundle:current` and is accepted by
+v2 lives under `league:bundle:current` and is accepted by
 `POST /api/league/bundle`. That ingest path validates the closed Python
 `parse_bundle` contract, never writes DuckDB, and never reads or mutates live
 or mock draft tables. Draft state lives in D1. The static shell is public so
@@ -27,7 +27,7 @@ object remain valid.
 
 ## League bundle ingest
 
-`POST /api/league/bundle` is a producer sink for the closed `LeagueBundle` v1
+`POST /api/league/bundle` is a producer sink for the closed `LeagueBundle` v2
 JSON. Auth is the same bearer key as other `/api/*` data routes. A valid body
 replaces KV `league:bundle:current` and returns counts only. Extra keys,
 incomplete roster coverage, and other `parse_bundle` failures return 400
@@ -151,7 +151,7 @@ while rebuilding the initial seeded prefix.
 ## Weekly actuals ingest
 
 Sibling of any LeagueBundle ingest route. Grok (or a fixture) `POST`s a closed
-`WeeklyActualsBundle` v1 to `/api/actuals` with the same
+`WeeklyActualsBundle` v2 to `/api/actuals` with the same
 `Authorization: Bearer <TRACKER_API_KEY>` gate. The Worker validates exact keys
 and stores the payload in KV as `actuals:v1:{season}:{week}`.
 `GET /api/actuals?season=&week=` reads it back. Live scores never belong in git.

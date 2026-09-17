@@ -43,9 +43,9 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → team byes + regular-season games | **Live** |
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | **ESPN news / RSS** | REST JSON (`site.web.api.espn.com`) + RSS (`espn.com`) | none | Headlines for the LLM digest (never numeric) | **Live** |
-| Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
+| Yahoo league fixture | Local JSON (`LeagueBundle` v2) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | **Sleeper league** | REST JSON (`api.sleeper.app`) | none (`FFB_SLEEPER_*`) | Second-league scoring, roster slots, user roster for sit/start | **CLI spike (no DuckDB/KV write)** |
-| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v1) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
+| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v2) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
 | Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
@@ -448,7 +448,7 @@ and `FFB_TRACKER_API_KEY`) the CLI uses when no local snapshot exists. The CLI
 snapshots accepted bundles under `snapshots/actuals/` and never writes actuals
 to DuckDB. `ffb lineup`
 snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
-by `yahoo_player_id`.
+by `native_id`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors
@@ -479,7 +479,7 @@ are not ingested today.
   current-week roster are fetched with a bearer token, snapshotted under
   `snapshots/yahoo/`, and mapped by pure parsers (defensive about the
   `fantasy_content` wrapper, count-keyed collections, and positional
-  dict/list arrays) into the same `LeagueBundle` v1 the fixture path
+  dict/list arrays) into the same `LeagueBundle` v2 the fixture path
   validates. `config.YAHOO_STAT_MAP` translates Yahoo stat ids into our stat
   keys; unmappable categories are surfaced as `unmapped_scoring_rules`, never
   dropped. OAuth2 config comes from `FFB_YAHOO_CLIENT_ID` /
@@ -535,10 +535,11 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   a `ScoringConfig`. Nonzero unmapped keys, including `bonus_*`, raise. The
   path never falls back to Yahoo `LEAGUE_SCORING`. The CLI banner says
   "Sleeper league settings" rather than hardcoding a PPR label.
-- **Closed-shape alias** — lineup snapshots still require `yahoo_player_id`.
-  On Sleeper bundles that field holds the Sleeper native id
-  (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id; the
-  provider-neutral rename is tracked separately.
+- **Provider-neutral identity** — roster and lineup-snapshot rows carry
+  `native_id` / `native_player_key`, holding whatever id the bundle's provider
+  issued. On Sleeper bundles that is the Sleeper native id
+  (`native_player_key` is `sleeper:<id>`); on Yahoo it is the Yahoo player id.
+  Never assume a provider from the field name.
 - **Out of scope** — `replace_league_state`, `POST /api/league/bundle`,
   `--publish` / inseason KV, DuckDB PK widen, Worker KV rekey. Cutover is
   worker-first later.

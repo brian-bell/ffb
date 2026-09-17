@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "fixture",
   "synced_at": "2026-09-12T00:00:00Z",
   "league": {
@@ -49,8 +49,8 @@
       "week": 1,
       "players": [
         {
-          "yahoo_player_id": "55501",
-          "yahoo_player_key": "1.p.55501",
+          "native_id": "55501",
+          "native_player_key": "1.p.55501",
           "name": "Slow Back",
           "nfl_team": "KCC",
           "primary_position": "RB",
@@ -58,8 +58,8 @@
           "selected_position": "RB"
         },
         {
-          "yahoo_player_id": "33393",
-          "yahoo_player_key": "1.p.33393",
+          "native_id": "33393",
+          "native_player_key": "1.p.33393",
           "name": "Ja'Marr Chase",
           "nfl_team": "CIN",
           "primary_position": "WR",
@@ -67,8 +67,8 @@
           "selected_position": "WR"
         },
         {
-          "yahoo_player_id": "55502",
-          "yahoo_player_key": "1.p.55502",
+          "native_id": "55502",
+          "native_player_key": "1.p.55502",
           "name": "Flex Filler",
           "nfl_team": "CHI",
           "primary_position": "WR",
@@ -76,8 +76,8 @@
           "selected_position": "W/R/T"
         },
         {
-          "yahoo_player_id": "100025",
-          "yahoo_player_key": "1.p.100025",
+          "native_id": "100025",
+          "native_player_key": "1.p.100025",
           "name": "49ers",
           "nfl_team": "SFO",
           "primary_position": "DEF",
@@ -85,8 +85,8 @@
           "selected_position": "DEF"
         },
         {
-          "yahoo_player_id": "29279",
-          "yahoo_player_key": "1.p.29279",
+          "native_id": "29279",
+          "native_player_key": "1.p.29279",
           "name": "Derrick Henry",
           "nfl_team": "BAL",
           "primary_position": "RB",
@@ -94,8 +94,8 @@
           "selected_position": "BN"
         },
         {
-          "yahoo_player_id": "42025",
-          "yahoo_player_key": "1.p.42025",
+          "native_id": "42025",
+          "native_player_key": "1.p.42025",
           "name": "Rookie Bench",
           "nfl_team": "CHI",
           "primary_position": "RB",
@@ -109,8 +109,8 @@
       "week": 1,
       "players": [
         {
-          "yahoo_player_id": "99901",
-          "yahoo_player_key": "1.p.99901",
+          "native_id": "99901",
+          "native_player_key": "1.p.99901",
           "name": "Rival Receiver",
           "nfl_team": "DAL",
           "primary_position": "WR",

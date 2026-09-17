@@ -137,7 +137,7 @@ def test_lineup_writes_a_recommendation_snapshot(tmp_path):
     snapshot = cache.read_json(lineup_snapshot_key(2024, 1))
     assert snapshot["kind"] == "lineup_recommendation"
     assert snapshot["week"] == 1
-    assert any(row["yahoo_player_id"] == "29279" for row in snapshot["players"])
+    assert any(row["native_id"] == "29279" for row in snapshot["players"])
     assert snapshot["report"]["start"][0]["name"] == "Derrick Henry"
 
 
@@ -435,7 +435,7 @@ def _retro_render(**changes):
                 "name": "Malik Washington",
                 "actual": 16.8,
                 "projected": 8.0,
-                "yahoo_player_id": "40393",
+                "native_id": "40393",
             }
         ],
         "hindsight_sit": [
@@ -443,7 +443,7 @@ def _retro_render(**changes):
                 "name": "Rico Dowdle",
                 "actual": 3.1,
                 "projected": 12.0,
-                "yahoo_player_id": "40904",
+                "native_id": "40904",
             }
         ],
         "source_accuracy": [],
@@ -480,13 +480,13 @@ def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
         "name": "Good Def",
         "actual": 10.0,
         "projected": 12.0,
-        "yahoo_player_id": "100002",
+        "native_id": "100002",
     }
     sit = {
         "name": "Bad Def",
         "actual": 4.0,
         "projected": 8.0,
-        "yahoo_player_id": "100001",
+        "native_id": "100001",
     }
     output = _capture_render(
         monkeypatch,
@@ -509,8 +509,8 @@ def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
 
 
 def test_retro_cli_shows_hindsight_reversal_of_followed_advice(monkeypatch):
-    henry = {"name": "Derrick Henry", "actual": 3.0, "projected": 18.0, "yahoo_player_id": "1"}
-    slow = {"name": "Slow Guy", "actual": 21.0, "projected": 6.0, "yahoo_player_id": "2"}
+    henry = {"name": "Derrick Henry", "actual": 3.0, "projected": 18.0, "native_id": "1"}
+    slow = {"name": "Slow Guy", "actual": 21.0, "projected": 6.0, "native_id": "2"}
     output = _capture_render(
         monkeypatch,
         _retro_render(

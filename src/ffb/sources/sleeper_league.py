@@ -12,10 +12,9 @@ Endpoints (no auth)::
     GET https://api.sleeper.app/v1/league/{league_id}/users
     GET https://api.sleeper.app/v1/state/nfl
 
-``yahoo_player_id`` / ``yahoo_player_key`` on mapped roster rows are Sleeper
-native-id aliases required by the closed lineup-snapshot player shape. They
-are not Yahoo identities and must be resolved with ``resolve_batch("sleeper")``,
-never ``yahoo_id``.
+``native_id`` / ``native_player_key`` on mapped roster rows hold Sleeper
+native ids. They are not Yahoo identities and must be resolved with
+``resolve_batch("sleeper")``, never ``yahoo_id``.
 """
 
 from __future__ import annotations
@@ -353,11 +352,9 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
             team_code.strip().upper() if isinstance(team_code, str) and team_code.strip() else None
         )
     return {
-        # Bundle-contract alias: the player shape requires yahoo_player_id.
-        # Value is the Sleeper native id, not a Yahoo id, until the
-        # provider-neutral rename lands.
-        "yahoo_player_id": player_id,
-        "yahoo_player_key": f"sleeper:{player_id}",
+        # Provider-neutral identity: the Sleeper native id, never a Yahoo id.
+        "native_id": player_id,
+        "native_player_key": f"sleeper:{player_id}",
         "name": name,
         "nfl_team": nfl_team,
         "primary_position": position,
@@ -376,11 +373,11 @@ def _eligible(position: str) -> list[str]:
 
 def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach canonical keys via ``resolve_batch("sleeper")``. DEF uses ``def:<team>``."""
-    native_ids = [player["yahoo_player_id"] for player in players]
+    native_ids = [player["native_id"] for player in players]
     lookup = store.resolve_batch("sleeper", native_ids)
     rows: list[dict[str, Any]] = []
     for player in players:
-        native_id = player["yahoo_player_id"]
+        native_id = player["native_id"]
         defense = identity.canonical_defense_key(
             player.get("primary_position"), player.get("nfl_team")
         )
@@ -477,7 +474,7 @@ def map_state(
             "(taxi players would be treated as BN)"
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source": "sleeper",
         "synced_at": synced_at,
         "league": {

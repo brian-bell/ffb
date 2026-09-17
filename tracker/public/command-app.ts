@@ -211,7 +211,7 @@ function delta(rowValue: RetroRow): string {
 }
 
 function retroId(row: RetroRow): string {
-  return row.yahoo_player_id || row.name;
+  return row.native_id || row.name;
 }
 
 function renderRetro(current: InseasonView, now: number): HTMLElement {

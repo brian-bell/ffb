@@ -164,11 +164,11 @@ CREATE TABLE IF NOT EXISTS league_teams (
     PRIMARY KEY (season, team_key)
 );
 CREATE TABLE IF NOT EXISTS league_rosters (
-    season INTEGER, week INTEGER, team_key VARCHAR, yahoo_player_id VARCHAR,
-    yahoo_player_key VARCHAR, full_name VARCHAR, nfl_team VARCHAR,
+    season INTEGER, week INTEGER, team_key VARCHAR, native_id VARCHAR,
+    native_player_key VARCHAR, full_name VARCHAR, nfl_team VARCHAR,
     primary_position VARCHAR, eligible_positions_json VARCHAR, selected_position VARCHAR,
     player_key VARCHAR, matched BOOLEAN,
-    PRIMARY KEY (season, week, team_key, yahoo_player_id)
+    PRIMARY KEY (season, week, team_key, native_id)
 );
 """
 
@@ -907,12 +907,12 @@ class Store:
         settings = bundle.settings
         season = league["season"]
         resolved = self.resolve_batch(
-            "yahoo", [p["yahoo_player_id"] for r in bundle.rosters for p in r["players"]]
+            "yahoo", [p["native_id"] for r in bundle.rosters for p in r["players"]]
         )
         rows: list[dict[str, Any]] = []
         for roster in bundle.rosters:
             for player in roster["players"]:
-                match = resolved.get(player["yahoo_player_id"])
+                match = resolved.get(player["native_id"])
                 rows.append(
                     {
                         **player,
@@ -920,7 +920,7 @@ class Store:
                         "week": roster["week"],
                         "player_key": match["player_key"]
                         if match
-                        else f"yahoo:{player['yahoo_player_id']}",
+                        else f"yahoo:{player['native_id']}",
                         "matched": bool(match),
                         "full_name": match["full_name"] if match else player["name"],
                         "position": match["position"] if match else player["primary_position"],
@@ -971,8 +971,8 @@ class Store:
                         season,
                         row["week"],
                         row["team_key"],
-                        row["yahoo_player_id"],
-                        row["yahoo_player_key"],
+                        row["native_id"],
+                        row["native_player_key"],
                         row["full_name"],
                         row["team"],
                         row["position"],
@@ -1023,7 +1023,7 @@ class Store:
             week = context["current_week"]
         cursor = self.conn.execute(
             "SELECT * FROM league_rosters WHERE season = ? AND week = ? "
-            "ORDER BY team_key, yahoo_player_id",
+            "ORDER BY team_key, native_id",
             [season, week],
         )
         rows = [
@@ -1044,12 +1044,12 @@ class Store:
         rows = self.league_roster_rows(season, week)
         if not rows:
             return 0
-        resolved = self.resolve_batch("yahoo", [row["yahoo_player_id"] for row in rows])
+        resolved = self.resolve_batch("yahoo", [row["native_id"] for row in rows])
         changed = 0
         self.conn.execute("BEGIN TRANSACTION")
         try:
             for row in rows:
-                match = resolved.get(row["yahoo_player_id"])
+                match = resolved.get(row["native_id"])
                 if match:
                     player_key = match["player_key"]
                     matched = True
@@ -1057,7 +1057,7 @@ class Store:
                     nfl_team = match["team"]
                     position = match["position"]
                 else:
-                    player_key = f"yahoo:{row['yahoo_player_id']}"
+                    player_key = f"yahoo:{row['native_id']}"
                     matched = False
                     full_name = row["full_name"]
                     nfl_team = row["nfl_team"]
@@ -1071,7 +1071,7 @@ class Store:
                     SET player_key = ?, matched = ?, full_name = ?,
                         nfl_team = ?, primary_position = ?
                     WHERE season = ? AND week = ? AND team_key = ?
-                          AND yahoo_player_id = ?
+                          AND native_id = ?
                     """,
                     [
                         player_key,
@@ -1082,7 +1082,7 @@ class Store:
                         row["season"],
                         row["week"],
                         row["team_key"],
-                        row["yahoo_player_id"],
+                        row["native_id"],
                     ],
                 )
         except Exception:

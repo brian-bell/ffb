@@ -24,7 +24,7 @@
         "selected_position": "RB",
         "player_key": "rb-low",
         "projection_key": "rb-low",
-        "yahoo_player_id": "55501",
+        "native_id": "55501",
         "matched": true
       },
       {
@@ -37,7 +37,7 @@
         "selected_position": "WR",
         "player_key": "13971",
         "projection_key": "13971",
-        "yahoo_player_id": "33393",
+        "native_id": "33393",
         "matched": true
       },
       {
@@ -50,7 +50,7 @@
         "selected_position": "DEF",
         "player_key": "yahoo:100025",
         "projection_key": "def:SFO",
-        "yahoo_player_id": "100025",
+        "native_id": "100025",
         "matched": false
       },
       {
@@ -63,7 +63,7 @@
         "selected_position": "W/R/T",
         "player_key": "wr-flex",
         "projection_key": "wr-flex",
-        "yahoo_player_id": "55502",
+        "native_id": "55502",
         "matched": true
       }
     ],
@@ -78,7 +78,7 @@
         "selected_position": "BN",
         "player_key": "12626",
         "projection_key": "12626",
-        "yahoo_player_id": "29279",
+        "native_id": "29279",
         "matched": true
       },
       {
@@ -91,7 +91,7 @@
         "selected_position": "WR",
         "player_key": "13971",
         "projection_key": "13971",
-        "yahoo_player_id": "33393",
+        "native_id": "33393",
         "matched": true
       },
       {
@@ -104,7 +104,7 @@
         "selected_position": "DEF",
         "player_key": "yahoo:100025",
         "projection_key": "def:SFO",
-        "yahoo_player_id": "100025",
+        "native_id": "100025",
         "matched": false
       },
       {
@@ -117,7 +117,7 @@
         "selected_position": "RB",
         "player_key": "rb-low",
         "projection_key": "rb-low",
-        "yahoo_player_id": "55501",
+        "native_id": "55501",
         "matched": true
       }
     ],
@@ -134,7 +134,7 @@
           "selected_position": "RB",
           "player_key": "rb-low",
           "projection_key": "rb-low",
-          "yahoo_player_id": "55501",
+          "native_id": "55501",
           "matched": true
         },
         "optimal": {
@@ -147,7 +147,7 @@
           "selected_position": "BN",
           "player_key": "12626",
           "projection_key": "12626",
-          "yahoo_player_id": "29279",
+          "native_id": "29279",
           "matched": true
         }
       },
@@ -163,7 +163,7 @@
           "selected_position": "WR",
           "player_key": "13971",
           "projection_key": "13971",
-          "yahoo_player_id": "33393",
+          "native_id": "33393",
           "matched": true
         },
         "optimal": {
@@ -176,7 +176,7 @@
           "selected_position": "WR",
           "player_key": "13971",
           "projection_key": "13971",
-          "yahoo_player_id": "33393",
+          "native_id": "33393",
           "matched": true
         }
       },
@@ -192,7 +192,7 @@
           "selected_position": "DEF",
           "player_key": "yahoo:100025",
           "projection_key": "def:SFO",
-          "yahoo_player_id": "100025",
+          "native_id": "100025",
           "matched": false
         },
         "optimal": {
@@ -205,7 +205,7 @@
           "selected_position": "DEF",
           "player_key": "yahoo:100025",
           "projection_key": "def:SFO",
-          "yahoo_player_id": "100025",
+          "native_id": "100025",
           "matched": false
         }
       },
@@ -221,7 +221,7 @@
           "selected_position": "W/R/T",
           "player_key": "wr-flex",
           "projection_key": "wr-flex",
-          "yahoo_player_id": "55502",
+          "native_id": "55502",
           "matched": true
         },
         "optimal": {
@@ -234,7 +234,7 @@
           "selected_position": "RB",
           "player_key": "rb-low",
           "projection_key": "rb-low",
-          "yahoo_player_id": "55501",
+          "native_id": "55501",
           "matched": true
         }
       }
@@ -250,7 +250,7 @@
         "selected_position": "BN",
         "player_key": "12626",
         "projection_key": "12626",
-        "yahoo_player_id": "29279",
+        "native_id": "29279",
         "matched": true
       }
     ],
@@ -265,7 +265,7 @@
         "selected_position": "W/R/T",
         "player_key": "wr-flex",
         "projection_key": "wr-flex",
-        "yahoo_player_id": "55502",
+        "native_id": "55502",
         "matched": true
       }
     ],
@@ -284,7 +284,7 @@
         "selected_position": "BN",
         "player_key": "yahoo:42025",
         "projection_key": null,
-        "yahoo_player_id": "42025",
+        "native_id": "42025",
         "matched": false
       }
     ],

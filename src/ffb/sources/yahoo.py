@@ -355,8 +355,8 @@ def _parse_player(item: Any) -> dict[str, Any]:
             eligible.append(position)
 
     return {
-        "yahoo_player_id": _str(merged["player_id"], "player.player_id"),
-        "yahoo_player_key": _str(merged["player_key"], "player.player_key"),
+        "native_id": _str(merged["player_id"], "player.player_id"),
+        "native_player_key": _str(merged["player_key"], "player.player_key"),
         "name": full_name,
         "nfl_team": nfl_team,
         "primary_position": primary,
@@ -373,9 +373,9 @@ def map_bundle(
     rosters: list[Any],
     synced_at: str,
 ) -> dict[str, Any]:
-    """Pure raw responses -> schema-v1 bundle payload for ``parse_bundle``."""
+    """Pure raw responses -> schema-v2 bundle payload for ``parse_bundle``."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "source": "yahoo",
         "synced_at": synced_at,
         "league": parse_league_meta(meta),

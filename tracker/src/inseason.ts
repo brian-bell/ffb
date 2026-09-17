@@ -76,7 +76,7 @@ export interface DigestReport {
 }
 
 export interface RetroRow {
-  yahoo_player_id?: string;
+  native_id?: string;
   name: string;
   slot: string | null;
   projected: number | null;
@@ -96,7 +96,7 @@ export interface RetroReport {
   hindsight_delta?: number;
   hindsight_start?: RetroRow[];
   hindsight_sit?: RetroRow[];
-  missing_actuals: Array<{ name: string; yahoo_player_id?: string }>;
+  missing_actuals: Array<{ name: string; native_id?: string }>;
   source_accuracy: Array<{ source: string; n: number; mae: number; bias: number }>;
   matchup: { user_points: number; opponent_points: number; opponent_team_key?: string } | null;
 }

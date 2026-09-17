@@ -174,7 +174,7 @@ def _identity(player: dict[str, Any]) -> str:
     return str(
         player.get("projection_key")
         or player.get("player_key")
-        or player.get("yahoo_player_id")
+        or player.get("native_id")
         or player.get("name")
     )
 
@@ -214,7 +214,7 @@ def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
         "selected_position": player.get("selected_position"),
         "player_key": player.get("player_key"),
         "projection_key": player.get("projection_key"),
-        "yahoo_player_id": player.get("yahoo_player_id"),
+        "native_id": player.get("native_id"),
         "matched": bool(player.get("matched")),
     }
     if player.get("injury") is not None:
@@ -231,7 +231,7 @@ def _expand_current(players: list[dict[str, Any]], roster_slots: dict[str, int])
         if is_starter(slot):
             by_slot.setdefault(slot, []).append(player)
     for group in by_slot.values():
-        group.sort(key=lambda row: (row.get("name") or "", row.get("yahoo_player_id") or ""))
+        group.sort(key=lambda row: (row.get("name") or "", row.get("native_id") or ""))
     rows: list[dict[str, Any]] = []
     for slot in _slot_fill_order(starting_slot_counts(roster_slots)):
         for player in by_slot.get(slot, []):

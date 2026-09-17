@@ -1439,7 +1439,7 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
 
 
 def _row_ids(rows: list[dict]) -> set[str]:
-    return {str(row.get("yahoo_player_id") or "") for row in rows}
+    return {str(row.get("native_id") or "") for row in rows}
 
 
 def _hindsight_matches_advice(report: dict) -> bool:

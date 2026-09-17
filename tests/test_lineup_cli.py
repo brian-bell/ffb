@@ -191,7 +191,7 @@ def test_lineup_reresolves_roster_after_late_crosswalk(tmp_path):
             }
         ]
     )
-    henry = next(row for row in store.league_roster_rows(2024) if row["yahoo_player_id"] == "29279")
+    henry = next(row for row in store.league_roster_rows(2024) if row["native_id"] == "29279")
     assert henry["matched"] is False
     assert henry["player_key"] == "yahoo:29279"
     store.upsert_projections(
@@ -219,8 +219,8 @@ def test_lineup_table_keeps_vacant_optimal_under_the_same_slot(tmp_path):
     ]
     payload["rosters"][0]["players"] = [
         {
-            "yahoo_player_id": "42025",
-            "yahoo_player_key": "1.p.42025",
+            "native_id": "42025",
+            "native_player_key": "1.p.42025",
             "name": "Rookie QB",
             "nfl_team": "CHI",
             "primary_position": "QB",
@@ -228,8 +228,8 @@ def test_lineup_table_keeps_vacant_optimal_under_the_same_slot(tmp_path):
             "selected_position": "QB",
         },
         {
-            "yahoo_player_id": "29279",
-            "yahoo_player_key": "1.p.29279",
+            "native_id": "29279",
+            "native_player_key": "1.p.29279",
             "name": "Derrick Henry",
             "nfl_team": "BAL",
             "primary_position": "RB",

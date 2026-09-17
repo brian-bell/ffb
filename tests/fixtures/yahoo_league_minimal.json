@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "fixture",
   "synced_at": "2026-07-22T12:00:00Z",
   "league": {"league_id": "mock-1", "league_key": "1.l.mock-1", "name": "Mock League", "season": 2024, "current_week": 1, "num_teams": 1},

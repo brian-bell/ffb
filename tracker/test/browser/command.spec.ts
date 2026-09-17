@@ -147,7 +147,7 @@ test("stale, degraded, waiting, and missing states render with their reasons", a
   ];
   (degraded.cards.digest.envelope!.report as Record<string, unknown>).llm = { haiku: false, sonnet: false, error: "LLM skipped (no ANTHROPIC_API_KEY / FFB_ANTHROPIC_API_KEY)." };
   (degraded.cards.digest.envelope!.report as Record<string, unknown>).narrative = null;
-  (degraded.cards.retro.envelope!.report as Record<string, unknown[]>).missing_actuals = [{ yahoo_player_id: "1", name: "Jake Bates" }];
+  (degraded.cards.retro.envelope!.report as Record<string, unknown[]>).missing_actuals = [{ native_id: "1", name: "Jake Bates" }];
   await serve(page, degraded);
   await page.reload();
   expect(await state(page, "lineup")).toBe("degraded");

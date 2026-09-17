@@ -134,7 +134,7 @@ def test_sf_defense_id_canonicalizes_to_def_sfo():
         league_id=config.SLEEPER_LEAGUE_ID,
         players_by_id=_load("players.json"),
     )
-    defense = next(player for player in roster["players"] if player["yahoo_player_id"] == "SF")
+    defense = next(player for player in roster["players"] if player["native_id"] == "SF")
     assert defense["primary_position"] == "DEF"
     assert defense["nfl_team"] == "SFO"
     assert defense["selected_position"] == "DEF"
@@ -152,13 +152,13 @@ def test_starter_zip_assigns_flex_and_bench():
         league_id=config.SLEEPER_LEAGUE_ID,
         players_by_id=_load("players.json"),
     )
-    by_id = {player["yahoo_player_id"]: player for player in roster["players"]}
+    by_id = {player["native_id"]: player for player in roster["players"]}
     assert by_id["slow"]["selected_position"] == "RB"
     assert by_id["7564"]["selected_position"] == "WR"
     assert by_id["flex"]["selected_position"] == "W/R/T"
     assert by_id["flex2"]["selected_position"] == "W/R/T"
     assert by_id["3198"]["selected_position"] == "BN"
-    assert by_id["3198"]["yahoo_player_key"] == "sleeper:3198"
+    assert by_id["3198"]["native_player_key"] == "sleeper:3198"
     assert roster["week"] == 2
     assert roster["team_key"] == f"{config.SLEEPER_LEAGUE_KEY}.t.6"
 
@@ -202,7 +202,7 @@ def test_reserve_player_is_ir_not_bench():
         league_id=config.SLEEPER_LEAGUE_ID,
         players_by_id=_load("players.json"),
     )
-    henry = next(player for player in roster["players"] if player["yahoo_player_id"] == "3198")
+    henry = next(player for player in roster["players"] if player["native_id"] == "3198")
     assert henry["selected_position"] == "IR"
 
 
@@ -222,7 +222,7 @@ def test_starter_length_mismatch_fails():
 def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_week():
     bundle = _state()
     assert bundle.data["source"] == "sleeper"
-    assert bundle.data["schema_version"] == 1
+    assert bundle.data["schema_version"] == 2
     assert bundle.league["league_key"] == config.SLEEPER_LEAGUE_KEY
     assert bundle.league["league_id"] == config.SLEEPER_LEAGUE_ID
     assert bundle.league["name"] == "2026-ff-nyt"
@@ -299,9 +299,9 @@ def test_resolve_batch_uses_sleeper_ids_not_yahoo():
         players_by_id=_load("players.json"),
     )
     rows = sl.resolve_sleeper_roster_rows(_Store(), roster["players"])
-    henry = next(row for row in rows if row["yahoo_player_id"] == "3198")
-    defense = next(row for row in rows if row["yahoo_player_id"] == "SF")
-    unknown = next(row for row in rows if row["yahoo_player_id"] == "slow")
+    henry = next(row for row in rows if row["native_id"] == "3198")
+    defense = next(row for row in rows if row["native_id"] == "SF")
+    unknown = next(row for row in rows if row["native_id"] == "slow")
     assert henry["player_key"] == "12626"
     assert henry["matched"] is True
     assert defense["player_key"] == "def:SFO"
@@ -349,8 +349,8 @@ def test_resolve_recomputes_eligible_positions_from_final_position():
 
 def test_resolve_def_overwrites_stale_skill_eligibility():
     player = {
-        "yahoo_player_id": "SF",
-        "yahoo_player_key": "sleeper:SF",
+        "native_id": "SF",
+        "native_player_key": "sleeper:SF",
         "name": "49ers",
         "nfl_team": "SFO",
         "primary_position": "DEF",

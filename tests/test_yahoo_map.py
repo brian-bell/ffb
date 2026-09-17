@@ -119,8 +119,8 @@ def test_rosters_normalize_teams_and_free_agents():
     rosters = {r["team_key"]: r for r in _bundle_payload()["rosters"]}
     henry, dst = rosters["461.l.12345.t.1"]["players"]
     assert henry == {
-        "yahoo_player_id": "29279",
-        "yahoo_player_key": "461.p.29279",
+        "native_id": "29279",
+        "native_player_key": "461.p.29279",
         "name": "Derrick Henry",
         "nfl_team": "BAL",
         "primary_position": "RB",

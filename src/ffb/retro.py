@@ -1,7 +1,7 @@
 """Weekly retro: join sit/start advice snapshots to weekly actuals.
 
 Pure compute. The CLI owns snapshot I/O; this module never touches DuckDB,
-KV, or the filesystem. Identity is ``yahoo_player_id`` only — never name.
+KV, or the filesystem. Identity is ``native_id`` only — never name.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ LINEUP_SNAPSHOT_KEYS = {
     "report",
 }
 _SNAPSHOT_PLAYER_KEYS = {
-    "yahoo_player_id",
-    "yahoo_player_key",
+    "native_id",
+    "native_player_key",
     "name",
     "position",
     "team",
@@ -135,7 +135,7 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
     matchups = bundle.matchups
     league = bundle.league
 
-    by_id = {str(row["yahoo_player_id"]): row for row in players}
+    by_id = {str(row["native_id"]): row for row in players}
     team_key = snapshot["team_key"]
     if team_key not in _scoreboard_team_keys(matchups):
         raise ValueError(f"actuals scoreboard does not include snapshot team_key {team_key}")
@@ -197,7 +197,7 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         if ident in seen or ident in by_id:
             continue
         seen.add(ident)
-        missing.append({"yahoo_player_id": ident, "name": row.get("name") or ""})
+        missing.append({"native_id": ident, "name": row.get("name") or ""})
 
     return {
         "season": snapshot["season"],
@@ -228,8 +228,8 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
 
 def _snapshot_player(player: dict[str, Any]) -> dict[str, Any]:
     row = {
-        "yahoo_player_id": str(player.get("yahoo_player_id") or ""),
-        "yahoo_player_key": player.get("yahoo_player_key") or "",
+        "native_id": str(player.get("native_id") or ""),
+        "native_player_key": player.get("native_player_key") or "",
         "name": player.get("name") or player.get("full_name") or "",
         "position": player.get("position"),
         "team": player.get("team"),
@@ -249,7 +249,7 @@ def _snapshot_player(player: dict[str, Any]) -> dict[str, Any]:
 
 def _identity_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "yahoo_player_id": str(row.get("yahoo_player_id") or ""),
+        "native_id": str(row.get("native_id") or ""),
         "name": row.get("name") or "",
         "slot": row.get("slot") or row.get("selected_position"),
         "selected_position": row.get("selected_position"),
@@ -258,7 +258,7 @@ def _identity_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _identity(row: dict[str, Any]) -> str:
-    return str(row.get("yahoo_player_id") or "")
+    return str(row.get("native_id") or "")
 
 
 def _hindsight_pool(
@@ -313,7 +313,7 @@ def _sum_actuals(rows: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -
 def _scored(row: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
     actual = by_id.get(_identity(row))
     return {
-        "yahoo_player_id": _identity(row),
+        "native_id": _identity(row),
         "name": row.get("name") or (actual or {}).get("name") or "",
         "slot": row.get("slot") or row.get("selected_position"),
         "projected": row.get("points"),
@@ -327,7 +327,7 @@ def _source_accuracy(
 ) -> list[dict[str, Any]]:
     errors: dict[str, list[float]] = {}
     for player in players:
-        actual = by_id.get(str(player.get("yahoo_player_id") or ""))
+        actual = by_id.get(str(player.get("native_id") or ""))
         if actual is None:
             continue
         actual_points = float(actual["points"])

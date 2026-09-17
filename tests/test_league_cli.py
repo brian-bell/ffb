@@ -156,8 +156,8 @@ def test_league_sync_uses_explicitly_synced_crosswalk_to_resolve_rosters(tmp_pat
     fixture = json.loads(FIXTURE.read_text())
     fixture["rosters"][0]["players"] = [
         {
-            "yahoo_player_id": "29279",
-            "yahoo_player_key": "1.p.29279",
+            "native_id": "29279",
+            "native_player_key": "1.p.29279",
             "name": "Derrick Henry",
             "nfl_team": "BAL",
             "primary_position": "RB",

@@ -1,4 +1,6 @@
-// Closed LeagueBundle v1 validator + last-accepted KV mirror.
+// Closed LeagueBundle v2 validator + last-accepted KV mirror.
+// v1 payloads (yahoo_player_id / yahoo_player_key) are upgraded on read; see
+// upgradeV1Rosters.
 // Faithful port of ffb.league.parse_bundle. The Worker never writes DuckDB;
 // CLI later fetches this KV value and runs the Python path.
 
@@ -9,7 +11,7 @@ export interface LeagueBundleEnv {
 }
 
 export interface LeagueBundle {
-  schema_version: 1;
+  schema_version: 2;
   source: "fixture" | "yahoo";
   synced_at: string;
   league: {
@@ -46,8 +48,8 @@ export interface LeagueBundle {
     team_key: string;
     week: number;
     players: Array<{
-      yahoo_player_id: string;
-      yahoo_player_key: string;
+      native_id: string;
+      native_player_key: string;
       name: string;
       nfl_team: string | null;
       primary_position: string;
@@ -64,6 +66,38 @@ export class LeagueBundleError extends Error {
   }
 }
 
+// Back-compat shim, mirroring ffb.league._upgrade_v1_players: schema v1 named
+// the roster identity fields yahoo_player_id / yahoo_player_key even for
+// non-Yahoo providers. v2 uses native_id / native_player_key. v1 bundles are
+// still at rest in KV, so they are rewritten here and validated as v2. Remove
+// once none remain.
+function upgradeV1Rosters(rosters: unknown): unknown {
+  if (!Array.isArray(rosters)) return rosters;
+  return rosters.map((roster) => {
+    if (typeof roster !== "object" || roster === null || Array.isArray(roster)) return roster;
+    const source = roster as Record<string, unknown>;
+    if (!Array.isArray(source.players)) return roster;
+    const players = source.players.map((player) => {
+      if (typeof player !== "object" || player === null || Array.isArray(player)) return player;
+      const renamed: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(player as Record<string, unknown>)) {
+        const next =
+          key === "yahoo_player_id"
+            ? "native_id"
+            : key === "yahoo_player_key"
+              ? "native_player_key"
+              : key;
+        if (next in renamed) {
+          throw new LeagueBundleError("bundle mixes schema-v1 and schema-v2 player identity fields");
+        }
+        renamed[next] = value;
+      }
+      return renamed;
+    });
+    return { ...source, players };
+  });
+}
+
 export function parseBundle(payload: unknown, season?: number): LeagueBundle {
   const data = mapping(payload, "bundle");
   exactKeys(
@@ -71,8 +105,12 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
     ["schema_version", "source", "synced_at", "league", "settings", "teams", "rosters"],
     "bundle",
   );
-  if (data.schema_version !== 1) {
-    throw new LeagueBundleError("bundle.schema_version must be 1");
+  if (data.schema_version === 1) {
+    data.rosters = upgradeV1Rosters(data.rosters);
+    data.schema_version = 2;
+  }
+  if (data.schema_version !== 2) {
+    throw new LeagueBundleError("bundle.schema_version must be 2");
   }
   if (data.source !== "fixture" && data.source !== "yahoo") {
     throw new LeagueBundleError("bundle.source must be fixture or yahoo");
@@ -155,8 +193,8 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
       exactKeys(
         player,
         [
-          "yahoo_player_id",
-          "yahoo_player_key",
+          "native_id",
+          "native_player_key",
           "name",
           "nfl_team",
           "primary_position",
@@ -166,8 +204,8 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
         `rosters[${i}].players[${j}]`,
       );
       for (const field of [
-        "yahoo_player_id",
-        "yahoo_player_key",
+        "native_id",
+        "native_player_key",
         "name",
         "primary_position",
         "selected_position",
@@ -178,10 +216,10 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
         asString(player.nfl_team, `rosters[${i}].players[${j}].nfl_team`);
       }
       asStrings(player.eligible_positions, `rosters[${i}].players[${j}].eligible_positions`);
-      if (playerIds.has(player.yahoo_player_id as string)) {
-        throw new LeagueBundleError("Yahoo player IDs must be unique across league rosters");
+      if (playerIds.has(player.native_id as string)) {
+        throw new LeagueBundleError("native player IDs must be unique across league rosters");
       }
-      playerIds.add(player.yahoo_player_id as string);
+      playerIds.add(player.native_id as string);
     }
   }
   if (!sameSet(rosterKeys, keys)) {

@@ -20,7 +20,7 @@ def _bundle(**changes):
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"schema_version": 2}, "schema_version"),
+        ({"schema_version": 3}, "schema_version"),
         ({"extra": "typo"}, "unknown"),
         ({"rosters": []}, "every team"),
     ],
@@ -42,8 +42,8 @@ def test_replace_league_state_keeps_earlier_rosters_and_resolves_yahoo_ids(store
     data = _bundle()
     data["rosters"][0]["players"] = [
         {
-            "yahoo_player_id": "29279",
-            "yahoo_player_key": "1.p.29279",
+            "native_id": "29279",
+            "native_player_key": "1.p.29279",
             "name": "Derrick Henry",
             "nfl_team": "BAL",
             "primary_position": "RB",
@@ -51,8 +51,8 @@ def test_replace_league_state_keeps_earlier_rosters_and_resolves_yahoo_ids(store
             "selected_position": "RB",
         },
         {
-            "yahoo_player_id": "missing",
-            "yahoo_player_key": "1.p.missing",
+            "native_id": "missing",
+            "native_player_key": "1.p.missing",
             "name": "Unknown",
             "nfl_team": None,
             "primary_position": "WR",
@@ -102,8 +102,8 @@ def test_refresh_league_roster_identities_heals_yahoo_fallback_after_late_crossw
     data = _bundle()
     data["rosters"][0]["players"] = [
         {
-            "yahoo_player_id": "29279",
-            "yahoo_player_key": "1.p.29279",
+            "native_id": "29279",
+            "native_player_key": "1.p.29279",
             "name": "Derrick Henry",
             "nfl_team": "BAL",
             "primary_position": "RB",
@@ -124,3 +124,34 @@ def test_refresh_league_roster_identities_heals_yahoo_fallback_after_late_crossw
     assert healed["matched"] is True
     assert healed["full_name"] == "Derrick Henry"
     assert store.refresh_league_roster_identities(2024) == 0
+
+
+def _v1_bundle():
+    """A schema-v1 bundle: one roster carries the pre-cutover identity spelling."""
+    data = json.loads(
+        (Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json").read_text()
+    )
+    data["schema_version"] = 1
+    for roster in data["rosters"]:
+        for player in roster["players"]:
+            player["yahoo_player_id"] = player.pop("native_id")
+            player["yahoo_player_key"] = player.pop("native_player_key")
+    return data
+
+
+def test_parse_bundle_upgrades_schema_v1_identity_fields():
+    """v1 bundles at rest in KV still read, normalized to the v2 spelling."""
+    bundle = parse_bundle(_v1_bundle(), season=2024)
+    assert bundle.data["schema_version"] == 2
+    players = [p for roster in bundle.rosters for p in roster["players"]]
+    assert players
+    for player in players:
+        assert "yahoo_player_id" not in player
+        assert player["native_id"] and player["native_player_key"]
+
+
+def test_parse_bundle_rejects_a_bundle_mixing_v1_and_v2_identity_fields():
+    data = _v1_bundle()
+    data["rosters"][0]["players"][0]["native_id"] = "collide"
+    with pytest.raises(ValueError, match="mixes schema-v1 and schema-v2"):
+        parse_bundle(data, season=2024)
