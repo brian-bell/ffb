@@ -170,6 +170,39 @@ describe("Worker /api/league/bundle", () => {
     expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBeNull();
   });
 
+  it("caps a chunked body that declares no content-length", async () => {
+    // A ReadableStream body sends chunked, so the content-length guard cannot
+    // fire; the cap has to hold while the body streams in.
+    const chunk = new TextEncoder().encode("x".repeat(1024 * 1024));
+    let sent = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        if (sent >= 12) {
+          controller.close();
+          return;
+        }
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    });
+
+    const res = await SELF.fetch(BUNDLE_URL, {
+      method: "POST",
+      headers: { ...bearer(), "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: "payload_too_large",
+      message: "body must be at most 10485760 bytes",
+    });
+    // The read stopped at the cap instead of buffering everything offered.
+    expect(sent).toBeLessThan(12);
+    expect(await env.BOARD.get(LEAGUE_BUNDLE_KEY)).toBeNull();
+  });
+
   it("rejects invalid JSON without logging-shaped echo", async () => {
     const res = await postBundle("{not-json");
     expect(res.status).toBe(400);

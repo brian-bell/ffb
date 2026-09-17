@@ -319,40 +319,86 @@ function exactKeys(value: Record<string, unknown>, expected: string[], name: str
   }
 }
 
+// One grammar, shared with `ffb.league._RFC3339`: an RFC 3339 date-time with an
+// explicit UTC offset. Python's `datetime.fromisoformat` also admits ISO 8601
+// week dates, basic-format strings, and hour-only times; admitting them here
+// too would mean reimplementing `fromisoformat`, so both sides reject them
+// instead. The corpus in `tests/test_league.py` and `test/league-bundle.test.ts`
+// pins the two implementations together.
+const RFC3339 =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?)?$/;
+
+// Every spelling of a zero offset. Anything else is a real offset, not UTC.
+const UTC_OFFSETS = new Set([
+  "Z",
+  "+00:00",
+  "-00:00",
+  "+0000",
+  "-0000",
+  "+00",
+  "-00",
+  "+00:00:00",
+  "-00:00:00",
+]);
+
+function daysInMonth(year: number, month: number): number {
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+}
+
 function utcTimestamp(value: unknown, name: string): void {
   const text = asString(value, name);
-  const match = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2})?$/.exec(text);
+  const match = RFC3339.exec(text);
   if (!match) {
     throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
   }
-  const [, datetime, offset] = match;
-  // Require an explicit UTC designator. Do not invent `Z` for naive values;
-  // Python parse_bundle rejects those as non-UTC.
-  if (offset !== "Z" && offset !== "+00:00" && offset !== "-00:00") {
-    throw new LeagueBundleError(`${name} must be UTC`);
-  }
-  // `new Date` rolls invalid dates over (Feb 30 -> Mar 2); Python parse_bundle
-  // rejects them, so round-trip the fields and require an exact match.
-  const parsed = new Date(`${datetime.replace(" ", "T")}${offset}`);
-  const [datePart, timePart] = datetime.split(/[T ]/);
-  const [year, month, day] = datePart.split("-").map(Number);
-  const [hour, minute, second] = timePart.split(":").map(Number);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] ?? 0);
+  const offset = match[8];
+  // Mirror Python's `datetime(...)` constructor: no Feb-30 rollover, no hour 24,
+  // no leap second, and no year 0 (MINYEAR is 1).
   if (
-    Number.isNaN(parsed.getTime()) ||
-    parsed.getUTCFullYear() !== year ||
-    parsed.getUTCMonth() + 1 !== month ||
-    parsed.getUTCDate() !== day ||
-    parsed.getUTCHours() !== hour ||
-    parsed.getUTCMinutes() !== minute ||
-    parsed.getUTCSeconds() !== Math.floor(second)
+    year < 1 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth(year, month) ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
   ) {
     throw new LeagueBundleError(`${name} must be an RFC 3339 UTC timestamp`);
+  }
+  // Require an explicit UTC designator. Do not invent `Z` for naive values;
+  // Python parse_bundle rejects those as non-UTC.
+  if (offset === undefined || !UTC_OFFSETS.has(offset)) {
+    throw new LeagueBundleError(`${name} must be UTC`);
   }
 }
 
 /** Epoch millis of a validated UTC `synced_at`, for ordering stored bundles. */
 export function syncedAtMillis(bundle: LeagueBundle): number {
-  return Date.parse(bundle.synced_at.replace(" ", "T"));
+  // `Date.parse` does not accept every form the grammar admits (`+0000`, a
+  // comma fraction, an omitted seconds field), so read the fields directly.
+  const match = RFC3339.exec(bundle.synced_at);
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second, fraction] = match;
+  const millis = Date.UTC(
+    2000, // placeholder: Date.UTC maps years 0-99 onto 1900-1999
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second ?? 0),
+    fraction ? Math.floor(Number(`0.${fraction}`) * 1000) : 0,
+  );
+  const shifted = new Date(millis);
+  shifted.setUTCFullYear(Number(year));
+  return shifted.getTime();
 }
 
 function sameSet(left: Set<string>, right: Set<string>): boolean {

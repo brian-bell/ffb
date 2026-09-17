@@ -34,9 +34,29 @@ incomplete roster coverage, and other `parse_bundle` failures return 400
 `invalid_bundle` and leave the previous value in place. A bundle whose
 `synced_at` is older than the stored one returns 409 `stale_bundle`, and a
 bundle whose season differs from the published board returns 409
-`season_mismatch`; neither replaces the stored value. Bodies over 10 MiB
-return 413 `payload_too_large` before validation. `GET /api/league/bundle`
-returns the last accepted bundle so the CLI can fetch it later.
+`season_mismatch`; neither replaces the stored value. Both 409s are
+best-effort rather than transactional: they read KV, which is edge-cached and
+not read-your-writes across colocations, so a bundle POSTed moments after a
+new-season board is published can be rejected until that write propagates, and
+two POSTs racing inside the same window can both read the pre-write value and
+let the older `synced_at` land last. Closing either case needs a compare-and-set
+that KV cannot express — the pin and the stored `synced_at` would have to move
+to D1 or a Durable Object. The CLI is the only producer and posts serially, so
+in practice this is reachable through a retry or a manual re-run, not normal
+operation.
+
+Bodies over 10 MiB return 413 `payload_too_large` before validation. The cap is
+enforced while the body streams in, not from `content-length` alone, because a
+chunked upload declares no length. `GET /api/league/bundle` returns the last
+accepted bundle so the CLI can fetch it later.
+
+`bundle.synced_at` must be an RFC 3339 date-time carrying an explicit UTC
+offset. `tracker/src/league-bundle.ts` and `ffb.league.parse_bundle` enforce one
+shared grammar, pinned from both sides by the accept/reject corpus in
+`tracker/test/league-bundle.test.ts` and `tests/test_league.py`. ISO 8601 forms
+that are not RFC 3339 — week dates, basic format, hour-only times — are rejected
+by both, so the Worker can neither block a bundle the CLI would accept nor store
+one the CLI cannot read back.
 
 ## Live draft
 

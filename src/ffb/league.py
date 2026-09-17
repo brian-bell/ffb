@@ -4,10 +4,22 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
+
+_RFC3339 = re.compile(
+    r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})[T ]"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2})(?::(?P<second>\d{2})(?:[.,]\d+)?)?"
+    r"(?P<offset>Z|[+-]\d{2}(?::?\d{2})?(?::?\d{2})?)?"
+)
+
+# Every spelling of a zero offset. Anything else is a real offset, not UTC.
+_UTC_OFFSETS = frozenset(
+    {"Z", "+00:00", "-00:00", "+0000", "-0000", "+00", "-00", "+00:00:00", "-00:00:00"}
+)
 
 
 class LeagueSource(Protocol):
@@ -240,10 +252,29 @@ def _exact_keys(value: dict[str, Any], expected: set[str], name: str) -> None:
 
 
 def _utc_timestamp(value: object, name: str) -> None:
+    """Admit only an RFC 3339 date-time carrying an explicit UTC offset.
+
+    ``datetime.fromisoformat`` also accepts ISO 8601 week dates, basic-format
+    strings, and hour-only times, none of which the tracker's TypeScript port
+    can parse. Pinning both sides to this one grammar keeps the closed contract
+    closed: the Worker must never store a bundle the CLI cannot read back, and
+    must never reject one the CLI would accept.
+    """
     text = _string(value, name)
+    match = _RFC3339.fullmatch(text)
+    if match is None:
+        raise ValueError(f"{name} must be an RFC 3339 UTC timestamp")
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        # Rejects Feb 30, month 13, hour 24, second 60, and year 0 (MINYEAR).
+        datetime(
+            int(match["year"]),
+            int(match["month"]),
+            int(match["day"]),
+            int(match["hour"]),
+            int(match["minute"]),
+            int(match["second"] or 0),
+        )
     except ValueError as exc:
         raise ValueError(f"{name} must be an RFC 3339 UTC timestamp") from exc
-    if parsed.tzinfo != UTC:
+    if match["offset"] not in _UTC_OFFSETS:
         raise ValueError(f"{name} must be UTC")
