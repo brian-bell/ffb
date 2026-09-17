@@ -134,8 +134,15 @@ Worker KV and in `snapshots/` — and reject one that carries both spellings.
 The Worker mirrors both shims. Remove them once no v1 payload remains.
 
 `league_context.py` loads synchronized scoring, roster slots, and team count
-independently, falling back component by component to the confirmed
-10-team Yahoo settings in `config.py`.
+independently, falling back component by component to the confirmed 10-team
+Yahoo settings in `config.py` — but only for a Yahoo or Yahoo-shaped fixture
+league, for which those values *are* that league's own settings. For any other
+provider they are a different league's rules, so `load_league_context` uses the
+league's own partial rules when it has usable ones and otherwise raises
+`LeagueSettingsUnavailable`. It never scores one league with another's weights.
+`scoring_provenance` names the league (`synced-`/`partial-`/`configured-` plus
+the namespaced league key), and `unmodeled_scoring` lists provider stats the
+league scores that no projection source emits.
 
 `sources/yahoo.py` implements the live `YahooLeagueSource` peer of
 `FixtureLeagueSource` (httpx fetch, snapshot-cached raw pulls, pure mappers),

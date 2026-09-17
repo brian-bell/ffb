@@ -118,11 +118,17 @@ def collapse_roster_positions(positions: list[str]) -> list[dict[str, Any]]:
 
 
 def parse_scoring_settings(raw: Any) -> dict[str, Any]:
-    """Map Sleeper scoring_settings to weights. Fail loud on unsupported bonuses."""
+    """Map Sleeper scoring_settings to weights.
+
+    Fail loud on unsupported settings. Settings the league scores but that no
+    projection source emits are returned as ``unmapped_scoring_rules`` so they
+    are reported as not modeled rather than absorbed as zero-effect weights.
+    """
     if not isinstance(raw, dict) or not raw:
         raise ValueError("Sleeper scoring_settings must be a nonempty object")
     weights: dict[str, float] = {}
     rules: list[dict[str, Any]] = []
+    unmapped: list[dict[str, Any]] = []
     for provider_key, raw_points in raw.items():
         if not isinstance(provider_key, str) or not provider_key:
             raise ValueError("scoring_settings keys must be nonempty strings")
@@ -132,7 +138,21 @@ def parse_scoring_settings(raw: Any) -> dict[str, Any]:
             raise ValueError(f"scoring_settings.{provider_key} must be numeric") from exc
         if not points:
             continue
-        mapped = config.SLEEPER_STAT_MAP.get(provider_key)
+        if provider_key in config.SLEEPER_UNMODELED_STATS:
+            # The league really scores this, but no projection source emits the
+            # stat, so accepting it as a mapped rule would absorb it silently at
+            # zero. Report it as not modeled instead.
+            unmapped.append(
+                {
+                    "points": points,
+                    "provider_stat_id": provider_key,
+                    "provider_name": provider_key,
+                }
+            )
+            continue
+        mapped = config.SLEEPER_STAT_ALIASES.get(provider_key)
+        if mapped is None and provider_key in config.SLEEPER_SCORED_STATS:
+            mapped = (provider_key,)
         if mapped is None:
             raise ValueError(
                 f"unsupported Sleeper scoring setting {provider_key!r}={points}; "
@@ -161,6 +181,7 @@ def parse_scoring_settings(raw: Any) -> dict[str, Any]:
         raise ValueError("Sleeper scoring_settings produced no nonzero mapped rules")
     return {
         "scoring_rules": rules,
+        "unmapped_scoring_rules": unmapped,
         "weights": weights,
         "scoring": config.ScoringConfig(dict(weights)),
     }
@@ -488,10 +509,10 @@ def map_state(
         "settings": {
             "roster_slots": slots,
             "scoring_rules": scoring["scoring_rules"],
-            # Sleeper fails loud on unmapped nonzero settings rather than
-            # scoring a league with rules it silently dropped, so this list is
-            # always empty. See parse_scoring_settings.
-            "unmapped_scoring_rules": [],
+            # Settings this league scores that no projection source emits.
+            # Reported, never silently absorbed; an unsupported setting still
+            # fails the mapper outright. See parse_scoring_settings.
+            "unmapped_scoring_rules": scoring["unmapped_scoring_rules"],
             "provider_settings": {
                 key: settings[key]
                 for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")

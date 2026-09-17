@@ -57,7 +57,6 @@ def test_full_ppr_scoring_map_never_falls_back_to_yahoo():
     assert weights["pass_int"] == -1.0
     assert weights["fum_lost"] == -2.0
     assert weights["fgm_50p"] == 5.0
-    assert weights["fgm_60p"] == 6.0
     assert weights["def_fum_td"] == 6.0
     assert weights["pass_int_td"] == 6.0
     assert weights["def_ret_td"] == 6.0
@@ -235,8 +234,20 @@ def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_w
     slots = roster_slot_counts(bundle.settings["roster_slots"])
     assert slots["W/R/T"] == 2
     assert slots["BN"] == 5
-    # Fail-loud scoring means nothing is ever silently dropped into unmapped.
-    assert bundle.settings["unmapped_scoring_rules"] == []
+    # Settings the league scores that no projection source emits are
+    # reported as not modeled, never absorbed as zero-effect weights.
+    unmapped = {rule["provider_name"] for rule in bundle.settings["unmapped_scoring_rules"]}
+    assert unmapped == {
+        "ff",
+        "st_ff",
+        "def_st_ff",
+        "st_fum_rec",
+        "def_st_fum_rec",
+        "fgmiss",
+        "fgm_60p",
+    }
+    mapped = {rule["stat_key"] for rule in bundle.settings["scoring_rules"]}
+    assert unmapped.isdisjoint(mapped)
 
 
 def test_nfl_state_from_another_season_is_rejected():

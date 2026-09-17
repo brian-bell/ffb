@@ -1635,11 +1635,23 @@ def _render(rows: list[dict], *, season: int, pos: str | None, sources: bool) ->
 
 
 def _report_scoring_provenance(league: object) -> None:
-    """Report whether scoring came from configured or synchronized Yahoo rules."""
-    if league.scoring_provenance == "configured-yahoo":
+    """Name the league whose rules scored this, and any rule we do not model."""
+    provenance = league.scoring_provenance
+    if provenance.startswith("configured-"):
         console.print("[dim]Scored with configured Yahoo league settings.[/dim]")
+    elif provenance.startswith("partial-"):
+        console.print(
+            f"[yellow]Scored with {getattr(league, 'league_key', provenance)}'s own "
+            "settings, which the pipeline models only in part.[/yellow]"
+        )
     else:
         console.print("[yellow]Scored with mock fixture league settings.[/yellow]")
+    unmodeled = getattr(league, "unmodeled_scoring", ())
+    if unmodeled:
+        console.print(
+            f"[yellow]⚠ Not modeled (no projection source emits these stats): "
+            f"{', '.join(unmodeled)}.[/yellow]"
+        )
 
 
 def _report_unmatched(rows: list[dict]) -> None:

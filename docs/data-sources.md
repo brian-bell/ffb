@@ -531,10 +531,15 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   such as `SF` become `def:SFO`. Identity uses `resolve_batch("sleeper")`,
   never `yahoo_id`. `taxi_slots > 0` or any taxi player on a roster fails
   loud (taxi would otherwise be treated as BN). This league is `taxi_slots: 0`.
-- **Scoring** — `scoring_settings` maps through `config.SLEEPER_STAT_MAP` into
-  a `ScoringConfig`. Nonzero unmapped keys, including `bonus_*`, raise. The
-  path never falls back to Yahoo `LEAGUE_SCORING`. The CLI banner says
-  "Sleeper league settings" rather than hardcoding a PPR label.
+- **Scoring** — `scoring_settings` resolves through `config.SLEEPER_STAT_ALIASES`
+  (renames and fan-outs only) plus the `config.SLEEPER_SCORED_STATS` whitelist,
+  where a key maps to itself. Nonzero keys in neither, including `bonus_*`,
+  raise. Keys in `config.SLEEPER_UNMODELED_STATS` are ones the league really
+  scores but no projection source emits; they become `unmapped_scoring_rules`
+  so they are reported as not modeled rather than accepted as weights that
+  silently score zero. The path never falls back to Yahoo `LEAGUE_SCORING`.
+  The CLI banner says "Sleeper league settings" rather than hardcoding a PPR
+  label.
 - **Provider-neutral identity** — roster and lineup-snapshot rows carry
   `native_id` / `native_player_key`, holding whatever id the bundle's provider
   issued. On Sleeper bundles that is the Sleeper native id
