@@ -1,0 +1,18 @@
+[
+  {
+    "roster_id": 6,
+    "owner_id": "1395866680286003200",
+    "players": ["qb-test", "slow", "rb-ok", "7564", "wr-ok", "te-ok", "flex", "flex2", "1264", "SF", "3198"],
+    "starters": ["qb-test", "slow", "rb-ok", "7564", "wr-ok", "te-ok", "flex", "flex2", "1264", "SF"],
+    "reserve": null,
+    "taxi": null
+  },
+  {
+    "roster_id": 1,
+    "owner_id": "2000000000000000000",
+    "players": ["rival-wr"],
+    "starters": ["0", "0", "0", "rival-wr", "0", "0", "0", "0", "0", "0"],
+    "reserve": null,
+    "taxi": null
+  }
+]

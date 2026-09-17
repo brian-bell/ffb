@@ -23,6 +23,7 @@ uv run ffb rankings 2026 -p RB --show-sources
 uv run ffb board show 2026
 uv run ffb board export 2026
 uv run ffb lineup 2026
+uv run ffb lineup 2026 --league sleeper   # Sleeper sit/start; no DuckDB/KV write
 uv run ffb retro 2026 --week 1 --fixture PATH
 uv run ffb lineup 2026 --publish          # POST to the tracker /command page
 uv run ffb league sync 2026 --from-tracker

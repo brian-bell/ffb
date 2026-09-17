@@ -1,0 +1,98 @@
+{
+  "3198": {
+    "player_id": "3198",
+    "first_name": "Derrick",
+    "last_name": "Henry",
+    "position": "RB",
+    "team": "BAL",
+    "fantasy_positions": ["RB"]
+  },
+  "7564": {
+    "player_id": "7564",
+    "first_name": "Ja'Marr",
+    "last_name": "Chase",
+    "position": "WR",
+    "team": "CIN",
+    "fantasy_positions": ["WR"]
+  },
+  "1264": {
+    "player_id": "1264",
+    "first_name": "Justin",
+    "last_name": "Tucker",
+    "position": "K",
+    "team": "BAL",
+    "fantasy_positions": ["K"]
+  },
+  "SF": {
+    "player_id": "SF",
+    "first_name": "San Francisco",
+    "last_name": "49ers",
+    "position": "DEF",
+    "team": "SF",
+    "fantasy_positions": ["DEF"]
+  },
+  "slow": {
+    "player_id": "slow",
+    "first_name": "Slow",
+    "last_name": "Back",
+    "position": "RB",
+    "team": "KC",
+    "fantasy_positions": ["RB"]
+  },
+  "rb-ok": {
+    "player_id": "rb-ok",
+    "first_name": "Okay",
+    "last_name": "Runner",
+    "position": "RB",
+    "team": "CHI",
+    "fantasy_positions": ["RB"]
+  },
+  "wr-ok": {
+    "player_id": "wr-ok",
+    "first_name": "Okay",
+    "last_name": "Receiver",
+    "position": "WR",
+    "team": "DAL",
+    "fantasy_positions": ["WR"]
+  },
+  "te-ok": {
+    "player_id": "te-ok",
+    "first_name": "Okay",
+    "last_name": "Tightend",
+    "position": "TE",
+    "team": "DET",
+    "fantasy_positions": ["TE"]
+  },
+  "flex": {
+    "player_id": "flex",
+    "first_name": "Flex",
+    "last_name": "Filler",
+    "position": "WR",
+    "team": "CHI",
+    "fantasy_positions": ["WR"]
+  },
+  "flex2": {
+    "player_id": "flex2",
+    "first_name": "Deep",
+    "last_name": "Bench",
+    "position": "WR",
+    "team": "NYJ",
+    "fantasy_positions": ["WR"]
+  },
+  "qb-test": {
+    "player_id": "qb-test",
+    "first_name": "Test",
+    "last_name": "Quarterback",
+    "position": "QB",
+    "team": "PIT",
+    "fantasy_positions": ["QB"]
+  },
+  "rival-wr": {
+    "player_id": "rival-wr",
+    "first_name": "Rival",
+    "last_name": "Receiver",
+    "position": "WR",
+    "team": "DAL",
+    "fantasy_positions": ["WR"]
+  }
+}

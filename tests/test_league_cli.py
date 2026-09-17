@@ -15,6 +15,26 @@ FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
 XWALK_FIXTURE = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 
 
+def test_league_sync_refuses_a_sleeper_bundle_and_keeps_yahoo_state(tmp_path):
+    """league_* is season-keyed and Yahoo-resolved: another provider would clobber it."""
+    env = {"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")}
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+
+    sleeper = json.loads(FIXTURE.read_text()) | {"source": "sleeper"}
+    path = tmp_path / "sleeper_bundle.json"
+    path.write_text(json.dumps(sleeper))
+    result = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(path)], env=env)
+    assert result.exit_code == 1
+    assert "sleeper" in result.output
+    assert "Traceback" not in result.output
+
+    shown = runner.invoke(app, ["league", "show", "2024"], env=env)
+    assert "Mock League" in shown.output
+
+
 def test_league_sync_then_show_displays_persisted_fixture_state(tmp_path):
     env = {"FFB_DB_PATH": str(tmp_path / "ffb.duckdb")}
     sync = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)

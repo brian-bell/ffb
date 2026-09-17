@@ -21,6 +21,20 @@ class LeagueContext:
     roster_complete: bool
 
 
+def roster_slot_counts(slots: list[dict[str, Any]]) -> dict[str, int]:
+    """Startable slot counts (plus BN) from a bundle's ``settings.roster_slots``."""
+    return {
+        slot["position"]: slot["count"]
+        for slot in slots
+        if slot["is_starting"] or slot["position"] == "BN"
+    }
+
+
+def scoring_from_rules(rules: list[dict[str, Any]]) -> config.ScoringConfig:
+    """Weights from a bundle's ``settings.scoring_rules``; no cross-league fallback."""
+    return config.ScoringConfig({rule["stat_key"]: rule["points"] for rule in rules})
+
+
 def load_league_context(store: Any, season: int) -> LeagueContext:
     """Return persisted settings only where each component is fully usable."""
     state = store.league_context(season)
@@ -48,15 +62,9 @@ def load_league_context(store: Any, season: int) -> LeagueContext:
         not slot["is_starting"] or slot["count"] == 0 or slot["position"] in _SUPPORTED_STARTERS
         for slot in slots
     )
-    roster = {
-        slot["position"]: slot["count"]
-        for slot in slots
-        if slot["is_starting"] or slot["position"] == "BN"
-    }
+    roster = roster_slot_counts(slots)
     return LeagueContext(
-        config.ScoringConfig({rule["stat_key"]: rule["points"] for rule in mapped})
-        if scoring_complete
-        else config.LEAGUE_SCORING,
+        scoring_from_rules(mapped) if scoring_complete else config.LEAGUE_SCORING,
         roster if roster_complete else config.LEAGUE_ROSTER_SLOTS,
         state["num_teams"] if state["num_teams"] > 0 else config.LEAGUE_NUM_TEAMS,
         f"yahoo-{state['source']}" if scoring_complete else "configured-yahoo",

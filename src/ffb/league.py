@@ -1,4 +1,4 @@
-"""Provider-neutral, fixture-backed Yahoo league state contract."""
+"""Provider-neutral, fixture-backed league state contract (Yahoo and Sleeper)."""
 
 from __future__ import annotations
 
@@ -60,8 +60,8 @@ def parse_bundle(payload: object, *, season: int) -> LeagueBundle:
     )
     if data["schema_version"] != 1:
         raise ValueError("bundle.schema_version must be 1")
-    if data["source"] not in ("fixture", "yahoo"):
-        raise ValueError("bundle.source must be fixture or yahoo")
+    if data["source"] not in ("fixture", "yahoo", "sleeper"):
+        raise ValueError("bundle.source must be fixture, yahoo, or sleeper")
     _utc_timestamp(data["synced_at"], "bundle.synced_at")
     league = _mapping(data["league"], "league")
     _exact_keys(

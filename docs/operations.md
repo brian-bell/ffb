@@ -27,6 +27,9 @@ uv run ffb season sync 2026 --offline --rebuild
 uv run ffb season sync 2026 --source projections
 uv run ffb season sync 2026 --week 1 --source projections
 uv run ffb lineup 2026
+FFB_SLEEPER_LEAGUE_ID=1395854363380965376 \
+FFB_SLEEPER_USER_ID=1395866680286003200 \
+  uv run ffb lineup 2026 --league sleeper
 uv run ffb retro 2026 --week 1 --fixture PATH
 uv run ffb lineup 2026 --force              # replace the locked sit/start snapshot
 uv run ffb retro 2026 --week 1 --fixture PATH --force   # replace locked actuals
@@ -44,7 +47,8 @@ FFB_TRACKER_URL=https://<worker> FFB_TRACKER_API_KEY=<key> uv run ffb lineup 202
 
 `--publish` on `lineup`, `digest`, `retro`, and `ros` POSTs the report the
 command just printed to the tracker's `/api/inseason/{kind}` route for the
-`/command` dashboard. `ros --publish` always sends the all-position report and
+`/command` dashboard. `ffb lineup --league sleeper` is local-only and rejects
+`--publish`; it never writes DuckDB `league_*` or Worker KV. `ros --publish` always sends the all-position report and
 rejects `-p`. A publish failure prints the Worker's error, exits 1, and leaves
 local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
 accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be
