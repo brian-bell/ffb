@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { ACTUALS_KEY_PREFIX } from "../src/actuals";
 import { BOARD_KEY } from "../src/board";
-import { INSEASON_KEY_PREFIX, generatedAtMillis, inseasonKey, parseEnvelope, weekFromKey } from "../src/inseason";
+import {
+  INSEASON_KEY_PREFIX,
+  INSEASON_KEY_PREFIX_V2,
+  generatedAtMillis,
+  inseasonKey,
+  inseasonKeyV1,
+  parseEnvelope,
+  weekFromKey,
+} from "../src/inseason";
 import { LEAGUE_BUNDLE_KEY } from "../src/league-bundle";
 import boardFixture from "./fixtures/board.json";
 import leagueBundle from "./fixtures/league-bundle.json";
@@ -38,8 +46,11 @@ async function view(query = ""): Promise<{ status: number; body: InseasonView & 
 }
 
 async function clearInseason(): Promise<void> {
-  const page = await env.BOARD.list({ prefix: INSEASON_KEY_PREFIX });
-  await Promise.all(page.keys.map(({ name }) => env.BOARD.delete(name)));
+  // Both key shapes: writes go to v2, but v1 keys still serve reads.
+  for (const prefix of [INSEASON_KEY_PREFIX, INSEASON_KEY_PREFIX_V2]) {
+    const page = await env.BOARD.list({ prefix });
+    await Promise.all(page.keys.map(({ name }) => env.BOARD.delete(name)));
+  }
   const actuals = await env.BOARD.list({ prefix: ACTUALS_KEY_PREFIX });
   await Promise.all(actuals.keys.map(({ name }) => env.BOARD.delete(name)));
   await env.BOARD.delete(LEAGUE_BUNDLE_KEY);
@@ -146,12 +157,30 @@ describe("parseEnvelope", () => {
 });
 
 describe("inseason keys", () => {
-  it("encodes season, kind, and week and decodes only its own prefix", () => {
-    expect(inseasonKey(2026, "retro", 3)).toBe("inseason:v1:2026:retro:3");
+  it("encodes season, league, kind, and week and decodes only its own prefix", () => {
+    const yahoo = "inseason:v2:2026:yahoo%3A470.l.928421:retro:3";
+    expect(inseasonKey(2026, "retro", 3)).toBe(yahoo);
+    expect(weekFromKey(yahoo, 2026, "retro")).toBe(3);
+    expect(weekFromKey(yahoo.replace(":3", ":03"), 2026, "retro")).toBeNull();
+    expect(weekFromKey(yahoo.replace("retro", "lineup"), 2026, "retro")).toBeNull();
+    expect(weekFromKey(yahoo.replace("2026", "2025"), 2026, "retro")).toBeNull();
+  });
+
+  it("gives each league its own key and never lets one decode another's", () => {
+    const sleeper = inseasonKey(2026, "retro", 3, "sleeper:1395854363380965376");
+    expect(sleeper).toBe("inseason:v2:2026:sleeper%3A1395854363380965376:retro:3");
+    expect(sleeper).not.toBe(inseasonKey(2026, "retro", 3));
+    expect(weekFromKey(sleeper, 2026, "retro")).toBeNull();
+    expect(weekFromKey(inseasonKey(2026, "retro", 3), 2026, "retro", "sleeper:1395854363380965376"))
+      .toBeNull();
+  });
+
+  it("still decodes v1 keys for the default league during the dual-read window", () => {
     expect(weekFromKey("inseason:v1:2026:retro:3", 2026, "retro")).toBe(3);
-    expect(weekFromKey("inseason:v1:2026:retro:03", 2026, "retro")).toBeNull();
-    expect(weekFromKey("inseason:v1:2026:lineup:3", 2026, "retro")).toBeNull();
-    expect(weekFromKey("inseason:v1:2025:retro:3", 2026, "retro")).toBeNull();
+    // ...but a v1 key is not another league's data.
+    expect(
+      weekFromKey("inseason:v1:2026:retro:3", 2026, "retro", "sleeper:1395854363380965376"),
+    ).toBeNull();
   });
 });
 
@@ -346,5 +375,76 @@ describe("Worker GET /api/inseason", () => {
     const report = week2.body.cards.retro.envelope?.report as Record<string, unknown> | undefined;
     expect(report?.hindsight_total).toBeUndefined();
     expect(report?.delta).toBe(21);
+  });
+});
+
+
+describe("inseason KV rekey: per-league v2 keys with a v1 dual-read window", () => {
+  const SLEEPER = "sleeper:1395854363380965376";
+
+  beforeEach(async () => {
+    await clearInseason();
+    await env.BOARD.put(BOARD_KEY, JSON.stringify(boardFixture));
+  });
+
+  async function postFor(kind: string, body: unknown, league?: string): Promise<Response> {
+    const query = league === undefined ? "" : `?league=${encodeURIComponent(league)}`;
+    return SELF.fetch(`https://x/api/inseason/${kind}${query}`, {
+      method: "POST",
+      headers: { ...bearer(), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("writes the v2 key and leaves v1 alone", async () => {
+    expect((await postFor("lineup", lineupFixture)).status).toBe(200);
+    const { season, week } = lineupFixture as { season: number; week: number };
+    expect(await env.BOARD.get(inseasonKey(season, "lineup", week))).not.toBeNull();
+    expect(await env.BOARD.get(inseasonKeyV1(season, "lineup", week))).toBeNull();
+  });
+
+  it("still serves a v1 document the dashboard has not republished yet", async () => {
+    const { season, week } = lineupFixture as { season: number; week: number };
+    await env.BOARD.put(inseasonKeyV1(season, "lineup", week), JSON.stringify(lineupFixture));
+    const { status, body } = await view(`?season=${season}&week=${week}`);
+    expect(status).toBe(200);
+    expect(body.cards.lineup.envelope).not.toBeNull();
+    expect(body.weeks).toContain(week);
+  });
+
+  it("prefers the v2 document once one exists", async () => {
+    const { season, week } = lineupFixture as { season: number; week: number };
+    await env.BOARD.put(
+      inseasonKeyV1(season, "lineup", week),
+      JSON.stringify({ ...lineupFixture, team_name: "Stale V1" }),
+    );
+    expect((await postFor("lineup", lineupFixture)).status).toBe(200);
+    const { body } = await view(`?season=${season}&week=${week}`);
+    expect(body.cards.lineup.envelope?.team_name).not.toBe("Stale V1");
+  });
+
+  it("keeps one league's reports out of another's dashboard", async () => {
+    const { season, week } = lineupFixture as { season: number; week: number };
+    expect((await postFor("lineup", lineupFixture, SLEEPER)).status).toBe(200);
+
+    const sleeperView = await view(`?season=${season}&week=${week}&league=${encodeURIComponent(SLEEPER)}`);
+    expect(sleeperView.body.cards.lineup.envelope).not.toBeNull();
+
+    // The default league never wrote one, and must not borrow Sleeper's.
+    const yahooView = await view(`?season=${season}&week=${week}`);
+    expect(yahooView.body.cards.lineup.envelope).toBeNull();
+  });
+
+  it("does not let a second league fall back to the v1 key", async () => {
+    const { season, week } = lineupFixture as { season: number; week: number };
+    await env.BOARD.put(inseasonKeyV1(season, "lineup", week), JSON.stringify(lineupFixture));
+    const { body } = await view(`?season=${season}&week=${week}&league=${encodeURIComponent(SLEEPER)}`);
+    expect(body.cards.lineup.envelope).toBeNull();
+  });
+
+  it("rejects a blank league rather than silently defaulting", async () => {
+    const res = await SELF.fetch("https://x/api/inseason?league=%20", { headers: bearer() });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_request" });
   });
 });

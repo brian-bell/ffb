@@ -46,7 +46,13 @@ export interface LeagueBundleSummary {
 export const api = {
   health: () => request<{ ok: boolean }>("/api/health"),
   getBoard: () => request<Board>("/api/board"),
-  getLeagueBundle: () => request<unknown>("/api/league/bundle"),
+  // KV keys carry the league now, so a read names the league it wants.
+  getLeagueBundle: (league?: string) =>
+    request<unknown>(
+      league === undefined
+        ? "/api/league/bundle"
+        : `/api/league/bundle?league=${encodeURIComponent(league)}`,
+    ),
   postLeagueBundle: (bundle: unknown) =>
     request<LeagueBundleSummary>("/api/league/bundle", {
       method: "POST",

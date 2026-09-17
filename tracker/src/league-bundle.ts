@@ -4,7 +4,25 @@
 // Faithful port of ffb.league.parse_bundle. The Worker never writes DuckDB;
 // CLI later fetches this KV value and runs the Python path.
 
+import {
+  DEFAULT_LEAGUE_KEY,
+  isDefaultLeague,
+  leagueSlug,
+  namespacedLeagueKey,
+} from "./league-keys";
+
+/** v1, single-league. Read-only during the dual-read window. */
 export const LEAGUE_BUNDLE_KEY = "league:bundle:current";
+
+/** v2: one key per league, `league:bundle:{league}:current`. */
+export function leagueBundleKey(leagueKey: string = DEFAULT_LEAGUE_KEY): string {
+  return `league:bundle:${leagueSlug(leagueKey)}:current`;
+}
+
+/** The namespaced league key a parsed bundle belongs to. */
+export function bundleLeagueKey(bundle: LeagueBundle): string {
+  return namespacedLeagueKey(bundle.source, bundle.league.league_key);
+}
 
 export interface LeagueBundleEnv {
   BOARD: KVNamespace;
@@ -12,7 +30,7 @@ export interface LeagueBundleEnv {
 
 export interface LeagueBundle {
   schema_version: 2;
-  source: "fixture" | "yahoo";
+  source: "fixture" | "yahoo" | "sleeper";
   synced_at: string;
   league: {
     league_id: string;
@@ -112,8 +130,8 @@ export function parseBundle(payload: unknown, season?: number): LeagueBundle {
   if (data.schema_version !== 2) {
     throw new LeagueBundleError("bundle.schema_version must be 2");
   }
-  if (data.source !== "fixture" && data.source !== "yahoo") {
-    throw new LeagueBundleError("bundle.source must be fixture or yahoo");
+  if (data.source !== "fixture" && data.source !== "yahoo" && data.source !== "sleeper") {
+    throw new LeagueBundleError("bundle.source must be fixture, yahoo, or sleeper");
   }
   utcTimestamp(data.synced_at, "bundle.synced_at");
 
@@ -234,7 +252,7 @@ export function leagueBundleSummary(bundle: LeagueBundle): {
   current_week: number;
   teams: number;
   players: number;
-  source: "fixture" | "yahoo";
+  source: "fixture" | "yahoo" | "sleeper";
   synced_at: string;
 } {
   return {
@@ -248,12 +266,24 @@ export function leagueBundleSummary(bundle: LeagueBundle): {
   };
 }
 
-export async function getLeagueBundleText(env: LeagueBundleEnv): Promise<string | null> {
+/**
+ * Read one league's last accepted bundle, preferring v2 and falling back to v1.
+ *
+ * The v1 key holds the default league's pre-rekey bundle, so only that league
+ * may fall back; another league finding nothing at v2 has nothing.
+ */
+export async function getLeagueBundleText(
+  env: LeagueBundleEnv,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): Promise<string | null> {
+  const current = await env.BOARD.get(leagueBundleKey(leagueKey));
+  if (current !== null || !isDefaultLeague(leagueKey)) return current;
   return env.BOARD.get(LEAGUE_BUNDLE_KEY);
 }
 
+/** Writes go to the bundle's own v2 key; v1 is never written again. */
 export async function putLeagueBundle(env: LeagueBundleEnv, bundle: LeagueBundle): Promise<void> {
-  await env.BOARD.put(LEAGUE_BUNDLE_KEY, JSON.stringify(bundle));
+  await env.BOARD.put(leagueBundleKey(bundleLeagueKey(bundle)), JSON.stringify(bundle));
 }
 
 function validateSlots(slots: unknown[]): void {

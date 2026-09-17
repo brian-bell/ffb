@@ -1,5 +1,7 @@
 import { getBoardText } from "./board";
+import { leagueFromParam } from "./league-keys";
 import {
+  bundleLeagueKey,
   getLeagueBundleText,
   leagueBundleSummary,
   parseBundle,
@@ -36,9 +38,19 @@ function methodNotAllowed(allow: string): Response {
 export async function handleLeagueApi(
   request: Request,
   env: LeagueBundleEnv,
+  url?: URL,
 ): Promise<Response> {
+  // ?league= selects which league's bundle to serve; absent means the default,
+  // which is what the pre-rekey key held.
+  const leagueKey = leagueFromParam(url?.searchParams.get("league") ?? null);
+  if (leagueKey === null) {
+    return json(
+      { error: "invalid_request", message: "league must be a nonempty league key" },
+      400,
+    );
+  }
   if (request.method === "GET") {
-    const text = await getLeagueBundleText(env);
+    const text = await getLeagueBundleText(env, leagueKey);
     if (text === null) {
       return json({ error: "no league bundle" }, 404);
     }
@@ -107,7 +119,7 @@ async function rejectStaleOrWrongSeason(
     }
   }
 
-  const storedText = await getLeagueBundleText(env);
+  const storedText = await getLeagueBundleText(env, bundleLeagueKey(bundle));
   if (storedText === null) return null;
   let stored: LeagueBundle;
   try {

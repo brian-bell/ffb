@@ -32,9 +32,12 @@ describe("parseBundle closed LeagueBundle v2", () => {
     [{ schema_version: 3 }, "schema_version"],
     [{ extra: "typo" }, "unknown"],
     [{ rosters: [] }, "every team"],
-    [{ source: "sleeper" }, "fixture or yahoo"],
   ])("rejects closed-schema drift %j", (change, message) => {
     expectReject(bundle(change), 2024, message);
+  });
+
+  it("accepts a sleeper bundle so a second league can be stored", () => {
+    expect(parseBundle(bundle({ source: "sleeper" }), 2024).source).toBe("sleeper");
   });
 
   it("rejects a roster week that is not league.current_week", () => {

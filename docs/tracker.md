@@ -8,7 +8,7 @@ draft at `/`, and provides an isolated roster-aware simulation at `/mock`.
 
 The immutable board blob lives in KV under `board:current`; the Worker streams
 it verbatim from authenticated `GET /api/board`. The last valid `LeagueBundle`
-v2 lives under `league:bundle:current` and is accepted by
+v2 lives under `league:bundle:{league}:current` and is accepted by
 `POST /api/league/bundle`. That ingest path validates the closed Python
 `parse_bundle` contract, never writes DuckDB, and never reads or mutates live
 or mock draft tables. Draft state lives in D1. The static shell is public so
@@ -182,7 +182,7 @@ work happens in the Worker. The design record is
 | `POST /api/inseason/{kind}` | Validate and store one envelope (`lineup`, `digest`, `retro`, `ros`) |
 | `GET /api/inseason?season=&week=` | Compose the dashboard view for one week |
 
-Envelopes live under `inseason:v1:{season}:{kind}:{week}`. The POST route
+Envelopes live under `inseason:v2:{season}:{league}:{kind}:{week}`. The POST route
 reuses the league bundle vocabulary: 400 `invalid_report` for an envelope or
 report shape failure or a kind that does not match the route, 409
 `stale_report` when the stored document has a strictly newer `generated_at`
@@ -343,3 +343,29 @@ The saved JSON contains teams and picks, not credentials or a board snapshot.
 The completed MCFFL 2026 draft is preserved in
 [`drafts/mcffl-2026.json`](../drafts/mcffl-2026.json) for repeatable replay.
 No file import or download is needed to replay it.
+
+
+## League-keyed KV
+
+Every KV key carries the league it belongs to, so two leagues coexist:
+
+- `league:bundle:{league}:current`
+- `inseason:v2:{season}:{league}:{kind}:{week}`
+
+`{league}` is the percent-encoded namespaced key (`yahoo%3A470.l.928421`), which
+matters because league keys contain a colon and KV keys are colon-delimited —
+`inseason:v2:2026:yahoo:470.l.928421:lineup:3` would otherwise have two
+readings. `src/league-keys.ts` owns the encoding and the default.
+
+Routes take an optional `?league=`. Absent means the default league, which is
+what the pre-rekey keys held, so existing callers keep reading their own data; a
+blank value is rejected rather than defaulted.
+
+Writes go only to the new keys. Reads fall back to the old single-league keys
+(`league:bundle:current`, `inseason:v1:...`) when the new one is missing **and**
+the requested league is the default — another league finding nothing has
+nothing, and must never be served Yahoo's documents. Week listings union both
+prefixes so the dashboard's week picker still shows pre-rekey weeks. Drop the
+fallback once nothing is left under the v1 keys.
+
+`actuals:v1:{season}:{week}` is not yet league-keyed.

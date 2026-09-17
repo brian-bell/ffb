@@ -4,7 +4,10 @@
 // renders, then stores the body verbatim under inseason:v1:{season}:{kind}:{week}.
 // The tracker never computes a report — it only stores and serves them.
 
+import { DEFAULT_LEAGUE_KEY, isDefaultLeague, leagueSlug } from "./league-keys";
+
 export const INSEASON_KEY_PREFIX = "inseason:v1:";
+export const INSEASON_KEY_PREFIX_V2 = "inseason:v2:";
 export const INSEASON_SCHEMA_VERSION = 1;
 export const INSEASON_KINDS = ["lineup", "digest", "retro", "ros"] as const;
 export type InseasonKind = (typeof INSEASON_KINDS)[number];
@@ -144,20 +147,54 @@ export function isInseasonKind(value: unknown): value is InseasonKind {
   return typeof value === "string" && (INSEASON_KINDS as readonly string[]).includes(value);
 }
 
-export function inseasonPrefix(season: number, kind: InseasonKind): string {
+/** v1, single-league: `inseason:v1:{season}:{kind}:`. Read-only during the window. */
+export function inseasonPrefixV1(season: number, kind: InseasonKind): string {
   return `${INSEASON_KEY_PREFIX}${season}:${kind}:`;
 }
 
-export function inseasonKey(season: number, kind: InseasonKind, week: number): string {
-  return `${inseasonPrefix(season, kind)}${week}`;
+/** v1 key for the league that owned KV before the rekey. */
+export function inseasonKeyV1(season: number, kind: InseasonKind, week: number): string {
+  return `${inseasonPrefixV1(season, kind)}${week}`;
 }
 
-/** Week number encoded at the end of an inseason KV key, or null for a foreign key. */
-export function weekFromKey(key: string, season: number, kind: InseasonKind): number | null {
-  const prefix = inseasonPrefix(season, kind);
-  if (!key.startsWith(prefix)) return null;
-  const rest = key.slice(prefix.length);
-  return /^[1-9]\d*$/.test(rest) ? Number(rest) : null;
+/** v2: `inseason:v2:{season}:{league}:{kind}:`, with the league percent-encoded. */
+export function inseasonPrefix(
+  season: number,
+  kind: InseasonKind,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): string {
+  return `${INSEASON_KEY_PREFIX_V2}${season}:${leagueSlug(leagueKey)}:${kind}:`;
+}
+
+export function inseasonKey(
+  season: number,
+  kind: InseasonKind,
+  week: number,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): string {
+  return `${inseasonPrefix(season, kind, leagueKey)}${week}`;
+}
+
+/**
+ * Week number encoded at the end of an inseason KV key, or null for a foreign key.
+ *
+ * Accepts both key shapes, so a listing during the dual-read window sees weeks
+ * written before and after the rekey.
+ */
+export function weekFromKey(
+  key: string,
+  season: number,
+  kind: InseasonKind,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): number | null {
+  const prefixes = [inseasonPrefix(season, kind, leagueKey)];
+  if (isDefaultLeague(leagueKey)) prefixes.push(inseasonPrefixV1(season, kind));
+  for (const prefix of prefixes) {
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length);
+    if (/^[1-9]\d*$/.test(rest)) return Number(rest);
+  }
+  return null;
 }
 
 // RFC 3339 UTC, as the producer contracts (parse_bundle, parse_actuals) accept

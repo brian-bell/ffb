@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { BOARD_KEY } from "../../src/board";
-import { INSEASON_KEY_PREFIX, type InseasonKind } from "../../src/inseason";
+import {
+  INSEASON_KEY_PREFIX_V2,
+  inseasonKey,
+  type InseasonKind,
+} from "../../src/inseason";
 import { cardFreshness } from "../../src/inseason-view";
-import { LEAGUE_BUNDLE_KEY } from "../../src/league-bundle";
+import { leagueBundleKey } from "../../src/league-bundle";
+
+// The e2e fixture league is the mock one, so its bundle lives under its own key.
+const E2E_LEAGUE = "yahoo:1.l.mock-1";
+const LEAGUE_BUNDLE_KEY = leagueBundleKey(E2E_LEAGUE);
 import { initialBoardView, nextBoardView, type BoardViewState } from "../../src/board-view";
 import { mockClockState, mockSuggestions } from "../../src/mock-ui";
 import { buildPlayerPool } from "../../src/player-pool";
@@ -37,7 +45,7 @@ describe("generated backend contract", () => {
     const boardBefore = await api.getBoard();
     expect(boardBefore.status).toBe(200);
 
-    const missing = await api.getLeagueBundle();
+    const missing = await api.getLeagueBundle(E2E_LEAGUE);
     expect(missing.status).toBe(404);
 
     const accepted = await api.postLeagueBundle(leagueBundleFixture);
@@ -57,7 +65,7 @@ describe("generated backend contract", () => {
     expect(rejected.status).toBe(400);
     expect(rejected.json).toMatchObject({ error: "invalid_bundle" });
 
-    const fetched = await api.getLeagueBundle();
+    const fetched = await api.getLeagueBundle(E2E_LEAGUE);
     expect(fetched.status).toBe(200);
     expect(fetched.json).toEqual(leagueBundleFixture);
     expect((await api.getBoard()).body).toBe(boardBefore.body);
@@ -486,7 +494,7 @@ describe("in-season report publish", () => {
   beforeEach(async () => {
     await env.BOARD.put(BOARD_KEY, env.E2E_BOARD_JSON);
     await env.BOARD.delete(LEAGUE_BUNDLE_KEY);
-    const page = await env.BOARD.list({ prefix: INSEASON_KEY_PREFIX });
+    const page = await env.BOARD.list({ prefix: INSEASON_KEY_PREFIX_V2 });
     await Promise.all(page.keys.map(({ name }) => env.BOARD.delete(name)));
   });
 
@@ -496,7 +504,7 @@ describe("in-season report publish", () => {
       const posted = await api.publishInseason(kind, envelopes[kind]);
       expect(posted.status, `${kind}: ${posted.body}`).toBe(200);
       expect(posted.json).toMatchObject({ kind, season: 2024, week: 1 });
-      expect(await env.BOARD.get(`${INSEASON_KEY_PREFIX}2024:${kind}:1`)).toBe(envelopes[kind]);
+      expect(await env.BOARD.get(inseasonKey(2024, kind, 1))).toBe(envelopes[kind]);
       const replay = await api.publishInseason(kind, envelopes[kind]);
       expect(replay.status).toBe(200);
     }
