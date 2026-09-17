@@ -1,8 +1,11 @@
-// Closed WeeklyActualsBundle v1. Sibling of the LeagueBundle ingest path —
+// Closed WeeklyActualsBundle v2. Sibling of the LeagueBundle ingest path —
 // extra keys fail, and live scores never belong in git.
+// v1 payloads (yahoo_player_id / yahoo_player_key) are upgraded on read; see
+// upgradeV1Players. The KV prefix stays actuals:v1: — it namespaces the key,
+// not the payload, and rekeying is ffb-ct7.5's job.
 
 export const ACTUALS_KEY_PREFIX = "actuals:v1:";
-export const ACTUALS_SCHEMA_VERSION = 1;
+export const ACTUALS_SCHEMA_VERSION = 2;
 
 export interface ActualsLeague {
   league_id: string;
@@ -25,8 +28,8 @@ export interface ActualsMatchup {
 }
 
 export interface ActualsPlayer {
-  yahoo_player_id: string;
-  yahoo_player_key: string;
+  native_id: string;
+  native_player_key: string;
   name: string;
   team_key: string;
   selected_position: string;
@@ -66,8 +69,12 @@ export function parseActuals(
 function parseBundle(payload: unknown, season?: number): WeeklyActualsBundle {
   const data = mapping(payload, "bundle");
   exactKeys(data, ["schema_version", "source", "synced_at", "league", "matchups", "players"], "bundle");
+  if (data.schema_version === 1) {
+    data.players = upgradeV1Players(data.players);
+    data.schema_version = ACTUALS_SCHEMA_VERSION;
+  }
   if (data.schema_version !== ACTUALS_SCHEMA_VERSION) {
-    throw new Error("bundle.schema_version must be 1");
+    throw new Error("bundle.schema_version must be 2");
   }
   if (data.source !== "fixture" && data.source !== "yahoo") {
     throw new Error("bundle.source must be fixture or yahoo");
@@ -104,6 +111,29 @@ function parseBundle(payload: unknown, season?: number): WeeklyActualsBundle {
   };
 }
 
+// Back-compat shim, mirroring ffb.actuals._upgrade_v1_players: schema v1 named
+// the identity fields yahoo_player_id / yahoo_player_key even for non-Yahoo
+// providers. v2 uses native_id / native_player_key. v1 payloads are still at
+// rest in KV, so they are rewritten here and validated as v2. Remove once none
+// remain.
+function upgradeV1Players(players: unknown): unknown {
+  if (!Array.isArray(players)) return players;
+  return players.map((player) => {
+    if (typeof player !== "object" || player === null || Array.isArray(player)) return player;
+    const source = player as Record<string, unknown>;
+    const renamed: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(source)) {
+      const next =
+        key === "yahoo_player_id" ? "native_id" : key === "yahoo_player_key" ? "native_player_key" : key;
+      if (next in renamed) {
+        throw new Error("actuals mix schema-v1 and schema-v2 player identity fields");
+      }
+      renamed[next] = value;
+    }
+    return renamed;
+  });
+}
+
 function parseMatchups(matchups: unknown[], week: number, numTeams: number): ActualsMatchup[] {
   const expected = numTeams / 2;
   if (matchups.length !== expected) {
@@ -138,17 +168,17 @@ function parsePlayers(players: unknown[], teamKeys: Set<string>): ActualsPlayer[
     const player = mapping(value, `players[${index}]`);
     exactKeys(
       player,
-      ["yahoo_player_id", "yahoo_player_key", "name", "team_key", "selected_position", "points"],
+      ["native_id", "native_player_key", "name", "team_key", "selected_position", "points"],
       `players[${index}]`,
     );
-    const yahooPlayerId = nonemptyString(player.yahoo_player_id, `players[${index}].yahoo_player_id`);
-    if (ids.has(yahooPlayerId)) throw new Error("Yahoo player IDs must be unique across actuals");
-    ids.add(yahooPlayerId);
+    const nativeId = nonemptyString(player.native_id, `players[${index}].native_id`);
+    if (ids.has(nativeId)) throw new Error("native player IDs must be unique across actuals");
+    ids.add(nativeId);
     const teamKey = nonemptyString(player.team_key, `players[${index}].team_key`);
     if (!teamKeys.has(teamKey)) throw new Error("player team_key must appear on the scoreboard");
     return {
-      yahoo_player_id: yahooPlayerId,
-      yahoo_player_key: nonemptyString(player.yahoo_player_key, `players[${index}].yahoo_player_key`),
+      native_id: nativeId,
+      native_player_key: nonemptyString(player.native_player_key, `players[${index}].native_player_key`),
       name: nonemptyString(player.name, `players[${index}].name`),
       team_key: teamKey,
       selected_position: nonemptyString(player.selected_position, `players[${index}].selected_position`),

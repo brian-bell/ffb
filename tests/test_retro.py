@@ -14,8 +14,8 @@ from ffb.retro import (
 
 def _player(**changes):
     row = {
-        "yahoo_player_id": "1",
-        "yahoo_player_key": "1.p.1",
+        "native_id": "1",
+        "native_player_key": "1.p.1",
         "full_name": "Player",
         "nfl_team": "BAL",
         "primary_position": "RB",
@@ -46,8 +46,8 @@ def _advice():
     players = attach_weekly_points(
         [
             _player(
-                yahoo_player_id="55501",
-                yahoo_player_key="1.p.55501",
+                native_id="55501",
+                native_player_key="1.p.55501",
                 full_name="Slow Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -55,8 +55,8 @@ def _advice():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="29279",
-                yahoo_player_key="1.p.29279",
+                native_id="29279",
+                native_player_key="1.p.29279",
                 full_name="Derrick Henry",
                 selected_position="BN",
                 player_key="12626",
@@ -106,24 +106,24 @@ def _actuals(*, henry_slot="BN", henry_points=24.0, slow_slot="RB", slow_points=
         ],
         "players": [
             {
-                "yahoo_player_id": "55501",
-                "yahoo_player_key": "1.p.55501",
+                "native_id": "55501",
+                "native_player_key": "1.p.55501",
                 "name": "Slow Back",
                 "team_key": "1.l.sit.t.1",
                 "selected_position": slow_slot,
                 "points": slow_points,
             },
             {
-                "yahoo_player_id": "29279",
-                "yahoo_player_key": "1.p.29279",
+                "native_id": "29279",
+                "native_player_key": "1.p.29279",
                 "name": "Derrick Henry",
                 "team_key": "1.l.sit.t.1",
                 "selected_position": henry_slot,
                 "points": henry_points,
             },
             {
-                "yahoo_player_id": "99901",
-                "yahoo_player_key": "1.p.99901",
+                "native_id": "99901",
+                "native_player_key": "1.p.99901",
                 "name": "Rival Receiver",
                 "team_key": "1.l.sit.t.2",
                 "selected_position": "WR",
@@ -142,14 +142,14 @@ def test_lineup_snapshot_is_closed_and_round_trips():
     snapshot = parse_lineup_snapshot(_advice())
     assert snapshot["kind"] == "lineup_recommendation"
     assert snapshot["team_key"] == "1.l.sit.t.1"
-    henry = next(row for row in snapshot["players"] if row["yahoo_player_id"] == "29279")
+    henry = next(row for row in snapshot["players"] if row["native_id"] == "29279")
     assert henry["source_points"] == {"sleeper": 19.0, "espn": 17.0}
     assert henry["points"] == 18.0
 
 
 def test_attach_weekly_points_copies_source_points():
     players = attach_weekly_points(
-        [_player(yahoo_player_id="29279", player_key="12626", matched=True)],
+        [_player(native_id="29279", player_key="12626", matched=True)],
         [_consensus("12626", 18.0, {"sleeper": 19.0, "espn": 17.0})],
     )
     assert players[0]["source_points"] == {"sleeper": 19.0, "espn": 17.0}
@@ -191,7 +191,7 @@ def test_retro_reports_per_source_accuracy():
 
 def test_retro_lists_players_missing_actuals():
     actuals = _actuals()
-    actuals["players"] = [row for row in actuals["players"] if row["yahoo_player_id"] != "29279"]
+    actuals["players"] = [row for row in actuals["players"] if row["native_id"] != "29279"]
     retro = retro_report(_advice(), actuals)
     assert [row["name"] for row in retro["missing_actuals"]] == ["Derrick Henry"]
     assert retro["recommended_total"] == 0.0
@@ -276,8 +276,8 @@ def _bundle(players):
         "players": players
         + [
             {
-                "yahoo_player_id": "99901",
-                "yahoo_player_key": "1.p.99901",
+                "native_id": "99901",
+                "native_player_key": "1.p.99901",
                 "name": "Rival Receiver",
                 "team_key": "1.l.sit.t.2",
                 "selected_position": "WR",
@@ -287,10 +287,10 @@ def _bundle(players):
     }
 
 
-def _actual_row(yahoo_player_id, name, selected_position, points):
+def _actual_row(native_id, name, selected_position, points):
     return {
-        "yahoo_player_id": yahoo_player_id,
-        "yahoo_player_key": f"1.p.{yahoo_player_id}",
+        "native_id": native_id,
+        "native_player_key": f"1.p.{native_id}",
         "name": name,
         "team_key": "1.l.sit.t.1",
         "selected_position": selected_position,
@@ -302,8 +302,8 @@ def test_retro_hindsight_surfaces_flex_that_advice_agreed_with():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="40904",
-                yahoo_player_key="1.p.40904",
+                native_id="40904",
+                native_player_key="1.p.40904",
                 full_name="Rico Dowdle",
                 primary_position="RB",
                 selected_position="W/R/T",
@@ -311,8 +311,8 @@ def test_retro_hindsight_surfaces_flex_that_advice_agreed_with():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="40393",
-                yahoo_player_key="1.p.40393",
+                native_id="40393",
+                native_player_key="1.p.40393",
                 full_name="Malik Washington",
                 primary_position="WR",
                 eligible_positions=["WR", "W/T", "W/R/T"],
@@ -348,8 +348,8 @@ def test_retro_hindsight_keeps_advice_def_miss_without_changing_recommended_tota
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="100001",
-                yahoo_player_key="1.p.100001",
+                native_id="100001",
+                native_player_key="1.p.100001",
                 full_name="Bad Def",
                 primary_position="DEF",
                 eligible_positions=["DEF"],
@@ -358,8 +358,8 @@ def test_retro_hindsight_keeps_advice_def_miss_without_changing_recommended_tota
                 matched=True,
             ),
             _player(
-                yahoo_player_id="100002",
-                yahoo_player_key="1.p.100002",
+                native_id="100002",
+                native_player_key="1.p.100002",
                 full_name="Good Def",
                 primary_position="DEF",
                 eligible_positions=["DEF"],
@@ -393,8 +393,8 @@ def test_retro_hindsight_excludes_ir_and_il_actuals():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="55501",
-                yahoo_player_key="1.p.55501",
+                native_id="55501",
+                native_player_key="1.p.55501",
                 full_name="Slow Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -402,16 +402,16 @@ def test_retro_hindsight_excludes_ir_and_il_actuals():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="29279",
-                yahoo_player_key="1.p.29279",
+                native_id="29279",
+                native_player_key="1.p.29279",
                 full_name="Derrick Henry",
                 selected_position="BN",
                 player_key="12626",
                 matched=True,
             ),
             _player(
-                yahoo_player_id="il-1",
-                yahoo_player_key="1.p.il-1",
+                native_id="il-1",
+                native_player_key="1.p.il-1",
                 full_name="IL Back",
                 primary_position="RB",
                 selected_position="IL",
@@ -448,8 +448,8 @@ def test_retro_hindsight_skips_swap_when_actuals_are_missing():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="55501",
-                yahoo_player_key="1.p.55501",
+                native_id="55501",
+                native_player_key="1.p.55501",
                 full_name="Slow Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -457,8 +457,8 @@ def test_retro_hindsight_skips_swap_when_actuals_are_missing():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="29279",
-                yahoo_player_key="1.p.29279",
+                native_id="29279",
+                native_player_key="1.p.29279",
                 full_name="Derrick Henry",
                 selected_position="BN",
                 player_key="12626",
@@ -482,8 +482,8 @@ def test_retro_hindsight_ranks_on_unrounded_actual_points():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="starter",
-                yahoo_player_key="1.p.starter",
+                native_id="starter",
+                native_player_key="1.p.starter",
                 full_name="Starter Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -491,8 +491,8 @@ def test_retro_hindsight_ranks_on_unrounded_actual_points():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="bench",
-                yahoo_player_key="1.p.bench",
+                native_id="bench",
+                native_player_key="1.p.bench",
                 full_name="Bench Back",
                 primary_position="RB",
                 selected_position="BN",
@@ -523,8 +523,8 @@ def test_retro_hindsight_tied_actuals_prefer_the_started_player():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="starter",
-                yahoo_player_key="1.p.starter",
+                native_id="starter",
+                native_player_key="1.p.starter",
                 full_name="Starter Back",
                 primary_position="RB",
                 selected_position="RB",
@@ -532,8 +532,8 @@ def test_retro_hindsight_tied_actuals_prefer_the_started_player():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="bench",
-                yahoo_player_key="1.p.bench",
+                native_id="bench",
+                native_player_key="1.p.bench",
                 full_name="Bench Back",
                 primary_position="RB",
                 selected_position="BN",
@@ -563,8 +563,8 @@ def test_retro_hindsight_rb_cannot_steal_wt_from_te_or_wr():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="te-1",
-                yahoo_player_key="1.p.te-1",
+                native_id="te-1",
+                native_player_key="1.p.te-1",
                 full_name="Started TE",
                 nfl_team="DET",
                 primary_position="TE",
@@ -574,8 +574,8 @@ def test_retro_hindsight_rb_cannot_steal_wt_from_te_or_wr():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="wr-1",
-                yahoo_player_key="1.p.wr-1",
+                native_id="wr-1",
+                native_player_key="1.p.wr-1",
                 full_name="Started WR",
                 primary_position="WR",
                 eligible_positions=["WR", "W/T", "W/R/T"],
@@ -584,8 +584,8 @@ def test_retro_hindsight_rb_cannot_steal_wt_from_te_or_wr():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="rb-1",
-                yahoo_player_key="1.p.rb-1",
+                native_id="rb-1",
+                native_player_key="1.p.rb-1",
                 full_name="Bench RB",
                 primary_position="RB",
                 selected_position="BN",
@@ -617,16 +617,16 @@ def test_retro_hindsight_ignores_players_dropped_to_another_team():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="1001",
-                yahoo_player_key="1.p.1001",
+                native_id="1001",
+                native_player_key="1.p.1001",
                 full_name="Kept RB",
                 selected_position="RB",
                 player_key="kept",
                 matched=True,
             ),
             _player(
-                yahoo_player_id="1002",
-                yahoo_player_key="1.p.1002",
+                native_id="1002",
+                native_player_key="1.p.1002",
                 full_name="Dropped RB",
                 selected_position="BN",
                 player_key="dropped",
@@ -650,24 +650,24 @@ def test_retro_hindsight_lets_player_activated_from_ir_start():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="s1",
-                yahoo_player_key="1.p.s1",
+                native_id="s1",
+                native_player_key="1.p.s1",
                 full_name="Starter RB",
                 selected_position="RB",
                 player_key="s1",
                 matched=True,
             ),
             _player(
-                yahoo_player_id="b1",
-                yahoo_player_key="1.p.b1",
+                native_id="b1",
+                native_player_key="1.p.b1",
                 full_name="Bench RB",
                 selected_position="BN",
                 player_key="b1",
                 matched=True,
             ),
             _player(
-                yahoo_player_id="ir1",
-                yahoo_player_key="1.p.ir1",
+                native_id="ir1",
+                native_player_key="1.p.ir1",
                 full_name="IR RB",
                 selected_position="IR",
                 player_key="ir1",
@@ -697,8 +697,8 @@ def test_retro_hindsight_honours_yahoo_eligibility_from_the_snapshot():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="rb1",
-                yahoo_player_key="1.p.rb1",
+                native_id="rb1",
+                native_player_key="1.p.rb1",
                 full_name="RB One",
                 eligible_positions=["RB"],
                 selected_position="RB",
@@ -706,8 +706,8 @@ def test_retro_hindsight_honours_yahoo_eligibility_from_the_snapshot():
                 matched=True,
             ),
             _player(
-                yahoo_player_id="dual",
-                yahoo_player_key="1.p.dual",
+                native_id="dual",
+                native_player_key="1.p.dual",
                 full_name="Dual RB",
                 eligible_positions=["RB", "WR"],
                 selected_position="WR",
@@ -737,8 +737,8 @@ def test_retro_hindsight_compares_against_started_snapshot_players_only():
     snapshot = _snapshot(
         [
             _player(
-                yahoo_player_id="snap",
-                yahoo_player_key="1.p.snap",
+                native_id="snap",
+                native_player_key="1.p.snap",
                 full_name="Snap RB",
                 selected_position="RB",
                 player_key="snap",

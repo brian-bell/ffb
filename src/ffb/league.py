@@ -50,16 +50,56 @@ class FixtureLeagueSource:
         return parse_bundle(payload, season=season)
 
 
+#: Player identity fields renamed in schema v2, keyed by their v1 spelling.
+_V1_PLAYER_ID_FIELDS = {"yahoo_player_id": "native_id", "yahoo_player_key": "native_player_key"}
+
+
+def _upgrade_v1_players(data: dict[str, Any]) -> dict[str, Any]:
+    """Back-compat shim: rewrite a schema-v1 bundle's player identity fields to v2.
+
+    Schema v1 named the roster identity fields ``yahoo_player_id`` /
+    ``yahoo_player_key`` even when the provider was Sleeper. v2 renames them to
+    the provider-neutral ``native_id`` / ``native_player_key``. Bundles written
+    before the cutover still sit in Worker KV and in operator snapshots, so v1
+    payloads are upgraded in place here and validated as v2; nothing downstream
+    of this function sees the old spelling. Remove once no v1 bundle is at rest.
+    """
+    upgraded = dict(data)
+    rosters = upgraded.get("rosters")
+    if not isinstance(rosters, list):
+        return upgraded
+    new_rosters = []
+    for roster in rosters:
+        if not isinstance(roster, dict) or not isinstance(roster.get("players"), list):
+            new_rosters.append(roster)
+            continue
+        players = []
+        for player in roster["players"]:
+            if not isinstance(player, dict):
+                players.append(player)
+                continue
+            renamed = {_V1_PLAYER_ID_FIELDS.get(k, k): v for k, v in player.items()}
+            if len(renamed) != len(player):
+                raise ValueError("bundle mixes schema-v1 and schema-v2 player identity fields")
+            players.append(renamed)
+        new_rosters.append({**roster, "players": players})
+    upgraded["rosters"] = new_rosters
+    upgraded["schema_version"] = 2
+    return upgraded
+
+
 def parse_bundle(payload: object, *, season: int) -> LeagueBundle:
-    """Validate the closed schema-v1 fixture contract before any store write."""
+    """Validate the closed schema-v2 contract (upgrading v1) before any store write."""
     data = _mapping(payload, "bundle")
     _exact_keys(
         data,
         {"schema_version", "source", "synced_at", "league", "settings", "teams", "rosters"},
         "bundle",
     )
-    if data["schema_version"] != 1:
-        raise ValueError("bundle.schema_version must be 1")
+    if data["schema_version"] == 1:
+        data = _upgrade_v1_players(data)
+    if data["schema_version"] != 2:
+        raise ValueError("bundle.schema_version must be 2")
     if data["source"] not in ("fixture", "yahoo", "sleeper"):
         raise ValueError("bundle.source must be fixture, yahoo, or sleeper")
     _utc_timestamp(data["synced_at"], "bundle.synced_at")
@@ -129,8 +169,8 @@ def parse_bundle(payload: object, *, season: int) -> LeagueBundle:
             _exact_keys(
                 player,
                 {
-                    "yahoo_player_id",
-                    "yahoo_player_key",
+                    "native_id",
+                    "native_player_key",
                     "name",
                     "nfl_team",
                     "primary_position",
@@ -140,8 +180,8 @@ def parse_bundle(payload: object, *, season: int) -> LeagueBundle:
                 f"rosters[{i}].players[{j}]",
             )
             for field in (
-                "yahoo_player_id",
-                "yahoo_player_key",
+                "native_id",
+                "native_player_key",
                 "name",
                 "primary_position",
                 "selected_position",
@@ -150,9 +190,9 @@ def parse_bundle(payload: object, *, season: int) -> LeagueBundle:
             if player["nfl_team"] is not None:
                 _string(player["nfl_team"], f"rosters[{i}].players[{j}].nfl_team")
             _strings(player["eligible_positions"], f"rosters[{i}].players[{j}].eligible_positions")
-            if player["yahoo_player_id"] in player_ids:
-                raise ValueError("Yahoo player IDs must be unique across league rosters")
-            player_ids.add(player["yahoo_player_id"])
+            if player["native_id"] in player_ids:
+                raise ValueError("native player IDs must be unique across league rosters")
+            player_ids.add(player["native_id"])
     if roster_keys != keys:
         raise ValueError("roster team keys must equal the team-key set")
     return LeagueBundle(data)

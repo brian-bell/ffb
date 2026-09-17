@@ -72,11 +72,11 @@ export default {
       return handleInseasonApi(request, env, url, pathname);
     }
 
-    // LeagueBundle v1 ingest sink. KV only — never DuckDB or draft tables.
+    // LeagueBundle v2 ingest sink, one key per league. KV only.
     if (pathname === "/api/league/bundle") {
       const denied = requireBearer(request, env);
       if (denied) return denied;
-      return handleLeagueApi(request, env);
+      return handleLeagueApi(request, env, url);
     }
 
     // Any other /api/* path is a real 404 (never a static asset).

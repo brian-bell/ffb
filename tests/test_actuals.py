@@ -20,7 +20,7 @@ def _bundle(**changes):
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"schema_version": 2}, "schema_version"),
+        ({"schema_version": 3}, "schema_version"),
         ({"source": "grok"}, "source"),
         ({"extra": "typo"}, "unknown"),
         ({"matchups": []}, "matchups"),
@@ -61,7 +61,7 @@ def test_actuals_rejects_matchup_week_mismatch():
 def test_actuals_rejects_duplicate_player_ids():
     data = _bundle()
     data["players"].append(copy.deepcopy(data["players"][0]))
-    with pytest.raises(ValueError, match="Yahoo player IDs"):
+    with pytest.raises(ValueError, match="native player IDs"):
         parse_actuals(data, season=2024)
 
 
@@ -93,8 +93,8 @@ def test_actuals_rejects_non_finite_points():
         lambda data: data["league"].__setitem__("name", ""),
         lambda data: data["matchups"][0].__setitem__("matchup_id", ""),
         lambda data: data["matchups"][0]["teams"][0].__setitem__("team_key", ""),
-        lambda data: data["players"][0].__setitem__("yahoo_player_id", ""),
-        lambda data: data["players"][0].__setitem__("yahoo_player_key", ""),
+        lambda data: data["players"][0].__setitem__("native_id", ""),
+        lambda data: data["players"][0].__setitem__("native_player_key", ""),
         lambda data: data["players"][0].__setitem__("name", ""),
         lambda data: data["players"][0].__setitem__("selected_position", ""),
     ],
@@ -128,3 +128,30 @@ def test_actuals_accepts_worker_shaped_timestamps(value):
     data = _bundle()
     data["synced_at"] = value
     parse_actuals(data, season=2024)
+
+
+def _v1_actuals():
+    """A schema-v1 actuals payload: pre-cutover identity spelling."""
+    data = _bundle()
+    data["schema_version"] = 1
+    for player in data["players"]:
+        player["yahoo_player_id"] = player.pop("native_id")
+        player["yahoo_player_key"] = player.pop("native_player_key")
+    return data
+
+
+def test_parse_actuals_upgrades_schema_v1_identity_fields():
+    """v1 actuals at rest in KV or a snapshot still read, normalized to v2."""
+    bundle = parse_actuals(_v1_actuals(), season=2024)
+    assert bundle.data["schema_version"] == 2
+    assert bundle.players
+    for player in bundle.players:
+        assert "yahoo_player_id" not in player
+        assert player["native_id"] and player["native_player_key"]
+
+
+def test_parse_actuals_rejects_a_payload_mixing_v1_and_v2_identity_fields():
+    data = _v1_actuals()
+    data["players"][0]["native_id"] = "collide"
+    with pytest.raises(ValueError, match="mix schema-v1 and schema-v2"):
+        parse_actuals(data, season=2024)

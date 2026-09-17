@@ -12,10 +12,9 @@ Endpoints (no auth)::
     GET https://api.sleeper.app/v1/league/{league_id}/users
     GET https://api.sleeper.app/v1/state/nfl
 
-``yahoo_player_id`` / ``yahoo_player_key`` on mapped roster rows are Sleeper
-native-id aliases required by the closed lineup-snapshot player shape. They
-are not Yahoo identities and must be resolved with ``resolve_batch("sleeper")``,
-never ``yahoo_id``.
+``native_id`` / ``native_player_key`` on mapped roster rows hold Sleeper
+native ids. They are not Yahoo identities and must be resolved with
+``resolve_batch("sleeper")``, never ``yahoo_id``.
 """
 
 from __future__ import annotations
@@ -78,8 +77,22 @@ def fetch_state(client: httpx.Client) -> Any:
     return _get(client, "/state/nfl")
 
 
+def fetch_matchups(client: httpx.Client, league_id: str, week: int) -> Any:
+    """One entry per roster for a completed week, carrying that week's starters."""
+    return _get(client, f"/league/{league_id}/matchups/{week}")
+
+
 def snapshot_key(league_id: str, resource: str) -> str:
     return f"sleeper/league_{league_id}_{resource}"
+
+
+def matchups_snapshot_key(league_id: str, week: int) -> str:
+    """Week-scoped, so unlike /rosters this snapshot really is a cache.
+
+    A past week's matchups never change, so replaying one serves the same
+    starters the live endpoint would.
+    """
+    return f"sleeper/league_{league_id}_matchups_week{week}"
 
 
 def state_snapshot_key() -> str:
@@ -119,11 +132,17 @@ def collapse_roster_positions(positions: list[str]) -> list[dict[str, Any]]:
 
 
 def parse_scoring_settings(raw: Any) -> dict[str, Any]:
-    """Map Sleeper scoring_settings to weights. Fail loud on unsupported bonuses."""
+    """Map Sleeper scoring_settings to weights.
+
+    Fail loud on unsupported settings. Settings the league scores but that no
+    projection source emits are returned as ``unmapped_scoring_rules`` so they
+    are reported as not modeled rather than absorbed as zero-effect weights.
+    """
     if not isinstance(raw, dict) or not raw:
         raise ValueError("Sleeper scoring_settings must be a nonempty object")
     weights: dict[str, float] = {}
     rules: list[dict[str, Any]] = []
+    unmapped: list[dict[str, Any]] = []
     for provider_key, raw_points in raw.items():
         if not isinstance(provider_key, str) or not provider_key:
             raise ValueError("scoring_settings keys must be nonempty strings")
@@ -133,7 +152,21 @@ def parse_scoring_settings(raw: Any) -> dict[str, Any]:
             raise ValueError(f"scoring_settings.{provider_key} must be numeric") from exc
         if not points:
             continue
-        mapped = config.SLEEPER_STAT_MAP.get(provider_key)
+        if provider_key in config.SLEEPER_UNMODELED_STATS:
+            # The league really scores this, but no projection source emits the
+            # stat, so accepting it as a mapped rule would absorb it silently at
+            # zero. Report it as not modeled instead.
+            unmapped.append(
+                {
+                    "points": points,
+                    "provider_stat_id": provider_key,
+                    "provider_name": provider_key,
+                }
+            )
+            continue
+        mapped = config.SLEEPER_STAT_ALIASES.get(provider_key)
+        if mapped is None and provider_key in config.SLEEPER_SCORED_STATS:
+            mapped = (provider_key,)
         if mapped is None:
             raise ValueError(
                 f"unsupported Sleeper scoring setting {provider_key!r}={points}; "
@@ -162,6 +195,7 @@ def parse_scoring_settings(raw: Any) -> dict[str, Any]:
         raise ValueError("Sleeper scoring_settings produced no nonzero mapped rules")
     return {
         "scoring_rules": rules,
+        "unmapped_scoring_rules": unmapped,
         "weights": weights,
         "scoring": config.ScoringConfig(dict(weights)),
     }
@@ -266,6 +300,27 @@ def starting_slots(roster_positions: list[str]) -> list[str]:
     ]
 
 
+def matchup_as_roster(matchup: Any) -> dict[str, Any]:
+    """Adapt one /matchups entry to the /rosters shape ``parse_roster`` expects.
+
+    A matchup carries the starters as they stood for that week, which is the
+    whole point: /rosters is current state and cannot answer "who did I start in
+    week 2". It has no reserve or taxi list, so those are empty — an IR player
+    that week simply appears as a bench player.
+    """
+    if not isinstance(matchup, dict):
+        raise ValueError("Sleeper matchup must be an object")
+    if "roster_id" not in matchup:
+        raise ValueError("Sleeper matchup is missing roster_id")
+    return {
+        "roster_id": matchup.get("roster_id"),
+        "players": matchup.get("players") or [],
+        "starters": matchup.get("starters") or [],
+        "reserve": [],
+        "taxi": None,
+    }
+
+
 def parse_roster(
     roster: Any,
     *,
@@ -353,34 +408,46 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
             team_code.strip().upper() if isinstance(team_code, str) and team_code.strip() else None
         )
     return {
-        # Bundle-contract alias: the player shape requires yahoo_player_id.
-        # Value is the Sleeper native id, not a Yahoo id, until the
-        # provider-neutral rename lands.
-        "yahoo_player_id": player_id,
-        "yahoo_player_key": f"sleeper:{player_id}",
+        # Provider-neutral identity: the Sleeper native id, never a Yahoo id.
+        "native_id": player_id,
+        "native_player_key": f"sleeper:{player_id}",
         "name": name,
         "nfl_team": nfl_team,
         "primary_position": position,
-        "eligible_positions": _eligible(position),
+        "eligible_positions": _eligible(position, meta.get("fantasy_positions")),
         "selected_position": selected_position,
     }
 
 
-def _eligible(position: str) -> list[str]:
-    if position == "RB":
-        return ["RB", "W/R/T"]
-    if position in {"WR", "TE"}:
-        return [position, "W/R/T"]
-    return [position]
+def _eligible(position: str, fantasy_positions: object = None) -> list[str]:
+    """Slots this player can fill, including any second position Sleeper reports.
+
+    Sleeper's ``fantasy_positions`` is the provider's own eligibility list, so a
+    QB/TE is eligible at TE as well as QB. Only entries that normalize to a
+    position we model are admitted; anything else (IDP, taxi labels) is ignored
+    rather than turned into a slot no league has.
+    """
+    slots = identity.slot_eligibility(position)
+    if isinstance(fantasy_positions, list):
+        for raw in fantasy_positions:
+            if not isinstance(raw, str):
+                continue
+            extra = "K" if raw.strip().upper() == "PK" else raw.strip().upper()
+            if extra not in config.FANTASY_POSITIONS or extra == position:
+                continue
+            for slot in identity.slot_eligibility(extra):
+                if slot not in slots:
+                    slots.append(slot)
+    return slots
 
 
 def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach canonical keys via ``resolve_batch("sleeper")``. DEF uses ``def:<team>``."""
-    native_ids = [player["yahoo_player_id"] for player in players]
+    native_ids = [player["native_id"] for player in players]
     lookup = store.resolve_batch("sleeper", native_ids)
     rows: list[dict[str, Any]] = []
     for player in players:
-        native_id = player["yahoo_player_id"]
+        native_id = player["native_id"]
         defense = identity.canonical_defense_key(
             player.get("primary_position"), player.get("nfl_team")
         )
@@ -416,7 +483,9 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
                     "team": hit["team"] or player["nfl_team"],
                     "nfl_team": hit["team"] or player["nfl_team"],
                     "primary_position": position,
-                    "eligible_positions": _eligible(position),
+                    "eligible_positions": identity.merge_eligibility(
+                        position, player.get("primary_position"), player.get("eligible_positions")
+                    ),
                 }
             )
         else:
@@ -429,10 +498,21 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
                     "full_name": player["name"],
                     "position": position,
                     "team": player["nfl_team"],
-                    "eligible_positions": _eligible(position),
+                    "eligible_positions": identity.merge_eligibility(
+                        position, player.get("primary_position"), player.get("eligible_positions")
+                    ),
                 }
             )
     return rows
+
+
+def _week_rosters(rosters: Any, matchups: Any) -> list[Any]:
+    """Current-state rosters, or one adapted roster per matchup for a past week."""
+    if matchups is None:
+        return list(rosters) if isinstance(rosters, list) else rosters
+    if not isinstance(matchups, list) or not matchups:
+        raise ValueError("Sleeper matchups must be a nonempty list")
+    return [matchup_as_roster(matchup) for matchup in matchups]
 
 
 def map_state(
@@ -445,6 +525,8 @@ def map_state(
     season: int,
     synced_at: str,
     players_by_id: Mapping[str, Any] | None = None,
+    week: int | None = None,
+    matchups: Any = None,
 ) -> LeagueBundle:
     """Pure raw responses -> the provider-neutral ``LeagueBundle`` contract.
 
@@ -453,7 +535,12 @@ def map_state(
     fail-loud scoring) are enforced here.
     """
     nfl = parse_nfl_state(state)
-    meta = parse_league_meta(league, current_week=nfl["week"])
+    # A backfill pins the bundle to the requested week; the bundle contract
+    # requires every roster's week to equal league.current_week, so a past week
+    # is what this bundle is "current" for. The store keys rosters by their own
+    # week column and will not move the league's clock backwards.
+    bundle_week = nfl["week"] if week is None else week
+    meta = parse_league_meta(league, current_week=bundle_week)
     if nfl["season"] != meta["season"]:
         # state/nfl is snapshotted globally while league pulls are league-scoped,
         # so a stale replay could graft another season's week onto this bundle.
@@ -477,7 +564,7 @@ def map_state(
             "(taxi players would be treated as BN)"
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source": "sleeper",
         "synced_at": synced_at,
         "league": {
@@ -491,17 +578,25 @@ def map_state(
         "settings": {
             "roster_slots": slots,
             "scoring_rules": scoring["scoring_rules"],
-            # Sleeper fails loud on unmapped nonzero settings rather than
-            # scoring a league with rules it silently dropped, so this list is
-            # always empty. See parse_scoring_settings.
-            "unmapped_scoring_rules": [],
+            # Settings this league scores that no projection source emits.
+            # Reported, never silently absorbed; an unsupported setting still
+            # fails the mapper outright. See parse_scoring_settings.
+            "unmapped_scoring_rules": scoring["unmapped_scoring_rules"],
             "provider_settings": {
-                key: settings[key]
-                for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
-                if key in settings
+                **{
+                    key: settings[key]
+                    for key in ("playoff_week_start", "reserve_slots", "taxi_slots", "max_keepers")
+                    if key in settings
+                },
+                # The league's live week. Equal to current_week on a normal sync,
+                # but on a backfill current_week is the week being backfilled, and
+                # this is the only record of where the league actually is.
+                "nfl_week": nfl["week"],
             },
         },
         "teams": teams,
+        # A backfill reads that week's starters from /matchups; a current-week
+        # sync reads them from /rosters, which is current state only.
         "rosters": [
             parse_roster(
                 roster,
@@ -510,7 +605,7 @@ def map_state(
                 league_id=meta["league_id"],
                 players_by_id=players_by_id,
             )
-            for roster in rosters
+            for roster in _week_rosters(rosters, matchups)
         ],
     }
     return parse_bundle(payload, season=season)
@@ -541,6 +636,7 @@ class SleeperLeagueSource:
         *,
         offline: bool = False,
         players_by_id: Mapping[str, Any] | None = None,
+        week: int | None = None,
     ) -> LeagueBundle:
         """Pull live league state, or replay the last snapshots when ``offline``.
 
@@ -548,6 +644,10 @@ class SleeperLeagueSource:
         carry no week, so a cached replay silently serves last week's starters
         and week number. Sit/start therefore refetches every run by default;
         snapshots exist for ``--offline`` and for post-mortem, not as a cache.
+
+        ``week`` backfills a past week from ``/matchups``, which carries the
+        starters as they stood then. /rosters cannot answer that question at
+        all, so without it a week that was never synced live is unrecoverable.
         """
         from ffb.snapshot import SnapshotPolicy
 
@@ -577,6 +677,12 @@ class SleeperLeagueSource:
                 lambda: fetch_users(client, self.league_id),
             )
             state = pull(state_snapshot_key(), lambda: fetch_state(client))
+            matchups = None
+            if week is not None:
+                matchups = pull(
+                    matchups_snapshot_key(self.league_id, week),
+                    lambda: fetch_matchups(client, self.league_id, week),
+                )
         lookup = players_by_id
         if lookup is None and self.cache.has("sleeper/players_nfl"):
             cached = self.cache.read_json("sleeper/players_nfl")
@@ -590,6 +696,8 @@ class SleeperLeagueSource:
             season=season,
             synced_at=self._synced_at(cached_keys),
             players_by_id=lookup,
+            week=week,
+            matchups=matchups,
         )
         for key, data in staged.items():
             self.cache.put_json(key, data)

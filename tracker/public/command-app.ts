@@ -211,7 +211,7 @@ function delta(rowValue: RetroRow): string {
 }
 
 function retroId(row: RetroRow): string {
-  return row.yahoo_player_id || row.name;
+  return row.native_id || row.name;
 }
 
 function renderRetro(current: InseasonView, now: number): HTMLElement {
@@ -583,6 +583,17 @@ function rememberWeek(week: number): void {
   window.history.replaceState(null, "", url);
 }
 
+/** The league named in the page URL, or null for the default league. */
+function selectedLeague(): string | null {
+  try {
+    const value = new URLSearchParams(window.location.search).get("league");
+    const trimmed = (value ?? "").trim();
+    return trimmed === "" ? null : trimmed;
+  } catch {
+    return null;
+  }
+}
+
 async function load(week: number | null, key = keyStore.get()): Promise<boolean> {
   if (!key) {
     setLocked(true);
@@ -594,6 +605,10 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
   const params = new URLSearchParams();
   if (view) params.set("season", String(view.season));
   if (week !== null) params.set("week", String(week));
+  // Reports are stored per league, so /command?league=<key> has to reach the
+  // API or a published non-default league's cards are simply unreachable here.
+  const league = selectedLeague();
+  if (league !== null) params.set("league", league);
   const query = params.toString();
   const result = await requestJson<InseasonView & { error?: string; message?: string }>(fetch, `/api/inseason${query ? `?${query}` : ""}`, { headers: { Authorization: `Bearer ${key}` } });
   loading = false;

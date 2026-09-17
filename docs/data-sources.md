@@ -43,9 +43,9 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **nflverse schedules** | `nflreadpy` (parquet → polars) | none | Season schedule → team byes + regular-season games | **Live** |
 | **Sleeper player status** | REST JSON (`api.sleeper.app`) | none | Injury and roster status | **Live** |
 | **ESPN news / RSS** | REST JSON (`site.web.api.espn.com`) + RSS (`espn.com`) | none | Headlines for the LLM digest (never numeric) | **Live** |
-| Yahoo league fixture | Local JSON (`LeagueBundle` v1) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
+| Yahoo league fixture | Local JSON (`LeagueBundle` v2) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | **Sleeper league** | REST JSON (`api.sleeper.app`) | none (`FFB_SLEEPER_*`) | Second-league scoring, roster slots, user roster for sit/start | **CLI spike (no DuckDB/KV write)** |
-| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v1) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
+| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v2) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
 | Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
@@ -448,7 +448,7 @@ and `FFB_TRACKER_API_KEY`) the CLI uses when no local snapshot exists. The CLI
 snapshots accepted bundles under `snapshots/actuals/` and never writes actuals
 to DuckDB. `ffb lineup`
 snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
-by `yahoo_player_id`.
+by `native_id`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors
@@ -479,7 +479,7 @@ are not ingested today.
   current-week roster are fetched with a bearer token, snapshotted under
   `snapshots/yahoo/`, and mapped by pure parsers (defensive about the
   `fantasy_content` wrapper, count-keyed collections, and positional
-  dict/list arrays) into the same `LeagueBundle` v1 the fixture path
+  dict/list arrays) into the same `LeagueBundle` v2 the fixture path
   validates. `config.YAHOO_STAT_MAP` translates Yahoo stat ids into our stat
   keys; unmappable categories are surfaced as `unmapped_scoring_rules`, never
   dropped. OAuth2 config comes from `FFB_YAHOO_CLIENT_ID` /
@@ -531,17 +531,44 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   such as `SF` become `def:SFO`. Identity uses `resolve_batch("sleeper")`,
   never `yahoo_id`. `taxi_slots > 0` or any taxi player on a roster fails
   loud (taxi would otherwise be treated as BN). This league is `taxi_slots: 0`.
-- **Scoring** — `scoring_settings` maps through `config.SLEEPER_STAT_MAP` into
-  a `ScoringConfig`. Nonzero unmapped keys, including `bonus_*`, raise. The
-  path never falls back to Yahoo `LEAGUE_SCORING`. The CLI banner says
-  "Sleeper league settings" rather than hardcoding a PPR label.
-- **Closed-shape alias** — lineup snapshots still require `yahoo_player_id`.
-  On Sleeper bundles that field holds the Sleeper native id
-  (`yahoo_player_key` is `sleeper:<id>`). Do not treat it as a Yahoo id; the
-  provider-neutral rename is tracked separately.
-- **Out of scope** — `replace_league_state`, `POST /api/league/bundle`,
-  `--publish` / inseason KV, DuckDB PK widen, Worker KV rekey. Cutover is
-  worker-first later.
+- **Scoring** — `scoring_settings` resolves through `config.SLEEPER_STAT_ALIASES`
+  (renames and fan-outs only) plus the `config.SLEEPER_SCORED_STATS` whitelist,
+  where a key maps to itself. Nonzero keys in neither, including `bonus_*`,
+  raise. Keys in `config.SLEEPER_UNMODELED_STATS` are ones the league really
+  scores but no projection source emits; they become `unmapped_scoring_rules`
+  so they are reported as not modeled rather than accepted as weights that
+  silently score zero. The path never falls back to Yahoo `LEAGUE_SCORING`.
+  The CLI banner says "Sleeper league settings" rather than hardcoding a PPR
+  label.
+- **Eligibility** — `fantasy_positions` is Sleeper's own eligibility list, so a
+  QB/TE is eligible at TE as well as QB. `identity.merge_eligibility` keeps the
+  crosswalk position authoritative — its slots always come first and are always
+  present — and adds only the slots the provider reported beyond its *own*
+  primary position. A WR-tagged RB is therefore an RB and never eligible at WR,
+  while a genuine second position survives. Entries that do not normalize to a
+  modeled position (IDP labels) are ignored.
+- **Provider-neutral identity** — roster and lineup-snapshot rows carry
+  `native_id` / `native_player_key`, holding whatever id the bundle's provider
+  issued. On Sleeper bundles that is the Sleeper native id
+  (`native_player_key` is `sleeper:<id>`); on Yahoo it is the Yahoo player id.
+  Never assume a provider from the field name.
+- **Storage** — `replace_league_state` accepts any provider's bundle and
+  scopes to `(season, league_key)`, so a Sleeper sync persists alongside Yahoo
+  instead of replacing it. `ffb league sync SEASON --league sleeper [--offline]`
+  writes it.
+- **Commands** — `lineup`, `retro`, `ros` and `digest` take `--league`
+  (a provider name or a full league key). There is no provider-specific command
+  body: Sleeper is the Yahoo path pointed at a different stored league.
+- **Historical weeks** — `/rosters` is current state and cannot say who started
+  in a past week. `ffb league sync SEASON --league sleeper --week N` backfills
+  week N from `/matchups`, whose entries carry that week's starters. Unlike the
+  current-state keys, `sleeper/league_{id}_matchups_week{N}` really is a cache:
+  a past week never changes. A backfilled bundle is pinned to week N (the
+  contract requires `roster.week == league.current_week`), but
+  `replace_league_state` keeps the furthest week the league has reached, so a
+  backfill never moves the league's clock backwards.
+- **Publishing** — snapshot keys and Worker KV carry the league, so
+  `--publish` / `--force` work for Sleeper and land in its own slots.
 
 ```sh
 export FFB_SLEEPER_LEAGUE_ID=1395854363380965376

@@ -1,4 +1,4 @@
-"""Closed WeeklyActualsBundle v1 — Yahoo scoreboard and player actuals.
+"""Closed WeeklyActualsBundle v2 — league scoreboard and player actuals.
 
 Sibling of ``LeagueBundle``. Extra keys fail. Live scores never belong in git;
 tests use synthetic fixtures. Storage is a snapshot or Worker KV, not DuckDB.
@@ -32,16 +32,49 @@ class WeeklyActualsBundle:
         return self.data["players"]
 
 
+#: Player identity fields renamed in schema v2, keyed by their v1 spelling.
+_V1_PLAYER_ID_FIELDS = {"yahoo_player_id": "native_id", "yahoo_player_key": "native_player_key"}
+
+
+def _upgrade_v1_players(data: dict[str, Any]) -> dict[str, Any]:
+    """Back-compat shim: rewrite a schema-v1 actuals payload's identity fields to v2.
+
+    Mirrors ``ffb.league._upgrade_v1_players``. v1 named these fields
+    ``yahoo_player_id`` / ``yahoo_player_key``; v2 uses the provider-neutral
+    ``native_id`` / ``native_player_key`` so the actuals join key matches
+    ``league_rosters``. v1 payloads still exist in snapshots and Worker KV, so
+    they are upgraded here and validated as v2. Remove once none are at rest.
+    """
+    upgraded = dict(data)
+    players = upgraded.get("players")
+    if not isinstance(players, list):
+        return upgraded
+    renamed_players = []
+    for player in players:
+        if not isinstance(player, dict):
+            renamed_players.append(player)
+            continue
+        renamed = {_V1_PLAYER_ID_FIELDS.get(k, k): v for k, v in player.items()}
+        if len(renamed) != len(player):
+            raise ValueError("actuals mix schema-v1 and schema-v2 player identity fields")
+        renamed_players.append(renamed)
+    upgraded["players"] = renamed_players
+    upgraded["schema_version"] = 2
+    return upgraded
+
+
 def parse_actuals(payload: object, *, season: int) -> WeeklyActualsBundle:
-    """Validate the closed schema-v1 actuals contract before any write."""
+    """Validate the closed schema-v2 actuals contract (upgrading v1) before any write."""
     data = _mapping(payload, "bundle")
     _exact_keys(
         data,
         {"schema_version", "source", "synced_at", "league", "matchups", "players"},
         "bundle",
     )
-    if data["schema_version"] != 1:
-        raise ValueError("bundle.schema_version must be 1")
+    if data["schema_version"] == 1:
+        data = _upgrade_v1_players(data)
+    if data["schema_version"] != 2:
+        raise ValueError("bundle.schema_version must be 2")
     if data["source"] not in ("fixture", "yahoo"):
         raise ValueError("bundle.source must be fixture or yahoo")
     _utc_timestamp(data["synced_at"], "bundle.synced_at")
@@ -109,8 +142,8 @@ def _validate_players(players: list[Any], team_keys: set[str]) -> None:
         _exact_keys(
             player,
             {
-                "yahoo_player_id",
-                "yahoo_player_key",
+                "native_id",
+                "native_player_key",
                 "name",
                 "team_key",
                 "selected_position",
@@ -119,16 +152,16 @@ def _validate_players(players: list[Any], team_keys: set[str]) -> None:
             f"players[{i}]",
         )
         for field in (
-            "yahoo_player_id",
-            "yahoo_player_key",
+            "native_id",
+            "native_player_key",
             "name",
             "team_key",
             "selected_position",
         ):
             _string(player[field], f"players[{i}].{field}")
-        if player["yahoo_player_id"] in ids:
-            raise ValueError("Yahoo player IDs must be unique across actuals")
-        ids.add(player["yahoo_player_id"])
+        if player["native_id"] in ids:
+            raise ValueError("native player IDs must be unique across actuals")
+        ids.add(player["native_id"])
         if player["team_key"] not in team_keys:
             raise ValueError("player team_key must appear on the scoreboard")
         _finite(player["points"], f"players[{i}].points")

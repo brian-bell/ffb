@@ -164,7 +164,7 @@ def _league_fixture(tmp_path, *, current_week=1, henry_slot="BN"):
     for roster in payload["rosters"]:
         roster["week"] = current_week
         for player in roster["players"]:
-            if player["yahoo_player_id"] == "29279":
+            if player["native_id"] == "29279":
                 player["selected_position"] = henry_slot
     path = tmp_path / f"league-week{current_week}.json"
     path.write_text(json.dumps(payload))

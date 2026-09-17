@@ -21,6 +21,9 @@ from .test_ros_cli import _seed_ros_store
 
 runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
+# The sit/start fixture is the mock league 1.l.sit, not the configured Yahoo
+# league, so its snapshots nest under its own segment.
+LEAGUE = "yahoo:1.l.sit"
 ACTUALS = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
 ENVELOPE_KEYS = {
     "schema_version",
@@ -84,7 +87,7 @@ def test_lineup_publish_posts_rendered_report_with_context(tmp_path, monkeypatch
     assert "Published lineup week 1" in result.output
     assert "sekrit" not in result.output
     assert len(posted) == 1
-    assert posted[0]["url"] == "https://tracker.test/api/inseason/lineup"
+    assert posted[0]["url"] == ("https://tracker.test/api/inseason/lineup?league=yahoo%3A1.l.sit")
     assert posted[0]["auth"] == "Bearer sekrit"
     envelope = posted[0]["body"]
     assert set(envelope) == ENVELOPE_KEYS
@@ -96,7 +99,7 @@ def test_lineup_publish_posts_rendered_report_with_context(tmp_path, monkeypatch
     assert envelope["generated_at"].endswith("Z")
     assert envelope["context"]["league_synced_at"] == "2026-09-12T00:00:00Z"
     assert envelope["context"]["projection_sources"] == ["sleeper"]
-    snapshot = SnapshotCache(tmp_path / "snapshots").read_json(lineup_snapshot_key(2024, 1))
+    snapshot = SnapshotCache(tmp_path / "snapshots").read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     assert envelope["context"]["snapshot_generated_at"] == snapshot["generated_at"]
     report = envelope["report"]
     assert report["start"][0]["name"] == "Derrick Henry"
@@ -106,7 +109,7 @@ def test_lineup_publish_posts_rendered_report_with_context(tmp_path, monkeypatch
 def test_lineup_publish_reports_the_locked_snapshot_it_did_not_replace(tmp_path, monkeypatch):
     env = _synced_lineup_env(tmp_path)
     assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
-    original = SnapshotCache(tmp_path / "snapshots").read_json(lineup_snapshot_key(2024, 1))
+    original = SnapshotCache(tmp_path / "snapshots").read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     posted = _capture(monkeypatch)
     result = runner.invoke(app, ["lineup", "2024", "--publish"], env=env)
     assert result.exit_code == 0, result.output
@@ -135,7 +138,7 @@ def test_publish_failure_prints_worker_error_and_exits_1(tmp_path, monkeypatch):
     assert "stale_report" in result.output
     assert "newer stored" in result.output
     assert "sekrit" not in result.output
-    assert SnapshotCache(tmp_path / "snapshots").has(lineup_snapshot_key(2024, 1))
+    assert SnapshotCache(tmp_path / "snapshots").has(lineup_snapshot_key(2024, 1, LEAGUE))
 
 
 def test_publish_transport_failure_never_leaks_the_key(tmp_path, monkeypatch):
@@ -161,7 +164,7 @@ def test_retro_publish_posts_scored_week_and_actuals_synced_at(tmp_path, monkeyp
     assert result.exit_code == 0, result.output
     assert "Published retro week 1" in result.output
     envelope = posted[0]["body"]
-    assert posted[0]["url"].endswith("/api/inseason/retro")
+    assert posted[0]["url"].endswith("/api/inseason/retro?league=yahoo%3A1.l.sit")
     assert envelope["kind"] == "retro"
     assert envelope["week"] == 1
     assert envelope["team_name"] == "Brian's Team"
@@ -183,7 +186,7 @@ def test_digest_publish_posts_after_the_llm_step(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "Published digest week 1" in result.output
     envelope = posted[0]["body"]
-    assert posted[0]["url"].endswith("/api/inseason/digest")
+    assert posted[0]["url"].endswith("/api/inseason/digest?league=yahoo%3A1.l.sit")
     assert envelope["kind"] == "digest"
     assert envelope["week"] == 1
     assert envelope["team_name"] == "Brian's Team"
@@ -204,7 +207,7 @@ def test_ros_publish_posts_the_full_report_not_the_limit_slice(tmp_path, monkeyp
     assert result.exit_code == 0, result.output
     assert "Published ros week 1" in result.output
     envelope = posted[0]["body"]
-    assert posted[0]["url"].endswith("/api/inseason/ros")
+    assert posted[0]["url"].endswith("/api/inseason/ros?league=yahoo%3A1.l.sit")
     assert envelope["kind"] == "ros"
     assert envelope["week"] == 1
     assert envelope["team_name"] == "Brian's Team"

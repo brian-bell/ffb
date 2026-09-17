@@ -26,6 +26,7 @@ def _routes():
         f"/v1/league/{LEAGUE_ID}/rosters": _load("rosters.json"),
         f"/v1/league/{LEAGUE_ID}/users": _load("users.json"),
         "/v1/state/nfl": _load("state_nfl.json"),
+        f"/v1/league/{LEAGUE_ID}/matchups/2": _load("matchups_week2.json"),
     }
 
 
@@ -57,8 +58,10 @@ def _source(tmp_path, recorder=None, routes=None):
 def test_snapshot_keys_are_namespaced_under_sleeper():
     assert sl.snapshot_key(LEAGUE_ID, "league") == f"sleeper/league_{LEAGUE_ID}_league"
     assert sl.state_snapshot_key() == "sleeper/state_nfl"
-    assert not hasattr(sl, "matchup_snapshot_key")
-    assert not hasattr(sl, "fetch_matchups")
+    # Unlike the current-state keys, the matchups key carries its week, so
+    # replaying it serves the same starters the live endpoint would.
+    assert sl.matchups_snapshot_key(LEAGUE_ID, 2) == f"sleeper/league_{LEAGUE_ID}_matchups_week2"
+    assert sl.matchups_snapshot_key(LEAGUE_ID, 2) != sl.matchups_snapshot_key(LEAGUE_ID, 3)
 
 
 def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
@@ -149,3 +152,46 @@ def test_from_env_requires_both_sleeper_vars(tmp_path):
     )
     assert source.league_id == LEAGUE_ID
     assert source.user_id == USER_ID
+
+
+def _user_starters(bundle):
+    user = next(team for team in bundle.teams if team["is_user_team"])
+    roster = next(r for r in bundle.rosters if r["team_key"] == user["team_key"])
+    return [p["native_id"] for p in roster["players"] if p["selected_position"] != "BN"]
+
+
+def test_backfill_takes_starters_from_matchups_not_current_rosters(tmp_path):
+    """/rosters is current state and cannot answer who started in a past week."""
+    requests = []
+    source = _source(tmp_path, recorder=requests)
+    backfilled = source.fetch(2026, week=2)
+
+    assert backfilled.league["current_week"] == 2
+    assert all(roster["week"] == 2 for roster in backfilled.rosters)
+    assert f"/v1/league/{LEAGUE_ID}/matchups/2" in [r.url.path for r in requests]
+
+    # The week-2 matchup started Derrick Henry (3198); current /rosters starts
+    # Slow Back instead, so the two must disagree.
+    started = _user_starters(backfilled)
+    assert "3198" in started
+    assert "slow" not in started
+
+    current = _source(tmp_path).fetch(2026)
+    assert "slow" in _user_starters(current)
+
+
+def test_backfill_snapshots_the_week_and_replays_it_offline(tmp_path):
+    source = _source(tmp_path)
+    source.fetch(2026, week=2)
+    names = {path.name for path in (tmp_path / "snapshots" / "sleeper").glob("*.json")}
+    assert f"league_{LEAGUE_ID}_matchups_week2.json" in names
+
+    # A past week never changes, so the replay serves the same starters.
+    replayed = _source(tmp_path, routes={}).fetch(2026, week=2, offline=True)
+    assert "3198" in _user_starters(replayed)
+
+
+def test_current_week_fetch_never_requests_matchups(tmp_path):
+    requests = []
+    _source(tmp_path, recorder=requests).fetch(2026)
+    assert not any("/matchups/" in r.url.path for r in requests)

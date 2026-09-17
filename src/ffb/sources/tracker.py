@@ -80,11 +80,14 @@ def fetch_actuals(client: httpx.Client, cfg: TrackerConfig, season: int, week: i
     return response.json()
 
 
-def fetch_league_bundle(client: httpx.Client, cfg: TrackerConfig) -> Any | None:
+def fetch_league_bundle(
+    client: httpx.Client, cfg: TrackerConfig, league_key: str | None = None
+) -> Any | None:
     """Return the Worker's last accepted LeagueBundle, or ``None`` when none is stored."""
     url = f"{cfg.base_url}/api/league/bundle"
-    log.info("api request provider=tracker method=GET url=%s", url)
-    response = client.get(url, headers=_headers(cfg), timeout=30.0)
+    params = {} if league_key is None else {"league": league_key}
+    log.info("api request provider=tracker method=GET url=%s league=%s", url, league_key)
+    response = client.get(url, params=params, headers=_headers(cfg), timeout=30.0)
     log.info("api response provider=tracker status=%s", response.status_code)
     if response.status_code == 404:
         return None
@@ -92,17 +95,28 @@ def fetch_league_bundle(client: httpx.Client, cfg: TrackerConfig) -> Any | None:
     return response.json()
 
 
-def publish_inseason(client: httpx.Client, cfg: TrackerConfig, envelope: dict[str, Any]) -> Any:
-    """POST one in-season envelope; return the Worker's summary or raise TrackerPublishError."""
+def publish_inseason(
+    client: httpx.Client,
+    cfg: TrackerConfig,
+    envelope: dict[str, Any],
+    league_key: str | None = None,
+) -> Any:
+    """POST one in-season envelope; return the Worker's summary or raise TrackerPublishError.
+
+    ``league_key`` selects which league's KV slot the Worker writes. Omitting it
+    means the default league, which is what the pre-rekey keys held.
+    """
     kind = envelope["kind"]
     url = f"{cfg.base_url}/api/inseason/{kind}"
+    params = {} if league_key is None else {"league": league_key}
     log.info(
-        "api request provider=tracker method=POST url=%s season=%s week=%s",
+        "api request provider=tracker method=POST url=%s season=%s week=%s league=%s",
         url,
         envelope.get("season"),
         envelope.get("week"),
+        league_key,
     )
-    response = client.post(url, json=envelope, headers=_headers(cfg), timeout=60.0)
+    response = client.post(url, json=envelope, params=params, headers=_headers(cfg), timeout=60.0)
     log.info("api response provider=tracker status=%s", response.status_code)
     if response.status_code >= 400:
         try:

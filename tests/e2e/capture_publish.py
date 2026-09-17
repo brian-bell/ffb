@@ -14,6 +14,7 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 KINDS = ("lineup", "digest", "retro", "ros")
 
@@ -40,8 +41,11 @@ def main() -> None:
             self.wfile.write(payload)
 
         def do_POST(self) -> None:  # noqa: N802
-            kind = self.path.rsplit("/", 1)[-1]
-            if not self.path.startswith("/api/inseason/") or kind not in KINDS:
+            # The publish URL carries ?league=, as the Worker's route does, so
+            # the kind comes from the path alone.
+            path = urlsplit(self.path).path
+            kind = path.rsplit("/", 1)[-1]
+            if not path.startswith("/api/inseason/") or kind not in KINDS:
                 self._json(404, {"error": "not found"})
                 return
             if self.headers.get("Authorization") != expected_auth:

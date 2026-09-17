@@ -12,6 +12,9 @@ from .cli_plain import PlainCliRunner
 
 runner = PlainCliRunner()
 FIXTURE = Path(__file__).parent / "fixtures" / "yahoo_lineup_sitstart.json"
+# The sit/start fixture is the mock league 1.l.sit, not the configured Yahoo
+# league, so its snapshots nest under its own segment.
+LEAGUE = "yahoo:1.l.sit"
 ACTUALS = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
 XWALK = Path(__file__).parent / "fixtures" / "ff_playerids_sample.json"
 
@@ -105,7 +108,7 @@ def test_lineup_refuses_to_replace_an_existing_snapshot(tmp_path):
     first = runner.invoke(app, ["lineup", "2024"], env=env)
     assert first.exit_code == 0, first.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    original = cache.read_json(lineup_snapshot_key(2024, 1))
+    original = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     assert original["report"]["start"][0]["name"] == "Derrick Henry"
 
     store = Store(env["FFB_DB_PATH"])
@@ -119,7 +122,7 @@ def test_lineup_refuses_to_replace_an_existing_snapshot(tmp_path):
     second = runner.invoke(app, ["lineup", "2024"], env=env)
     assert second.exit_code == 0, second.output
     assert "already exists" in second.output
-    stored = cache.read_json(lineup_snapshot_key(2024, 1))
+    stored = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     assert stored["generated_at"] == original["generated_at"]
     assert stored["report"]["start"][0]["name"] == "Derrick Henry"
     assert stored["report"]["optimal_total"] == original["report"]["optimal_total"]
@@ -134,10 +137,10 @@ def test_lineup_writes_a_recommendation_snapshot(tmp_path):
     result = runner.invoke(app, ["lineup", "2024"], env=env)
     assert result.exit_code == 0, result.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    snapshot = cache.read_json(lineup_snapshot_key(2024, 1))
+    snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     assert snapshot["kind"] == "lineup_recommendation"
     assert snapshot["week"] == 1
-    assert any(row["yahoo_player_id"] == "29279" for row in snapshot["players"])
+    assert any(row["native_id"] == "29279" for row in snapshot["players"])
     assert snapshot["report"]["start"][0]["name"] == "Derrick Henry"
 
 
@@ -163,7 +166,7 @@ def test_retro_compares_advice_to_actuals_fixture(tmp_path):
     assert "Sit miss" in result.output
     assert "sleeper" in result.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    stored = cache.read_json(actuals_snapshot_key(2024, 1))
+    stored = cache.read_json(actuals_snapshot_key(2024, 1, LEAGUE))
     assert stored["league"]["week"] == 1
 
 
@@ -279,7 +282,7 @@ def test_retro_pulls_actuals_from_tracker_when_no_local_snapshot(tmp_path, monke
     assert "Recommended 46.5" in " ".join(result.output.split())
     assert "sekrit" not in result.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    assert cache.read_json(actuals_snapshot_key(2024, 1))["league"]["week"] == 1
+    assert cache.read_json(actuals_snapshot_key(2024, 1, LEAGUE))["league"]["week"] == 1
 
     # Second run replays the snapshot and never calls the Worker.
     def explode(_request):
@@ -299,7 +302,7 @@ def test_retro_reports_when_tracker_has_no_actuals_for_week(tmp_path, monkeypatc
     result = runner.invoke(app, ["retro", "2024"], env=env)
     assert result.exit_code == 1
     assert "tracker has no weekly actuals" in result.output.lower()
-    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1))
+    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1, LEAGUE))
 
 
 def test_retro_rejects_invalid_tracker_payload_without_snapshotting(tmp_path, monkeypatch):
@@ -311,7 +314,7 @@ def test_retro_rejects_invalid_tracker_payload_without_snapshotting(tmp_path, mo
     result = runner.invoke(app, ["retro", "2024"], env=env)
     assert result.exit_code == 1
     assert "invalid" in result.output.lower()
-    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1))
+    assert not SnapshotCache(tmp_path / "snapshots").has(actuals_snapshot_key(2024, 1, LEAGUE))
 
 
 def test_retro_reports_tracker_http_failure(tmp_path, monkeypatch):
@@ -330,7 +333,7 @@ def test_lineup_force_replaces_an_existing_snapshot(tmp_path):
     env = _seed_lineup_store(tmp_path)
     _ready_lineup(env)
     cache = SnapshotCache(tmp_path / "snapshots")
-    original = cache.read_json(lineup_snapshot_key(2024, 1))
+    original = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     store = Store(env["FFB_DB_PATH"])
     store.upsert_projections(
         [
@@ -344,7 +347,7 @@ def test_lineup_force_replaces_an_existing_snapshot(tmp_path):
     forced = runner.invoke(app, ["lineup", "2024", "--force"], env=env)
     assert forced.exit_code == 0, forced.output
     assert "replaced" in forced.output.lower()
-    stored = cache.read_json(lineup_snapshot_key(2024, 1))
+    stored = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     assert stored["generated_at"] != original["generated_at"]
     assert stored["report"]["start"] != original["report"]["start"]
 
@@ -370,10 +373,10 @@ def test_lineup_skips_snapshot_for_a_past_week_unless_forced(tmp_path):
     result = runner.invoke(app, ["lineup", "2024", "--week", "1"], env=env)
     assert result.exit_code == 0, result.output
     assert "post-hoc" in result.output.lower()
-    assert not cache.has(lineup_snapshot_key(2024, 1))
+    assert not cache.has(lineup_snapshot_key(2024, 1, LEAGUE))
     forced = runner.invoke(app, ["lineup", "2024", "--week", "1", "--force"], env=env)
     assert forced.exit_code == 0, forced.output
-    assert cache.has(lineup_snapshot_key(2024, 1))
+    assert cache.has(lineup_snapshot_key(2024, 1, LEAGUE))
 
 
 def test_retro_fixture_refuses_to_replace_different_actuals_unless_forced(tmp_path):
@@ -382,7 +385,7 @@ def test_retro_fixture_refuses_to_replace_different_actuals_unless_forced(tmp_pa
     first = runner.invoke(app, ["retro", "2024", "--fixture", str(ACTUALS)], env=env)
     assert first.exit_code == 0, first.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    original = cache.read_json(actuals_snapshot_key(2024, 1))
+    original = cache.read_json(actuals_snapshot_key(2024, 1, LEAGUE))
 
     # Identical fixture replays quietly.
     same = runner.invoke(app, ["retro", "2024", "--fixture", str(ACTUALS)], env=env)
@@ -396,11 +399,11 @@ def test_retro_fixture_refuses_to_replace_different_actuals_unless_forced(tmp_pa
     refused = runner.invoke(app, ["retro", "2024", "--fixture", str(path)], env=env)
     assert refused.exit_code == 1, refused.output
     assert "--force" in refused.output
-    assert cache.read_json(actuals_snapshot_key(2024, 1)) == original
+    assert cache.read_json(actuals_snapshot_key(2024, 1, LEAGUE)) == original
 
     forced = runner.invoke(app, ["retro", "2024", "--fixture", str(path), "--force"], env=env)
     assert forced.exit_code == 0, forced.output
-    assert cache.read_json(actuals_snapshot_key(2024, 1))["players"] != original["players"]
+    assert cache.read_json(actuals_snapshot_key(2024, 1, LEAGUE))["players"] != original["players"]
 
 
 def _capture_render(monkeypatch, report):
@@ -435,7 +438,7 @@ def _retro_render(**changes):
                 "name": "Malik Washington",
                 "actual": 16.8,
                 "projected": 8.0,
-                "yahoo_player_id": "40393",
+                "native_id": "40393",
             }
         ],
         "hindsight_sit": [
@@ -443,7 +446,7 @@ def _retro_render(**changes):
                 "name": "Rico Dowdle",
                 "actual": 3.1,
                 "projected": 12.0,
-                "yahoo_player_id": "40904",
+                "native_id": "40904",
             }
         ],
         "source_accuracy": [],
@@ -480,13 +483,13 @@ def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
         "name": "Good Def",
         "actual": 10.0,
         "projected": 12.0,
-        "yahoo_player_id": "100002",
+        "native_id": "100002",
     }
     sit = {
         "name": "Bad Def",
         "actual": 4.0,
         "projected": 8.0,
-        "yahoo_player_id": "100001",
+        "native_id": "100001",
     }
     output = _capture_render(
         monkeypatch,
@@ -509,8 +512,8 @@ def test_retro_cli_says_advice_matched_hindsight_when_sets_agree(monkeypatch):
 
 
 def test_retro_cli_shows_hindsight_reversal_of_followed_advice(monkeypatch):
-    henry = {"name": "Derrick Henry", "actual": 3.0, "projected": 18.0, "yahoo_player_id": "1"}
-    slow = {"name": "Slow Guy", "actual": 21.0, "projected": 6.0, "yahoo_player_id": "2"}
+    henry = {"name": "Derrick Henry", "actual": 3.0, "projected": 18.0, "native_id": "1"}
+    slow = {"name": "Slow Guy", "actual": 21.0, "projected": 6.0, "native_id": "2"}
     output = _capture_render(
         monkeypatch,
         _retro_render(

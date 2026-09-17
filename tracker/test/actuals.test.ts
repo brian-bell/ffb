@@ -11,7 +11,7 @@ function bearer(key: string): HeadersInit {
 }
 
 describe("parseActuals", () => {
-  it("accepts the closed v1 fixture", () => {
+  it("accepts the closed v2 fixture", () => {
     const parsed = parseActuals(fixture, { season: 2024 });
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -47,7 +47,7 @@ describe("Worker /api/actuals", () => {
     const res = await SELF.fetch("https://x/api/actuals", {
       method: "POST",
       headers: { ...bearer(KEY), "content-type": "application/json" },
-      body: JSON.stringify({ ...fixture, schema_version: 2 }),
+      body: JSON.stringify({ ...fixture, schema_version: 3 }),
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "invalid_actuals" });
@@ -92,5 +92,33 @@ describe("Worker /api/actuals", () => {
       headers: bearer(KEY),
     });
     expect(res.status).toBe(405);
+  });
+});
+
+describe("parseActuals schema-v1 back-compat shim", () => {
+  function v1Actuals(extra: Record<string, unknown> = {}): Record<string, unknown> {
+    const data = structuredClone(fixture);
+    data.schema_version = 1;
+    data.players = (data.players as Array<Record<string, unknown>>).map((player) => {
+      const { native_id, native_player_key, ...rest } = player;
+      return { ...rest, yahoo_player_id: native_id, yahoo_player_key: native_player_key, ...extra };
+    });
+    return data;
+  }
+
+  it("upgrades a v1 payload's identity fields to the v2 spelling", () => {
+    const parsed = parseActuals(v1Actuals(), { season: 2024 });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.bundle.schema_version).toBe(2);
+    expect(parsed.bundle.players[0]!.native_id).toBeTruthy();
+    expect(parsed.bundle.players[0]).not.toHaveProperty("yahoo_player_id");
+  });
+
+  it("rejects a payload that mixes v1 and v2 identity fields", () => {
+    const parsed = parseActuals(v1Actuals({ native_id: "collide" }), { season: 2024 });
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.message).toContain("mix schema-v1 and schema-v2");
   });
 });

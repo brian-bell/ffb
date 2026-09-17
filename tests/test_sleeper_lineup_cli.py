@@ -1,10 +1,19 @@
-"""``ffb lineup --league sleeper`` is fixture-backed and does not write league_*."""
+"""Sleeper sit/start: ``league sync --league sleeper`` then ``lineup --league sleeper``.
+
+The Sleeper path is the Yahoo path with a different stored league, not a
+provider-specific command body. What stays Yahoo-only is the sit/start snapshot
+and tracker KV, which are not league-scoped yet.
+"""
 
 import json
 from pathlib import Path
+from urllib.parse import quote
+
+import httpx
 
 from ffb import config
 from ffb.cli import app
+from ffb.league_context import load_league_context
 from ffb.retro import lineup_snapshot_key
 from ffb.snapshot import SnapshotCache
 from ffb.sources.crosswalk import parse_crosswalk
@@ -54,6 +63,7 @@ def _seed_snapshots(tmp_path):
         f"sleeper/league_{LEAGUE_ID}_users": "users.json",
         "sleeper/state_nfl": "state_nfl.json",
         "sleeper/players_nfl": "players.json",
+        f"sleeper/league_{LEAGUE_ID}_matchups_week2": "matchups_week2.json",
     }
     for key, name in mapping.items():
         cache.put_json(key, json.loads((FIXTURES / name).read_text()))
@@ -171,9 +181,21 @@ def _seed_store(tmp_path):
     return env
 
 
-def test_sleeper_lineup_prints_sit_start_with_full_ppr(tmp_path):
+SYNC = ["league", "sync", "2026", "--league", "sleeper", "--offline"]
+LINEUP = ["lineup", "2026", "--league", "sleeper"]
+
+
+def _synced(tmp_path):
+    """Seed snapshots + crosswalk, then persist the Sleeper league like Yahoo's."""
     env = _seed_store(tmp_path)
-    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
+    result = runner.invoke(app, SYNC, env=env)
+    assert result.exit_code == 0, result.output
+    return env
+
+
+def test_sleeper_lineup_prints_sit_start_with_full_ppr(tmp_path):
+    env = _synced(tmp_path)
+    result = runner.invoke(app, LINEUP, env=env)
     assert result.exit_code == 0, result.output
     output = " ".join(result.output.split())
     assert "Week 2" in result.output
@@ -184,122 +206,164 @@ def test_sleeper_lineup_prints_sit_start_with_full_ppr(tmp_path):
     assert "Sit" in result.output
     # Chase: 10 rec * 1.0 PPR + 80 * 0.1 = 18.0 (Yahoo half-PPR would be 13.0)
     assert "18.0" in output
-    assert "Sleeper league settings" in result.output
-    assert "full PPR" not in result.output
     assert "configured Yahoo" not in result.output
 
 
-def test_sleeper_lineup_does_not_write_league_state(tmp_path):
-    env = _seed_store(tmp_path)
-    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
-    assert result.exit_code == 0, result.output
+def test_sleeper_league_state_persists_beside_yahoo(tmp_path):
+    """ffb-ct7.3 made league_* league-keyed, so the sync now writes its own rows."""
+    env = _synced(tmp_path)
     store = Store(env["FFB_DB_PATH"])
-    store.init_schema()
-    assert store.league_context(2026) is None
-    store.close()
+    try:
+        assert store.league_keys(2026) == [config.SLEEPER_LEAGUE_KEY]
+        state = store.league_context(2026, config.SLEEPER_LEAGUE_KEY)
+        assert state["source"] == "sleeper"
+        assert state["current_week"] == 2
+    finally:
+        store.close()
 
 
-def test_sleeper_lineup_writes_no_sit_start_snapshot(tmp_path):
-    """Nothing reads a Sleeper advice snapshot yet; Yahoo keeps lineup/ to itself."""
-    env = _seed_store(tmp_path)
-    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
+def test_sleeper_lineup_is_scored_with_its_own_weights_not_yahoos(tmp_path):
+    """The whole point of the epic: never score one league with another's weights."""
+    env = _synced(tmp_path)
+    store = Store(env["FFB_DB_PATH"])
+    try:
+        context = load_league_context(store, 2026, config.SLEEPER_LEAGUE_KEY)
+    finally:
+        store.close()
+    assert context.scoring is not config.LEAGUE_SCORING
+    assert context.scoring.weights["rec"] == 1.0
+    assert config.LEAGUE_SCORING.weights.get("rec") != 1.0
+    assert context.league_key == config.SLEEPER_LEAGUE_KEY
+    # Settings the league scores that no projection source emits are reported.
+    assert "fgmiss" in context.unmodeled_scoring
+
+
+def test_sleeper_lineup_snapshots_under_its_own_league_not_yahoos(tmp_path):
+    """Snapshot keys carry the league, so Sleeper cannot overwrite Yahoo's advice."""
+    env = _synced(tmp_path)
+    result = runner.invoke(app, LINEUP, env=env)
     assert result.exit_code == 0, result.output
     cache = SnapshotCache(tmp_path / "snapshots")
+    assert cache.has(lineup_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+    # The configured Yahoo league's flat path stays untouched.
     assert not cache.has(lineup_snapshot_key(2026, 2))
-    assert not (tmp_path / "snapshots" / "lineup").exists()
 
 
-def test_sleeper_lineup_rejects_non_current_week(tmp_path):
-    env = _seed_store(tmp_path)
+def test_sleeper_lineup_publishes_to_its_own_kv_slot(tmp_path, monkeypatch):
+    """--publish works for Sleeper now, and names its league on the request."""
+    env = _synced(tmp_path)
+    posted = []
+
+    def fake_post(self, url, **kwargs):
+        posted.append({"url": str(httpx.URL(url, params=kwargs.get("params") or {}))})
+
+        class _Response:
+            status_code = 200
+            reason_phrase = "OK"
+
+            @staticmethod
+            def json():
+                return {"kind": "lineup", "season": 2026, "week": 2}
+
+        return _Response()
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
     result = runner.invoke(
-        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "1"], env=env
+        app,
+        [*LINEUP, "--publish"],
+        env={**env, "FFB_TRACKER_URL": "https://tracker.test", "FFB_TRACKER_API_KEY": "k"},
     )
+    assert result.exit_code == 0, result.output
+    assert posted, "publish did not reach the tracker"
+    assert posted[0]["url"].endswith(
+        f"/api/inseason/lineup?league={quote(config.SLEEPER_LEAGUE_KEY, safe='')}"
+    )
+
+
+def test_sleeper_lineup_for_a_week_without_data_says_which_week(tmp_path):
+    """A past week has neither stored rosters nor weekly projections; say so."""
+    env = _synced(tmp_path)
+    result = runner.invoke(app, [*LINEUP, "--week", "1"], env=env)
     assert result.exit_code == 1
-    output = result.output
-    assert "current roster week" in output
-    assert "week 2" in output
-    assert "--week 1" in output
+    assert "week 1" in result.output
     assert "Derrick Henry" not in result.output
 
 
 def test_sleeper_lineup_accepts_explicit_current_week(tmp_path):
-    env = _seed_store(tmp_path)
-    result = runner.invoke(
-        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--week", "2"], env=env
-    )
+    env = _synced(tmp_path)
+    result = runner.invoke(app, [*LINEUP, "--week", "2"], env=env)
     assert result.exit_code == 0, result.output
     assert "Week 2" in result.output
     assert "Derrick Henry" in result.output
-
-
-def test_sleeper_lineup_rejects_force(tmp_path):
-    env = _seed_store(tmp_path)
-    result = runner.invoke(
-        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--force"], env=env
-    )
-    assert result.exit_code != 0
-    assert "force" in result.output.lower()
-    assert "Traceback" not in result.output
-
-
-def test_sleeper_lineup_has_no_refresh_flag(tmp_path):
-    """Sit/start refetches every run, so there is nothing for --refresh to do."""
-    env = _seed_store(tmp_path)
-    result = runner.invoke(
-        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--refresh"], env=env
-    )
-    assert result.exit_code == 2
-
-
-def test_sleeper_lineup_rejects_publish(tmp_path):
-    env = _seed_store(tmp_path)
-    result = runner.invoke(
-        app, ["lineup", "2026", "--league", "sleeper", "--offline", "--publish"], env=env
-    )
-    assert result.exit_code != 0
-    assert "publish" in result.output.lower()
 
 
 def test_sleeper_lineup_warns_about_unmatched_roster_players(tmp_path):
     """An unmatched id scores zero and is advised to sit; that must not look real."""
     env = _seed_store(tmp_path)
     store = Store(env["FFB_DB_PATH"])
-    store.init_schema()
     store.conn.execute("DELETE FROM crosswalk WHERE sleeper_id = '3198'")
     store.close()
-    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
+    assert runner.invoke(app, SYNC, env=env).exit_code == 0
+    result = runner.invoke(app, LINEUP, env=env)
     assert result.exit_code == 0, result.output
-    output = result.output
-    assert "did not match the crosswalk" in output
-    assert "score zero" in output
+    assert "did not match the crosswalk" in result.output
+    assert "score zero" in result.output
 
 
-def test_sleeper_lineup_requires_env(tmp_path):
+def test_sleeper_league_sync_requires_env(tmp_path):
     env = _seed_store(tmp_path)
     del env["FFB_SLEEPER_LEAGUE_ID"]
-    result = runner.invoke(app, ["lineup", "2026", "--league", "sleeper", "--offline"], env=env)
+    result = runner.invoke(app, SYNC, env=env)
     assert result.exit_code == 2
     assert "FFB_SLEEPER_LEAGUE_ID" in result.output
 
 
-def test_default_lineup_still_requires_yahoo_league_state(tmp_path):
+def test_league_sync_rejects_offline_without_sleeper(tmp_path):
+    env = _seed_store(tmp_path)
+    result = runner.invoke(app, ["league", "sync", "2026", "--offline"], env=env)
+    assert result.exit_code != 0
+    assert "offline" in result.output.lower()
+
+
+def test_lineup_without_any_stored_league_still_asks_for_a_sync(tmp_path):
     env = _seed_store(tmp_path)
     result = runner.invoke(app, ["lineup", "2026"], env=env)
     assert result.exit_code == 1
     assert "league sync" in result.output
 
 
-def test_report_scoring_provenance_does_not_special_case_sleeper(monkeypatch):
-    """Sleeper lineup prints provenance itself; this helper stays Yahoo/fixture."""
-    from io import StringIO
+def test_lineup_names_an_unknown_league_rather_than_guessing(tmp_path):
+    env = _synced(tmp_path)
+    result = runner.invoke(app, ["lineup", "2026", "--league", "yahoo"], env=env)
+    assert result.exit_code == 1
+    assert "yahoo" in result.output.lower()
+    assert config.SLEEPER_LEAGUE_KEY in result.output
 
-    from rich.console import Console
 
-    from ffb import cli as cli_mod
+def test_backfilled_week_reads_matchup_starters_not_current_rosters(tmp_path):
+    """The whole point of /matchups: a past week's lineup is recoverable."""
+    env = _seed_store(tmp_path)
+    backfill = runner.invoke(app, [*SYNC, "--week", "2"], env=env)
+    assert backfill.exit_code == 0, backfill.output
+    assert "week 2" in backfill.output
 
-    buffer = StringIO()
-    monkeypatch.setattr(cli_mod, "console", Console(file=buffer, force_terminal=False))
-    cli_mod._report_scoring_provenance(type("L", (), {"scoring_provenance": "sleeper"})())
-    text = buffer.getvalue()
-    assert "Sleeper" not in text
-    assert "mock fixture league settings" in text
+    store = Store(env["FFB_DB_PATH"])
+    try:
+        rows = store.league_roster_rows(2026, week=2, league_key=config.SLEEPER_LEAGUE_KEY)
+    finally:
+        store.close()
+    started = {row["native_id"] for row in rows if row["selected_position"] != "BN"}
+    # Week 2 started Derrick Henry (3198); current /rosters starts Slow Back.
+    assert "3198" in started
+    assert "slow" not in started
+
+
+def test_league_sync_week_applies_only_to_a_live_sleeper_sync(tmp_path):
+    env = _seed_store(tmp_path)
+    fixture = Path(__file__).parent / "fixtures" / "yahoo_league_minimal.json"
+    result = runner.invoke(
+        app, ["league", "sync", "2024", "--fixture", str(fixture), "--week", "2"], env=env
+    )
+    assert result.exit_code != 0
+    assert "week" in result.output.lower()
+    assert "Traceback" not in result.output

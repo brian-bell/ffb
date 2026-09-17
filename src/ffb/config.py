@@ -208,66 +208,109 @@ YAHOO_STAT_MAP: dict[int, tuple[str, ...]] = {
     56: ("pts_allow_35p",),
 }
 
-# Namespaced league keys for later DuckDB / Worker KV multi-league storage.
-# Yahoo remains the occupant of league_* and league:bundle:current; this spike
-# uses the Sleeper key in code, comments, and snapshots only.
+# Namespaced league keys: "<provider>:<the provider's own league id>". This is
+# the partition key DuckDB league_* and Worker KV are keyed by, so two leagues
+# coexist in one season. A bundle's own ``league.league_key`` is the provider's
+# raw key; namespaced_league_key turns the pair into this form.
 YAHOO_LEAGUE_KEY = "yahoo:470.l.928421"
 SLEEPER_LEAGUE_ID = "1395854363380965376"
 SLEEPER_USER_ID = "1395866680286003200"
 SLEEPER_LEAGUE_KEY = f"sleeper:{SLEEPER_LEAGUE_ID}"
 
-# Sleeper scoring_settings key -> our stat keys. Fan-out covers projection
-# aliases (def_td -> def_fum_td/pass_int_td; fgm_50_59 -> fgm_50p) so weekly
-# consensus lines score. Nonzero keys absent here are unsupported and must
-# fail the mapper — never fall back to Yahoo LEAGUE_SCORING.
-SLEEPER_STAT_MAP: dict[str, tuple[str, ...]] = {
-    "pass_yd": ("pass_yd",),
-    "pass_td": ("pass_td",),
-    "pass_int": ("pass_int",),
-    "pass_2pt": ("pass_2pt",),
-    "rush_yd": ("rush_yd",),
-    "rush_td": ("rush_td",),
-    "rush_2pt": ("rush_2pt",),
-    "rec": ("rec",),
-    "rec_yd": ("rec_yd",),
-    "rec_td": ("rec_td",),
-    "rec_2pt": ("rec_2pt",),
-    "fum_lost": ("fum_lost",),
-    "fum_rec": ("fum_rec",),
-    "fum_rec_td": ("fum_rec_td",),
-    "sack": ("sack",),
-    "int": ("int",),
-    "safe": ("safe",),
-    "blk_kick": ("blk_kick",),
+# Bundle sources that describe the Yahoo league LEAGUE_SCORING / LEAGUE_ROSTER_SLOTS
+# were written for. "fixture" is a Yahoo-shaped mock, so it shares the namespace.
+YAHOO_BUNDLE_SOURCES = frozenset({"yahoo", "fixture"})
+
+
+def league_provider(source: str) -> str:
+    """The league-key namespace (and crosswalk id column) for a bundle source."""
+    return "yahoo" if source in YAHOO_BUNDLE_SOURCES else source
+
+
+def namespaced_league_key(source: str, league_key: str) -> str:
+    """Combine a bundle's source and raw ``league.league_key`` into the partition key."""
+    provider = league_provider(source)
+    key = str(league_key or "")
+    if not provider:
+        return key
+    return key if key.startswith(f"{provider}:") else f"{provider}:{key}"
+
+
+# Sleeper scoring_settings -> our stat keys.
+#
+# Most Sleeper keys are already our keys, so they need no table: a key in
+# SLEEPER_SCORED_STATS maps to itself. Only genuine renames and fan-outs get an
+# entry in SLEEPER_STAT_ALIASES (def_td covers def_fum_td/pass_int_td so weekly
+# consensus lines score; fgm_50_59 also feeds fgm_50p).
+#
+# A nonzero key in neither table is unsupported and must fail the mapper --
+# never fall back to Yahoo LEAGUE_SCORING.
+SLEEPER_STAT_ALIASES: dict[str, tuple[str, ...]] = {
     "def_td": ("def_td", "def_fum_td", "pass_int_td"),
     # A player's own return TD stays on the player row: _normalize_stats only
     # folds pr_td/def_kr_td into def_ret_td for DEF rows.
     "st_td": ("pr_td", "def_kr_td"),
     "def_st_td": ("def_ret_td",),
-    "def_2pt": ("def_2pt",),
-    "ff": ("ff",),
-    "st_ff": ("st_ff",),
-    "def_st_ff": ("def_st_ff",),
-    "st_fum_rec": ("st_fum_rec",),
-    "def_st_fum_rec": ("def_st_fum_rec",),
-    "pts_allow_0": ("pts_allow_0",),
-    "pts_allow_1_6": ("pts_allow_1_6",),
-    "pts_allow_7_13": ("pts_allow_7_13",),
-    "pts_allow_14_20": ("pts_allow_14_20",),
-    "pts_allow_21_27": ("pts_allow_21_27",),
-    "pts_allow_28_34": ("pts_allow_28_34",),
-    "pts_allow_35p": ("pts_allow_35p",),
-    "fgm_0_19": ("fgm_0_19",),
-    "fgm_20_29": ("fgm_20_29",),
-    "fgm_30_39": ("fgm_30_39",),
-    "fgm_40_49": ("fgm_40_49",),
     "fgm_50_59": ("fgm_50_59", "fgm_50p"),
-    "fgm_60p": ("fgm_60p",),
-    "fgm_50p": ("fgm_50p",),
-    "xpm": ("xpm",),
-    "fgmiss": ("fgmiss",),
-    "xpmiss": ("xpmiss",),
 }
+
+# Sleeper keys that map to themselves and that a projection source actually
+# produces, so a weight on them can change a modeled score.
+SLEEPER_SCORED_STATS = frozenset(
+    {
+        "pass_yd",
+        "pass_td",
+        "pass_int",
+        "pass_2pt",
+        "rush_yd",
+        "rush_td",
+        "rush_2pt",
+        "rec",
+        "rec_yd",
+        "rec_td",
+        "rec_2pt",
+        "fum_lost",
+        "fum_rec",
+        "fum_rec_td",
+        "sack",
+        "int",
+        "safe",
+        "blk_kick",
+        "pts_allow_0",
+        "pts_allow_1_6",
+        "pts_allow_7_13",
+        "pts_allow_14_20",
+        "pts_allow_21_27",
+        "pts_allow_28_34",
+        "pts_allow_35p",
+        "fgm_0_19",
+        "fgm_20_29",
+        "fgm_30_39",
+        "fgm_40_49",
+        "fgm_50p",
+        "xpm",
+        "xpmiss",
+    }
+)
+
+# Sleeper keys the league really scores but that no projection source emits, so
+# a weight on them can never change a modeled score. Verified against the
+# committed 2024 and 2026 Sleeper projection snapshots and ESPN_STAT_MAP:
+# xpmiss IS emitted (47 and 32 rows), so it belongs above, not here. These are
+# reported as unmapped_scoring_rules -- "we do not model this" -- rather than
+# accepted as mapped rules that silently score zero.
+SLEEPER_UNMODELED_STATS = frozenset(
+    {
+        "ff",
+        "st_ff",
+        "def_st_ff",
+        "st_fum_rec",
+        "def_st_fum_rec",
+        "fgmiss",
+        "fgm_60p",
+        "def_2pt",
+    }
+)
 
 NFL_TEAM_CODES = frozenset(ESPN_PRO_TEAM_MAP.values())
 # Source/API abbreviations normalized to the MFL-style codes used by the

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { BOARD_KEY } from "../src/board";
-import { LEAGUE_BUNDLE_KEY } from "../src/league-bundle";
+import { leagueBundleKey } from "../src/league-bundle";
+
+// The fixture's league is yahoo:1.l.mock-1, so its bundle lives under that
+// league's v2 key rather than the old single-league one.
+const LEAGUE_BUNDLE_KEY = leagueBundleKey("yahoo:1.l.mock-1");
 import fixtureJson from "./fixtures/league-bundle.json";
 import boardFixture from "./fixtures/board.json";
 
@@ -64,9 +68,15 @@ describe("Worker /api/league/bundle", () => {
     expect(stored).not.toBeNull();
     expect(JSON.parse(stored!)).toEqual(fixtureJson);
 
-    const fetched = await SELF.fetch(BUNDLE_URL, { headers: bearer() });
+    // Keys carry the league now, so a GET names the league it wants. Without
+    // one it serves the default league, which is not this fixture's.
+    const fetched = await SELF.fetch(
+      `${BUNDLE_URL}?league=${encodeURIComponent("yahoo:1.l.mock-1")}`,
+      { headers: bearer() },
+    );
     expect(fetched.status).toBe(200);
     expect(await fetched.text()).toBe(stored);
+    expect((await SELF.fetch(BUNDLE_URL, { headers: bearer() })).status).toBe(404);
     expect(await env.BOARD.get(BOARD_KEY)).toBe(JSON.stringify(boardFixture));
   });
 

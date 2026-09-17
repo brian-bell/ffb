@@ -8,7 +8,9 @@ import { getBoardText } from "./board";
 import {
   generatedAtMillis,
   inseasonKey,
+  inseasonKeyV1,
   inseasonPrefix,
+  inseasonPrefixV1,
   isInseasonKind,
   parseEnvelope,
   weekFromKey,
@@ -16,6 +18,7 @@ import {
   type InseasonEnvelope,
   type InseasonKind,
 } from "./inseason";
+import { isDefaultLeague, leagueFromParam } from "./league-keys";
 import type { InseasonCard, InseasonView } from "./inseason-view";
 import { MAX_BUNDLE_BYTES } from "./league-api";
 import { getLeagueBundleText } from "./league-bundle";
@@ -45,19 +48,28 @@ export async function handleInseasonApi(
   url: URL,
   pathname: string,
 ): Promise<Response> {
+  const leagueKey = leagueFromParam(url.searchParams.get("league"));
+  if (leagueKey === null) {
+    return error("invalid_request", "league must be a nonempty league key", 400);
+  }
   if (pathname === "/api/inseason") {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    return getDashboard(env, url);
+    return getDashboard(env, url, leagueKey);
   }
   const kind = pathname.slice("/api/inseason/".length);
   if (!isInseasonKind(kind) || kind.includes("/")) {
     return json({ error: "not found" }, 404);
   }
   if (request.method !== "POST") return methodNotAllowed("POST");
-  return postReport(request, env, kind);
+  return postReport(request, env, kind, leagueKey);
 }
 
-async function postReport(request: Request, env: InseasonApiEnv, kind: InseasonKind): Promise<Response> {
+async function postReport(
+  request: Request,
+  env: InseasonApiEnv,
+  kind: InseasonKind,
+  leagueKey: string,
+): Promise<Response> {
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BUNDLE_BYTES) return payloadTooLarge();
   const text = await request.text();
@@ -82,8 +94,10 @@ async function postReport(request: Request, env: InseasonApiEnv, kind: InseasonK
     );
   }
 
-  const key = inseasonKey(envelope.season, kind, envelope.week);
-  const stored = await readEnvelope(env, key);
+  const key = inseasonKey(envelope.season, kind, envelope.week, leagueKey);
+  // Writes go to v2 only. The staleness check still consults the v1 key during
+  // the window, so a republish cannot go backwards past a pre-rekey document.
+  const stored = await readInseason(env, envelope.season, kind, envelope.week, leagueKey);
   // Equal generated_at is an idempotent re-POST after a network error; only a
   // strictly newer stored document wins.
   if (stored && generatedAtMillis(stored) > generatedAtMillis(envelope)) {
@@ -117,6 +131,24 @@ async function publishedBoardSeason(env: InseasonApiEnv): Promise<number | null>
   }
 }
 
+/**
+ * Read one envelope, preferring the v2 key and falling back to v1.
+ *
+ * The v1 keys hold the default league's pre-rekey documents, so only that
+ * league may fall back; another league finding nothing at v2 has nothing.
+ */
+async function readInseason(
+  env: InseasonApiEnv,
+  season: number,
+  kind: InseasonKind,
+  week: number,
+  leagueKey: string,
+): Promise<InseasonEnvelope | null> {
+  const current = await readEnvelope(env, inseasonKey(season, kind, week, leagueKey));
+  if (current !== null || !isDefaultLeague(leagueKey)) return current;
+  return readEnvelope(env, inseasonKeyV1(season, kind, week));
+}
+
 async function readEnvelope(env: InseasonApiEnv, key: string): Promise<InseasonEnvelope | null> {
   const text = await env.BOARD.get(key);
   if (text === null) return null;
@@ -128,18 +160,28 @@ async function readEnvelope(env: InseasonApiEnv, key: string): Promise<InseasonE
   }
 }
 
-async function listWeeks(env: InseasonApiEnv, season: number, kind: InseasonKind): Promise<number[]> {
-  const prefix = inseasonPrefix(season, kind);
+async function listWeeks(
+  env: InseasonApiEnv,
+  season: number,
+  kind: InseasonKind,
+  leagueKey: string,
+): Promise<number[]> {
+  // Both prefixes during the dual-read window, so weeks published before the
+  // rekey keep appearing in the dashboard's week picker.
+  const prefixes = [inseasonPrefix(season, kind, leagueKey)];
+  if (isDefaultLeague(leagueKey)) prefixes.push(inseasonPrefixV1(season, kind));
   const weeks = new Set<number>();
-  let cursor: string | undefined;
-  do {
-    const page = await env.BOARD.list({ prefix, cursor });
-    for (const { name } of page.keys) {
-      const week = weekFromKey(name, season, kind);
-      if (week !== null) weeks.add(week);
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  for (const prefix of prefixes) {
+    let cursor: string | undefined;
+    do {
+      const page = await env.BOARD.list({ prefix, cursor });
+      for (const { name } of page.keys) {
+        const week = weekFromKey(name, season, kind, leagueKey);
+        if (week !== null) weeks.add(week);
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  }
   return [...weeks].sort((a, b) => a - b);
 }
 
@@ -149,8 +191,11 @@ interface LeagueSummary {
   current_week: number | null;
 }
 
-async function leagueSummary(env: InseasonApiEnv): Promise<LeagueSummary> {
-  const text = await getLeagueBundleText(env);
+async function leagueSummary(env: InseasonApiEnv, leagueKey: string): Promise<LeagueSummary> {
+  // Must be the selected league's bundle: this drives the dashboard's season,
+  // its default week, and the synced_at that cardFreshness ages against. Reading
+  // the default league here would date a Sleeper dashboard by Yahoo's clock.
+  const text = await getLeagueBundleText(env, leagueKey);
   if (text === null) return { season: null, synced_at: null, current_week: null };
   try {
     const bundle = JSON.parse(text) as { synced_at?: unknown; league?: { season?: unknown; current_week?: unknown } };
@@ -168,7 +213,11 @@ function parsePositiveInt(value: string | null): number | null {
   return Number(value);
 }
 
-async function getDashboard(env: InseasonApiEnv, url: URL): Promise<Response> {
+async function getDashboard(
+  env: InseasonApiEnv,
+  url: URL,
+  leagueKey: string,
+): Promise<Response> {
   const seasonParam = url.searchParams.get("season");
   const weekParam = url.searchParams.get("week");
   if (seasonParam !== null && parsePositiveInt(seasonParam) === null) {
@@ -178,16 +227,16 @@ async function getDashboard(env: InseasonApiEnv, url: URL): Promise<Response> {
     return error("invalid_request", "week must be a positive integer", 400);
   }
 
-  const league = await leagueSummary(env);
+  const league = await leagueSummary(env, leagueKey);
   const season = parsePositiveInt(seasonParam) ?? league.season ?? (await publishedBoardSeason(env));
   if (season === null) {
     return error("invalid_request", "season is required until a league bundle or board is published", 400);
   }
 
   const [lineupWeeks, digestWeeks, rosWeeks] = await Promise.all([
-    listWeeks(env, season, "lineup"),
-    listWeeks(env, season, "digest"),
-    listWeeks(env, season, "ros"),
+    listWeeks(env, season, "lineup", leagueKey),
+    listWeeks(env, season, "digest", leagueKey),
+    listWeeks(env, season, "ros", leagueKey),
   ]);
   const weeks = [...new Set([...lineupWeeks, ...digestWeeks])].sort((a, b) => a - b);
   const week =
@@ -197,10 +246,12 @@ async function getDashboard(env: InseasonApiEnv, url: URL): Promise<Response> {
 
   const rosWeek = rosWeeks.filter((candidate) => candidate <= week).pop() ?? null;
   const [lineup, digest, retro, ros, actualsText] = await Promise.all([
-    readEnvelope(env, inseasonKey(season, "lineup", week)),
-    readEnvelope(env, inseasonKey(season, "digest", week)),
-    week > 1 ? readEnvelope(env, inseasonKey(season, "retro", week - 1)) : Promise.resolve(null),
-    rosWeek === null ? Promise.resolve(null) : readEnvelope(env, inseasonKey(season, "ros", rosWeek)),
+    readInseason(env, season, "lineup", week, leagueKey),
+    readInseason(env, season, "digest", week, leagueKey),
+    week > 1 ? readInseason(env, season, "retro", week - 1, leagueKey) : Promise.resolve(null),
+    rosWeek === null
+      ? Promise.resolve(null)
+      : readInseason(env, season, "ros", rosWeek, leagueKey),
     week > 1 ? env.BOARD.get(actualsKey(season, week - 1)) : Promise.resolve(null),
   ]);
 

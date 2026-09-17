@@ -25,7 +25,7 @@ repository files, and never commit.
 | Teams | 10 |
 | Brian's team | Turkey Supreme (`is_user_team: true`, exactly one team) |
 | Team key pattern | `470.l.928421.t.<team_id>` |
-| Player key pattern | `470.p.<yahoo_player_id>` |
+| Player key pattern | `470.p.<native_id>` |
 | Roster slots | QB 1, WR 1, RB 1, TE 1, W/T 1, W/R/T 2, DEF 1 (starting); BN 8 (not starting) |
 
 ## Environment
@@ -55,7 +55,7 @@ for the current week. Exact top-level keys and nothing else:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "yahoo",
   "synced_at": "2026-09-17T14:00:00Z",
   "league": {
@@ -92,8 +92,8 @@ for the current week. Exact top-level keys and nothing else:
       "week": 2,
       "players": [
         {
-          "yahoo_player_id": "33389",
-          "yahoo_player_key": "470.p.33389",
+          "native_id": "33389",
+          "native_player_key": "470.p.33389",
           "name": "Trevor Lawrence",
           "nfl_team": "JAC",
           "primary_position": "QB",
@@ -126,7 +126,7 @@ Rules the validator enforces. A violation is a 400 and nothing is stored.
   slot the player is in right now: one of `QB`, `WR`, `RB`, `TE`, `W/T`,
   `W/R/T`, `DEF`, `BN`, `IR`, `IL`. Team defenses are players too, with
   `primary_position` `DEF`.
-- `yahoo_player_id` is unique across all ten rosters. If Yahoo shows the same
+- `native_id` is unique across all ten rosters. If Yahoo shows the same
   player on two rosters mid-transaction, stop and report rather than guess.
 - `scoring_rules` map each Yahoo stat to the pipeline's stat key. Use exactly
   this table; `provider_stat_id` and `stat_key` must each be unique, and
@@ -175,7 +175,7 @@ fantasy points, including bench players. Exact keys and nothing else:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "yahoo",
   "synced_at": "2026-09-17T14:00:00Z",
   "league": {
@@ -198,8 +198,8 @@ fantasy points, including bench players. Exact keys and nothing else:
   ],
   "players": [
     {
-      "yahoo_player_id": "33389",
-      "yahoo_player_key": "470.p.33389",
+      "native_id": "33389",
+      "native_player_key": "470.p.33389",
       "name": "Trevor Lawrence",
       "team_key": "470.l.928421.t.1",
       "selected_position": "QB",
@@ -218,7 +218,7 @@ Rules:
   matchups. `points` is the team's final Yahoo total.
 - `players` lists every player on every roster for that week with the slot
   they occupied and their actual points (0 for players who did not play).
-  `team_key` must be one of the scoreboard team keys; `yahoo_player_id` is
+  `team_key` must be one of the scoreboard team keys; `native_id` is
   unique across the list.
 - `synced_at` uses a `T` separator and a `Z` or `+00:00` suffix. Do not use a
   space separator or `-00:00`; the actuals validator rejects both.

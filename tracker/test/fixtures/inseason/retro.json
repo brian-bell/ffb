@@ -22,7 +22,7 @@
     "start_hits": [],
     "start_misses": [
       {
-        "yahoo_player_id": "29279",
+        "native_id": "29279",
         "name": "Derrick Henry",
         "slot": "RB",
         "projected": 18.0,
@@ -33,7 +33,7 @@
     "sit_hits": [],
     "sit_misses": [
       {
-        "yahoo_player_id": "55502",
+        "native_id": "55502",
         "name": "Flex Filler",
         "slot": "W/R/T",
         "projected": 3.0,
@@ -63,7 +63,7 @@
     "hindsight_delta": 33.3,
     "hindsight_start": [
       {
-        "yahoo_player_id": "29279",
+        "native_id": "29279",
         "name": "Derrick Henry",
         "slot": "RB",
         "projected": 18.0,
@@ -71,7 +71,7 @@
         "selected_position": "BN"
       },
       {
-        "yahoo_player_id": "40393",
+        "native_id": "40393",
         "name": "Malik Washington",
         "slot": "W/R/T",
         "projected": 8.0,
@@ -81,7 +81,7 @@
     ],
     "hindsight_sit": [
       {
-        "yahoo_player_id": "55502",
+        "native_id": "55502",
         "name": "Flex Filler",
         "slot": "W/R/T",
         "projected": 3.0,
@@ -89,7 +89,7 @@
         "selected_position": "W/R/T"
       },
       {
-        "yahoo_player_id": "40904",
+        "native_id": "40904",
         "name": "Rico Dowdle",
         "slot": "RB",
         "projected": 12.0,
