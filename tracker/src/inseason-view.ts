@@ -127,27 +127,26 @@ export function oldestSource(view: InseasonView, now: number): OldestSource | nu
   return oldest;
 }
 
-export const LINEUP_CARD_CLOSE_CALLS = 2;
+export const LINEUP_CARD_CLOSE_CALLS = 4;
 
 /** A close call on the card; `swap` marks one that also stands in for a sit/start pair. */
 export type CardCloseCall = LineupReport["close_calls"][number] & { swap: boolean };
 
 /**
  * Rows for the compact lineup card. A sit/start swap whose sitting player is a
- * close call against the incoming starter is shown once, as that close row;
- * folded close rows always show, and the rest fill up to the card's cap.
+ * close call against the incoming starter is shown once, as that close row.
+ * Folded close rows always show and come first; the rest fill up to the
+ * card's cap in gap order.
  */
 export function lineupCardRows(report: LineupReport): { start: LineupRow[]; sit: LineupRow[]; close: CardCloseCall[] } {
   const starting = new Set(report.start.map((row) => row.name));
   const sitting = new Set(report.sit.map((row) => row.name));
   const folded = new Set(report.close_calls.filter((call) => sitting.has(call.name) && starting.has(call.versus)));
-  let room = Math.max(0, LINEUP_CARD_CLOSE_CALLS - folded.size);
-  const close = report.close_calls.filter((call) => {
-    if (folded.has(call)) return true;
-    if (room === 0) return false;
-    room -= 1;
-    return true;
-  }).map((call) => ({ ...call, swap: folded.has(call) }));
+  const plain = report.close_calls.filter((call) => !folded.has(call));
+  const close = [
+    ...[...folded].map((call) => ({ ...call, swap: true })),
+    ...plain.slice(0, Math.max(0, LINEUP_CARD_CLOSE_CALLS - folded.size)).map((call) => ({ ...call, swap: false })),
+  ];
   const foldedIn = new Set([...folded].map((call) => call.versus));
   const foldedOut = new Set([...folded].map((call) => call.name));
   return {

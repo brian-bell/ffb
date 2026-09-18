@@ -142,13 +142,21 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
 test("a sit/start swap that is also a close call renders as one close-call recommendation", async ({ page }) => {
   const view = baseView();
   const report = view.cards.lineup.envelope!.report as Record<string, unknown>;
-  report.close_calls = [{ name: "Flex Filler", points: 3.0, versus: "Derrick Henry", slot: "W/R/T", delta: 1.0 }];
+  report.close_calls = [
+    { name: "Slot Receiver", points: 17.8, versus: "Other Flex", slot: "W/R/T", delta: 0.2 },
+    { name: "Flex Filler", points: 3.0, versus: "Derrick Henry", slot: "W/R/T", delta: 1.0 },
+  ];
   await open(page, view);
   const rows = page.locator(".card.lineup .rows .row");
-  await expect(rows).toHaveCount(1);
-  await expect(rows.first().locator(".k")).toHaveText("close call");
-  await expect(rows.first().locator(".v")).toHaveText("Start Derrick Henry vs. Flex Filler at W/R/T");
-  await expect(rows.first().locator(".n")).toHaveText("−1.0");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.locator(".k")).toHaveText(["close call", "close call"]);
+  await expect(rows.locator(".v")).toHaveText([
+    "Start Derrick Henry vs. Flex Filler at W/R/T",
+    "Slot Receiver vs Other Flex at W/R/T",
+  ]);
+  await expect(rows.locator(".n")).toHaveText(["−1.0", "−0.2"]);
+  const lefts = await rows.locator(".v").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().left));
+  expect(lefts[1]).toBeCloseTo(lefts[0], 0);
 });
 
 test("minimum desktop widths collapse to two columns without horizontal overflow", async ({ page }) => {

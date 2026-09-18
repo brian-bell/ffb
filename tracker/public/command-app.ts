@@ -169,7 +169,7 @@ function renderLineup(current: InseasonView, now: number): HTMLElement {
     const gap = `−${call.delta.toFixed(1)}`;
     rows.appendChild(call.swap
       ? row("close call", "close", `Start ${call.versus}`, `vs. ${call.name} at ${call.slot}`, gap)
-      : row("close", "close", call.name, `vs ${call.versus} at ${call.slot}`, gap));
+      : row("close call", "close", call.name, `vs ${call.versus} at ${call.slot}`, gap));
   }
   if (!rows.childElementCount) rows.appendChild(row("ok", "start", "Stored lineup matches the weekly optimum.", null, ""));
   const headline = el("div", { class: "head" },

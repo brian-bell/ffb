@@ -106,6 +106,9 @@ main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60
 .rows { flex: 1; margin: 0; padding: 0 8px 6px; list-style: none; }
 .row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 34px; padding: 0 8px; border-top: 1px solid var(--soft); font-size: 12.5px; }
 .row:first-child { border-top: 0; }
+/* Lineup rows share one label column so values line up under "CLOSE CALL". */
+.card.lineup .rows { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; column-gap: 10px; align-content: start; }
+.card.lineup .row { grid-column: 1 / -1; grid-template-columns: subgrid; }
 .row .k { min-width: 44px; color: var(--faint); font: 750 9.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
 .row .k.start, .row .k.hit { color: var(--good); }
 .row .k.sit, .row .k.miss { color: var(--reach); }
