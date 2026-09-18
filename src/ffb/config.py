@@ -75,6 +75,7 @@ ESPN_STAT_MAP = {
     74: "fgm_50p",
     77: "fgm_40_49",
     80: "fgm_30_39",
+    85: "fgmiss",
     86: "xpm",
     # Team defense / special teams. Multiple source buckets intentionally map
     # to the same league key; the ESPN parser adds them rather than overwriting.
@@ -92,11 +93,15 @@ ESPN_STAT_MAP = {
     102: "def_ret_td",
     103: "def_fum_td",
     104: "pass_int_td",
+    106: "ff",  # each fumble forced; feeds Sleeper ff / the DEF half of def_st_ff
     121: "pts_allow_14_20",  # ESPN 18-21; chosen approximation for Yahoo 14-20
     122: "pts_allow_21_27",
     123: "pts_allow_28_34",
     124: "pts_allow_35p",
     125: "pts_allow_35p",
+    # Non-overlapping 60+ band. 74 remains the combined 50+ bucket; 201 is the
+    # 60+ remainder so a league that scores fgm_60p can use ESPN's split.
+    201: "fgm_60p",
 }
 
 # ESPN defaultPositionId -> our position label. IDP ids (9-13) are decoded for
@@ -206,6 +211,8 @@ YAHOO_STAT_MAP: dict[int, tuple[str, ...]] = {
     54: ("pts_allow_21_27",),
     55: ("pts_allow_28_34",),
     56: ("pts_allow_35p",),
+    # Extra Point Returned (XPR). No projection source emits this play, so it
+    # stays absent here and surfaces in unmapped_scoring_rules.
 }
 
 # Namespaced league keys: "<provider>:<the provider's own league id>". This is
@@ -252,6 +259,9 @@ SLEEPER_STAT_ALIASES: dict[str, tuple[str, ...]] = {
     "st_td": ("pr_td", "def_kr_td"),
     "def_st_td": ("def_ret_td",),
     "fgm_50_59": ("fgm_50_59", "fgm_50p"),
+    # Combined DEF+ST forced fumbles: ESPN emits DEF FF (stat 106 → ff) and no
+    # ST-only FF line, so the modeled half is ff.
+    "def_st_ff": ("ff",),
 }
 
 # Sleeper keys that map to themselves and that a projection source actually
@@ -288,27 +298,35 @@ SLEEPER_SCORED_STATS = frozenset(
         "fgm_30_39",
         "fgm_40_49",
         "fgm_50p",
+        "fgm_60p",
+        "fgmiss",
+        "ff",
         "xpm",
         "xpmiss",
     }
 )
 
 # Sleeper keys the league really scores but that no projection source emits, so
-# a weight on them can never change a modeled score. Verified against the
-# committed 2024 and 2026 Sleeper projection snapshots and ESPN_STAT_MAP:
-# xpmiss IS emitted (47 and 32 rows), so it belongs above, not here. These are
-# reported as unmapped_scoring_rules -- "we do not model this" -- rather than
-# accepted as mapped rules that silently score zero.
+# a weight on them can never change a modeled score. ESPN now carries ff
+# (stat 106), fgmiss (85), and fgm_60p (201); those moved into
+# SLEEPER_SCORED_STATS. Remaining ST-only and 2-pt-return keys still have no
+# projection line. Reported as unmapped_scoring_rules -- "we do not model this"
+# -- rather than accepted as mapped rules that silently score zero.
 SLEEPER_UNMODELED_STATS = frozenset(
     {
-        "ff",
         "st_ff",
-        "def_st_ff",
         "st_fum_rec",
         "def_st_fum_rec",
-        "fgmiss",
-        "fgm_60p",
         "def_2pt",
+    }
+)
+
+# Yahoo stat ids that are real league categories but have no projection line.
+# They stay out of YAHOO_STAT_MAP so parse_settings surfaces them in
+# unmapped_scoring_rules instead of inventing a zero-effect weight.
+YAHOO_UNMODELED_STAT_IDS = frozenset(
+    {
+        82,  # Extra Point Returned (XPR); no Sleeper/ESPN projection key
     }
 )
 
@@ -324,8 +342,120 @@ TEAM_ALIASES = {
     "TB": "TBB",
     "LV": "LVR",
     "JAX": "JAC",
+    "WSH": "WAS",
     "LA": "LAR",  # nflverse schedules label the Rams "LA"
     "OAK": "LVR",  # retired relocation code, still seen in stale crosswalk rows
+    # Nicknames and city/full names. Ambiguous labels (LOS ANGELES, NEW YORK)
+    # stay unmapped so Rams/Chargers and Giants/Jets are never guessed.
+    "CARDINALS": "ARI",
+    "ARIZONA": "ARI",
+    "ARIZONA CARDINALS": "ARI",
+    "FALCONS": "ATL",
+    "ATLANTA": "ATL",
+    "ATLANTA FALCONS": "ATL",
+    "RAVENS": "BAL",
+    "BALTIMORE": "BAL",
+    "BALTIMORE RAVENS": "BAL",
+    "BILLS": "BUF",
+    "BUFFALO": "BUF",
+    "BUFFALO BILLS": "BUF",
+    "PANTHERS": "CAR",
+    "CAROLINA": "CAR",
+    "CAROLINA PANTHERS": "CAR",
+    "BEARS": "CHI",
+    "CHICAGO": "CHI",
+    "CHICAGO BEARS": "CHI",
+    "BENGALS": "CIN",
+    "CINCINNATI": "CIN",
+    "CINCINNATI BENGALS": "CIN",
+    "BROWNS": "CLE",
+    "CLEVELAND": "CLE",
+    "CLEVELAND BROWNS": "CLE",
+    "COWBOYS": "DAL",
+    "DALLAS": "DAL",
+    "DALLAS COWBOYS": "DAL",
+    "BRONCOS": "DEN",
+    "DENVER": "DEN",
+    "DENVER BRONCOS": "DEN",
+    "LIONS": "DET",
+    "DETROIT": "DET",
+    "DETROIT LIONS": "DET",
+    "PACKERS": "GBP",
+    "GREEN BAY": "GBP",
+    "GREEN BAY PACKERS": "GBP",
+    "TEXANS": "HOU",
+    "HOUSTON": "HOU",
+    "HOUSTON TEXANS": "HOU",
+    "COLTS": "IND",
+    "INDIANAPOLIS": "IND",
+    "INDIANAPOLIS COLTS": "IND",
+    "JAGUARS": "JAC",
+    "JAGS": "JAC",
+    "JACKSONVILLE": "JAC",
+    "JACKSONVILLE JAGUARS": "JAC",
+    "CHIEFS": "KCC",
+    "KANSAS CITY": "KCC",
+    "KANSAS CITY CHIEFS": "KCC",
+    "RAIDERS": "LVR",
+    "LAS VEGAS": "LVR",
+    "LAS VEGAS RAIDERS": "LVR",
+    "OAKLAND RAIDERS": "LVR",
+    "CHARGERS": "LAC",
+    "LOS ANGELES CHARGERS": "LAC",
+    "LA CHARGERS": "LAC",
+    "SAN DIEGO": "LAC",
+    "SAN DIEGO CHARGERS": "LAC",
+    "RAMS": "LAR",
+    "LOS ANGELES RAMS": "LAR",
+    "LA RAMS": "LAR",
+    "ST LOUIS": "LAR",
+    "ST LOUIS RAMS": "LAR",
+    "DOLPHINS": "MIA",
+    "MIAMI": "MIA",
+    "MIAMI DOLPHINS": "MIA",
+    "VIKINGS": "MIN",
+    "MINNESOTA": "MIN",
+    "MINNESOTA VIKINGS": "MIN",
+    "PATRIOTS": "NEP",
+    "PATS": "NEP",
+    "NEW ENGLAND": "NEP",
+    "NEW ENGLAND PATRIOTS": "NEP",
+    "SAINTS": "NOS",
+    "NEW ORLEANS": "NOS",
+    "NEW ORLEANS SAINTS": "NOS",
+    "GIANTS": "NYG",
+    "NEW YORK GIANTS": "NYG",
+    "NY GIANTS": "NYG",
+    "JETS": "NYJ",
+    "NEW YORK JETS": "NYJ",
+    "NY JETS": "NYJ",
+    "EAGLES": "PHI",
+    "PHILADELPHIA": "PHI",
+    "PHILADELPHIA EAGLES": "PHI",
+    "STEELERS": "PIT",
+    "PITTSBURGH": "PIT",
+    "PITTSBURGH STEELERS": "PIT",
+    "49ERS": "SFO",
+    "NINERS": "SFO",
+    "SAN FRANCISCO": "SFO",
+    "SAN FRANCISCO 49ERS": "SFO",
+    "SEAHAWKS": "SEA",
+    "SEATTLE": "SEA",
+    "SEATTLE SEAHAWKS": "SEA",
+    "BUCCANEERS": "TBB",
+    "BUCS": "TBB",
+    "TAMPA BAY": "TBB",
+    "TAMPA BAY BUCCANEERS": "TBB",
+    "TITANS": "TEN",
+    "TENNESSEE": "TEN",
+    "TENNESSEE TITANS": "TEN",
+    "COMMANDERS": "WAS",
+    "WASHINGTON": "WAS",
+    "WASHINGTON COMMANDERS": "WAS",
+    "REDSKINS": "WAS",
+    "WASHINGTON REDSKINS": "WAS",
+    "FOOTBALL TEAM": "WAS",
+    "WASHINGTON FOOTBALL TEAM": "WAS",
 }
 
 

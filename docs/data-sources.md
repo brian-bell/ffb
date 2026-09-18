@@ -87,7 +87,8 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
   passes for every read command): offense (`pass_yd/td/2pt`, `rush_yd/td/2pt`,
   `rec/rec_yd/rec_td/rec_2pt`, `fum_rec_td`) and D/ST (`sack`, `int`,
   `fum_rec`, `safe`, `blk_kick`, `def_fum_td`, `pass_int_td`, `def_ret_td`,
-  `def_2pt`, and the `pts_allow_0`…`pts_allow_21_27` ladder). The league
+  `def_2pt`, `ff` when ESPN emits stat 106, and the `pts_allow_0`…`pts_allow_21_27`
+  ladder). The league
   configures **no turnover penalties and no kicking rules**, so `pass_int`,
   `fum_lost`, and every FG/XP key score zero under it; `config.DEFAULT_PPR` (the
   generic full-PPR config `ppr_points` falls back to for library callers) does
@@ -388,10 +389,9 @@ consensus, VORP, sit/start, or ROS math.
     feed alone counts as a successful sync, so RSS is a real fallback when the
     unofficial JSON host is blocked. The source fails only when neither feed
     yields a headline.
-  - News is opt-in: a bare `season sync` skips it, `--source all` or
-    `--source news` fetches it, and status `complete` ignores it until it has
-    been synced at least once (after which a failed or stale news sync does
-    count against completeness).
+  - News is part of the default `season sync` set (same as Wednesday OpsBot's
+    `season sync --week W --refresh`). `--source news` still fetches it alone.
+    Status `complete` requires a successful news sync.
   - RSS `pubDate` values are normalized to ISO-8601 UTC at parse time so they
     sort with the JSON feed's timestamps.
 
@@ -534,10 +534,12 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
 - **Scoring** — `scoring_settings` resolves through `config.SLEEPER_STAT_ALIASES`
   (renames and fan-outs only) plus the `config.SLEEPER_SCORED_STATS` whitelist,
   where a key maps to itself. Nonzero keys in neither, including `bonus_*`,
-  raise. Keys in `config.SLEEPER_UNMODELED_STATS` are ones the league really
-  scores but no projection source emits; they become `unmapped_scoring_rules`
+  raise.   Keys in `config.SLEEPER_UNMODELED_STATS` are ones the league really
+  scores but no projection source emits (`st_ff`, `st_fum_rec`,
+  `def_st_fum_rec`, `def_2pt`); they become `unmapped_scoring_rules`
   so they are reported as not modeled rather than accepted as weights that
-  silently score zero. The path never falls back to Yahoo `LEAGUE_SCORING`.
+  silently score zero. `ff`, `fgm_60p`, and `fgmiss` are modeled: ESPN
+  emits them (stat ids 106 / 201 / 85) and `def_st_ff` aliases onto `ff`. The path never falls back to Yahoo `LEAGUE_SCORING`.
   The CLI banner says "Sleeper league settings" rather than hardcoding a PPR
   label.
 - **Eligibility** — `fantasy_positions` is Sleeper's own eligibility list, so a

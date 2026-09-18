@@ -2,26 +2,64 @@
 
 from __future__ import annotations
 
+import re
+
 from ffb import config
+
+_DEFENSE_POSITIONS = {"DEF", "DST", "D/ST", "D/S/T"}
+_DEFENSE_NAME_SUFFIXES = {"DEFENSE", "DST", "DEF"}
+_NON_ALNUM = re.compile(r"[^\w\s]+")
+
+
+def _normalize_team_label(team: str) -> str:
+    """Uppercase a team label and drop trailing D/ST / Defense tokens."""
+    normalized = team.strip().upper().replace("D/ST", "DST").replace("D / ST", "DST")
+    tokens = _NON_ALNUM.sub(" ", normalized).split()
+    while len(tokens) > 1 and tokens[-1] in _DEFENSE_NAME_SUFFIXES:
+        tokens.pop()
+    return " ".join(tokens)
 
 
 def canonical_team(team: str | None) -> str | None:
     """Return a canonical NFL team code, or ``None`` for an unknown team."""
     if not isinstance(team, str):
         return None
-    normalized = team.strip().upper()
+    normalized = _normalize_team_label(team)
+    if not normalized:
+        return None
     normalized = config.TEAM_ALIASES.get(normalized, normalized)
     return normalized if normalized in config.NFL_TEAM_CODES else None
 
 
+def is_defense_position(position: str | None) -> bool:
+    """True for the team-defense labels providers actually emit."""
+    return isinstance(position, str) and position.strip().upper() in _DEFENSE_POSITIONS
+
+
 def canonical_defense_key(position: str | None, team: str | None) -> tuple[str, str] | None:
     """Return ``(player_key, team)`` for a valid team-defense identity."""
-    if not isinstance(position, str) or position.strip().upper() not in {"DEF", "DST"}:
+    if not is_defense_position(position):
         return None
     canonical = canonical_team(team)
     if canonical is None:
         return None
     return f"def:{canonical}", canonical
+
+
+def defense_identity(position: str | None, *candidates: object) -> tuple[str, str] | None:
+    """Resolve a defense from the first candidate that canonicalizes.
+
+    Callers pass team codes, then display names (``Rams``, ``Denver Broncos``)
+    so a missing editorial abbreviation still matches.
+    """
+    if not is_defense_position(position):
+        return None
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            hit = canonical_defense_key("DEF", candidate)
+            if hit is not None:
+                return hit
+    return None
 
 
 #: Slots a fantasy position can fill, beyond its own dedicated slot.

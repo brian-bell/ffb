@@ -337,9 +337,11 @@ def _parse_player(item: Any) -> dict[str, Any]:
         raise ValueError("player has no name")
 
     abbr = merged.get("editorial_team_abbr")
-    nfl_team = None
-    if isinstance(abbr, str) and abbr.strip():
-        nfl_team = identity.canonical_team(abbr) or abbr.strip().upper()
+    nfl_team = identity.canonical_team(abbr) if isinstance(abbr, str) else None
+    if nfl_team is None:
+        nfl_team = identity.canonical_team(full_name)
+    if nfl_team is None and isinstance(abbr, str) and abbr.strip():
+        nfl_team = abbr.strip().upper()
 
     primary = merged.get("primary_position") or merged.get("display_position")
     if not isinstance(primary, str) or not primary:

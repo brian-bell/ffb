@@ -952,8 +952,11 @@ class Store:
                 # Without this it stores unmatched, and the reader then warns that
                 # it "did not match the crosswalk and scores zero" when in fact
                 # lineup.projection_key resolves it to def:<team> and it scores.
-                defense = identity.canonical_defense_key(
-                    player["primary_position"], player["nfl_team"]
+                defense = identity.defense_identity(
+                    player["primary_position"],
+                    player.get("nfl_team"),
+                    player.get("name"),
+                    player.get("full_name"),
                 )
                 if defense is not None:
                     defense_key, defense_team = defense
@@ -1168,19 +1171,31 @@ class Store:
         self.conn.execute("BEGIN TRANSACTION")
         try:
             for row in rows:
-                match = resolved.get(row["native_id"])
-                if match:
-                    player_key = match["player_key"]
+                defense = identity.defense_identity(
+                    row.get("primary_position"),
+                    row.get("nfl_team"),
+                    row.get("full_name"),
+                    row.get("name"),
+                )
+                if defense is not None:
+                    player_key, nfl_team = defense
                     matched = True
-                    full_name = match["full_name"]
-                    nfl_team = match["team"]
-                    position = match["position"]
-                else:
-                    player_key = f"{provider}:{row['native_id']}"
-                    matched = False
                     full_name = row["full_name"]
-                    nfl_team = row["nfl_team"]
-                    position = row["primary_position"]
+                    position = "DEF"
+                else:
+                    match = resolved.get(row["native_id"])
+                    if match:
+                        player_key = match["player_key"]
+                        matched = True
+                        full_name = match["full_name"]
+                        nfl_team = match["team"]
+                        position = match["position"]
+                    else:
+                        player_key = f"{provider}:{row['native_id']}"
+                        matched = False
+                        full_name = row["full_name"]
+                        nfl_team = row["nfl_team"]
+                        position = row["primary_position"]
                 if row["player_key"] == player_key and bool(row["matched"]) is matched:
                     continue
                 changed += 1

@@ -66,10 +66,32 @@ def _fixture_fetchers():
 def test_expand_sources_includes_schedule():
     from ffb.season_data import expand_sources
 
-    assert expand_sources(None) == ["sleeper", "espn", "ffc", "schedule", "injuries"]
+    assert expand_sources(None) == [
+        "sleeper",
+        "espn",
+        "ffc",
+        "schedule",
+        "injuries",
+        "news",
+    ]
     assert expand_sources(["schedule"]) == ["schedule"]
     assert expand_sources(["injuries"]) == ["injuries"]
     assert expand_sources(["news"]) == ["news"]
+
+
+def test_default_sync_includes_news_rows(tmp_path):
+    """Wednesday OpsBot's bare season sync must land headlines for digest."""
+    store, service = _fixture_service(tmp_path, fetchers=_fixture_fetchers())
+
+    results = {r.source: r for r in service.sync(2024)}
+    status = service.status(2024)
+    store.close()
+
+    assert results["news"].state == "ready"
+    assert results["news"].rows == 6
+    tracked = next(s for s in status["sources"] if s["name"] == "news")
+    assert tracked["state"] == "ready"
+    assert tracked["row_count"] == 6
 
 
 def test_sync_news_records_ready_state(tmp_path):

@@ -31,7 +31,8 @@
                 {"stat": {"stat_id": 11, "enabled": "1", "name": "Receptions", "display_name": "Rec", "sort_order": "1", "position_type": "O"}},
                 {"stat": {"stat_id": 16, "enabled": "1", "name": "2-Point Conversions", "display_name": "2-PT", "sort_order": "1", "position_type": "O"}},
                 {"stat": {"stat_id": 15, "enabled": "1", "name": "Return Touchdowns", "display_name": "Ret TD", "sort_order": "1", "position_type": "O"}},
-                {"stat": {"stat_id": 32, "enabled": "1", "name": "Sack", "display_name": "Sack", "sort_order": "1", "position_type": "DT"}}
+                {"stat": {"stat_id": 32, "enabled": "1", "name": "Sack", "display_name": "Sack", "sort_order": "1", "position_type": "DT"}},
+                {"stat": {"stat_id": 82, "enabled": "1", "name": "Extra Point Returned", "display_name": "XPR", "sort_order": "1", "position_type": "DT"}}
               ]
             },
             "stat_modifiers": {
@@ -40,7 +41,8 @@
                 {"stat": {"stat_id": 11, "value": ".5"}},
                 {"stat": {"stat_id": 16, "value": "2"}},
                 {"stat": {"stat_id": 15, "value": "6"}},
-                {"stat": {"stat_id": 32, "value": "1"}}
+                {"stat": {"stat_id": 32, "value": "1"}},
+                {"stat": {"stat_id": 82, "value": "2"}}
               ]
             }
           }

@@ -384,7 +384,7 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
     raw_position = meta.get("position")
     raw_team = meta.get("team")
     team_from_id = identity.canonical_team(player_id)
-    if isinstance(raw_position, str) and raw_position.strip().upper() in {"DEF", "DST"}:
+    if identity.is_defense_position(raw_position):
         position = "DEF"
     elif team_from_id and not (
         isinstance(raw_position, str) and raw_position in config.FANTASY_POSITIONS
@@ -397,9 +397,7 @@ def _parse_player(player_id: str, raw: Any, *, selected_position: str) -> dict[s
         position = "UNK"
     team_code = raw_team if isinstance(raw_team, str) and raw_team else player_id
     if position == "DEF":
-        defense = identity.canonical_defense_key(
-            "DEF", team_code
-        ) or identity.canonical_defense_key("DEF", player_id)
+        defense = identity.defense_identity("DEF", team_code, player_id, name)
         if defense is None:
             raise ValueError(f"Sleeper DEF {player_id} does not canonicalize")
         nfl_team = defense[1]
@@ -448,8 +446,12 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
     rows: list[dict[str, Any]] = []
     for player in players:
         native_id = player["native_id"]
-        defense = identity.canonical_defense_key(
-            player.get("primary_position"), player.get("nfl_team")
+        defense = identity.defense_identity(
+            player.get("primary_position"),
+            player.get("nfl_team"),
+            player.get("name"),
+            player.get("full_name"),
+            native_id,
         )
         if defense is not None:
             player_key, team = defense

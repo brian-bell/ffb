@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ffb.identity import canonical_defense_key
+from ffb.identity import defense_identity
 from ffb.vorp import BENCH_SLOT, FLEX_SLOTS
 
 NON_STARTING_SLOTS = frozenset({BENCH_SLOT, "IR", "IL"})
@@ -35,7 +35,7 @@ def projection_key(row: dict[str, Any]) -> str | None:
         return str(row["player_key"])
     position = row.get("primary_position") or row.get("position")
     team = row.get("nfl_team") if "nfl_team" in row else row.get("team")
-    defense = canonical_defense_key(position, team)
+    defense = defense_identity(position, team, row.get("full_name"), row.get("name"))
     if defense is not None:
         return defense[0]
     return None

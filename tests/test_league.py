@@ -246,6 +246,58 @@ def test_backfilling_a_past_week_does_not_move_the_league_clock_backwards(store)
     assert store.league_context(2024)["current_week"] == 5
 
 
+def test_refresh_keeps_and_heals_named_defenses(store, crosswalk_rows):
+    """Rams/Ravens/Broncos must stay def:<team> after the lineup re-resolve."""
+    store.upsert_crosswalk(crosswalk_rows)
+    data = _bundle()
+    data["rosters"][0]["players"] = [
+        {
+            "native_id": "100014",
+            "native_player_key": "461.p.100014",
+            "name": "Rams",
+            "nfl_team": "Rams",
+            "primary_position": "DEF",
+            "eligible_positions": ["DEF"],
+            "selected_position": "DEF",
+        },
+        {
+            "native_id": "100008",
+            "native_player_key": "461.p.100008",
+            "name": "Ravens",
+            "nfl_team": None,
+            "primary_position": "D/ST",
+            "eligible_positions": ["DEF"],
+            "selected_position": "DEF",
+        },
+        {
+            "native_id": "DEN",
+            "native_player_key": "sleeper:DEN",
+            "name": "Denver Broncos",
+            "nfl_team": "Denver Broncos",
+            "primary_position": "DEF",
+            "eligible_positions": ["DEF"],
+            "selected_position": "DEF",
+        },
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    by_name = {row["full_name"]: row for row in store.league_roster_rows(2024)}
+    assert by_name["Rams"]["player_key"] == "def:LAR"
+    assert by_name["Ravens"]["player_key"] == "def:BAL"
+    assert by_name["Denver Broncos"]["player_key"] == "def:DEN"
+    assert all(row["matched"] is True for row in by_name.values())
+
+    # A previous refresh that only used the crosswalk left DEFs unmatched.
+    store.conn.execute(
+        "UPDATE league_rosters SET player_key = ?, matched = FALSE WHERE native_id = ?",
+        ["yahoo:100014", "100014"],
+    )
+    assert store.refresh_league_roster_identities(2024) == 1
+    healed = {row["full_name"]: row for row in store.league_roster_rows(2024)}
+    assert healed["Rams"]["player_key"] == "def:LAR"
+    assert healed["Rams"]["matched"] is True
+    assert store.refresh_league_roster_identities(2024) == 0
+
+
 def test_stored_defenses_keep_their_canonical_key(store, crosswalk_rows):
     """A D/ST has its own identity; storing it unmatched mislabels a player that scores."""
     store.upsert_crosswalk(crosswalk_rows)
