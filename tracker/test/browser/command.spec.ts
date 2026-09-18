@@ -141,10 +141,17 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
 
 test("a sit/start swap that is also a close call renders as one close-call recommendation", async ({ page }) => {
   const view = baseView();
-  const report = view.cards.lineup.envelope!.report as Record<string, unknown>;
+  const report = view.cards.lineup.envelope!.report as {
+    start: Array<Record<string, unknown>>;
+    sit: Array<Record<string, unknown>>;
+    close_calls: unknown;
+  };
+  // A same-slot swap within a point: Henry (18.0) takes Flex Filler's (17.0) W/R/T spot.
+  report.start[0].slot = "W/R/T";
+  report.sit[0].points = 17.0;
   report.close_calls = [
     { name: "Slot Receiver", points: 17.8, versus: "Other Flex", slot: "W/R/T", delta: 0.2 },
-    { name: "Flex Filler", points: 3.0, versus: "Derrick Henry", slot: "W/R/T", delta: 1.0 },
+    { name: "Flex Filler", points: 17.0, versus: "Derrick Henry", slot: "W/R/T", delta: 1.0 },
   ];
   await open(page, view);
   const rows = page.locator(".card.lineup .rows .row");

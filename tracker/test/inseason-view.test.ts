@@ -297,6 +297,50 @@ describe("lineupCardRows", () => {
     expect(rows.close.map((call) => call.name)).toEqual(["Trevor Lawrence", "A", "C", "E"]);
   });
 
+  it("pairs folded swaps one-to-one when two sitters are close to the same starter", () => {
+    const rows = lineupCardRows(report({
+      start: [player("C", "RB", 10.0), player("D", "RB", 9.5)],
+      sit: [player("A", "RB", 9.4), player("B", "RB", 9.3)],
+      close_calls: [
+        { name: "A", points: 9.4, versus: "C", slot: "RB", delta: 0.6 },
+        { name: "B", points: 9.3, versus: "C", slot: "RB", delta: 0.7 },
+      ],
+    }));
+    expect(rows.start).toEqual([]);
+    expect(rows.sit).toEqual([]);
+    expect(rows.close.map((call) => [call.versus, call.name, call.delta, call.swap])).toEqual([
+      ["D", "B", 0.2, true],
+      ["C", "A", 0.6, true],
+    ]);
+  });
+
+  it("does not fold a swap whose own gap is wider than the sitter's close call", () => {
+    const rows = lineupCardRows(report({
+      start: [player("C", "RB", 12.0), player("D", "RB", 9.5)],
+      sit: [player("A", "RB", 9.4), player("B", "RB", 9.3)],
+      close_calls: [{ name: "B", points: 9.3, versus: "D", slot: "RB", delta: 0.2 }],
+    }));
+    // Best in pairs with best out: C↔A (2.6) and D↔B (0.2). Only D↔B folds.
+    expect(rows.start.map((row) => row.name)).toEqual(["C"]);
+    expect(rows.sit.map((row) => row.name)).toEqual(["A"]);
+    expect(rows.close.map((call) => [call.versus, call.name, call.delta, call.swap])).toEqual([["D", "B", 0.2, true]]);
+  });
+
+  it("rounds swap gaps like the Python report, ties to even", () => {
+    // Python: round(10.25, 1) == 10.2, round(-1.25, 1) == -1.2.
+    const rows = lineupCardRows(report({
+      start: [player("C", "RB", 10.25), player("K1", "K", 0.0)],
+      sit: [player("A", "RB", 9.0), player("K2", "K", -1.25)],
+      close_calls: [
+        { name: "A", points: 9.0, versus: "C", slot: "RB", delta: 1.2 },
+        { name: "K2", points: -1.25, versus: "K1", slot: "K", delta: 1.2 },
+      ],
+    }));
+    expect(rows.start).toEqual([]);
+    expect(rows.sit).toEqual([]);
+    expect(rows.close.map((call) => [call.versus, call.delta, call.swap])).toEqual([["C", 1.2, true], ["K1", 1.2, true]]);
+  });
+
   it("pins folded close calls ahead of plain ones with smaller gaps", () => {
     const rows = lineupCardRows(report({
       start: [player("Ravens", "DEF", 8.0)],
