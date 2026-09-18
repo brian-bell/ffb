@@ -53,19 +53,42 @@ function baseView(): View {
   };
 }
 
-async function serve(page: Page, view: View, requests: string[] = []): Promise<void> {
+const YAHOO = "yahoo:470.l.928421";
+const SLEEPER = "sleeper:1395854363380965376";
+
+type Directory = { default_league: string; leagues: Array<Record<string, unknown>> };
+
+function league(league_key: string, name: string, source: string, team_name: string | null = null): Record<string, unknown> {
+  return { league_key, name, source, season: 2024, current_week: 2, num_teams: 10, synced_at: "2026-09-20T12:22:00Z", team_name };
+}
+
+const TWO_LEAGUES: Directory = {
+  default_league: YAHOO,
+  leagues: [league(YAHOO, "Money League", "yahoo", "Brian's Team"), league(SLEEPER, "Dynasty", "sleeper", "Bench Mob")],
+};
+
+async function serve(page: Page, view: View, requests: string[] = [], directory?: Directory): Promise<void> {
   await page.route("**/api/inseason*", (route) => {
     requests.push(new URL(route.request().url()).search);
     return route.fulfill({ json: view });
   });
+  // Absent by default: the picker then stays hidden, which is what a
+  // single-league deployment looks like.
+  await page.route("**/api/leagues*", (route) =>
+    directory ? route.fulfill({ json: directory }) : route.fulfill({ status: 404, json: { error: "not found" } }),
+  );
 }
 
-async function open(page: Page, view: View, options: { width?: number; now?: string; requests?: string[] } = {}): Promise<void> {
+async function open(
+  page: Page,
+  view: View,
+  options: { width?: number; now?: string; requests?: string[]; directory?: Directory; path?: string } = {},
+): Promise<void> {
   await page.setViewportSize({ width: options.width ?? 1440, height: 900 });
   await page.clock.setFixedTime(new Date(options.now ?? NOW));
   await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
-  await serve(page, view, options.requests);
-  await page.goto("/command");
+  await serve(page, view, options.requests, options.directory);
+  await page.goto(options.path ?? "/command");
   await expect(page.locator("[data-grid] .card")).toHaveCount(4);
 }
 
@@ -309,4 +332,136 @@ test("the week picker requests the neighbouring week and the API key gate works"
   await expect(page.getByRole("dialog", { name: "Unlock the command center" })).toBeHidden();
   await expect(page.locator("[data-grid] .card")).toHaveCount(4);
   expect(await page.evaluate(() => localStorage.getItem("ffb.trackerKey"))).toBe("test-secret-key");
+});
+
+// ---- league picker ----
+
+test("hides the picker when the deployment has one league", async ({ page }) => {
+  await open(page, baseView(), { directory: { default_league: YAHOO, leagues: [league(YAHOO, "Money League", "yahoo")] } });
+  await expect(page.locator("[data-leaguepick]")).toBeHidden();
+});
+
+test("hides the picker when the league directory is unavailable", async ({ page }) => {
+  await open(page, baseView());
+  await expect(page.locator("[data-leaguepick]")).toBeHidden();
+  // The dashboard itself still loaded — a missing directory is not fatal.
+  await expect(page.locator("[data-status]")).toBeHidden();
+  await expect(page.locator("[data-week]")).toHaveText("Week 2");
+});
+
+test("lists both leagues, default first, with the default selected", async ({ page }) => {
+  await open(page, baseView(), { directory: TWO_LEAGUES });
+  const select = page.locator("[data-league-select]");
+  await expect(page.locator("[data-leaguepick]")).toBeVisible();
+  await expect(select.locator("option")).toHaveText([
+    "Money League",
+    "Dynasty",
+  ]);
+  await expect(select).toHaveValue(YAHOO);
+});
+
+test("switching leagues reloads against that league and forgets the old week", async ({ page }) => {
+  const requests: string[] = [];
+  await open(page, baseView(), { directory: TWO_LEAGUES, requests, path: "/command?week=2" });
+  await expect(page.locator("[data-league-select]")).toHaveValue(YAHOO);
+  requests.length = 0;
+
+  await page.locator("[data-league-select]").selectOption(SLEEPER);
+  await expect.poll(() => requests.length).toBeGreaterThan(0);
+
+  const params = new URLSearchParams(requests[0]!);
+  expect(params.get("league")).toBe(SLEEPER);
+  // Season and week are per-league, so neither is carried across.
+  expect(params.get("week")).toBeNull();
+  expect(params.get("season")).toBeNull();
+
+  // The URL names the new league and drops the old league's week.
+  await expect.poll(() => new URL(page.url()).searchParams.get("league")).toBe(SLEEPER);
+  await expect(page.locator("[data-league-select]")).toHaveValue(SLEEPER);
+});
+
+test("a ?league= deep link preselects that league and sends it upstream", async ({ page }) => {
+  const requests: string[] = [];
+  await open(page, baseView(), { directory: TWO_LEAGUES, requests, path: `/command?league=${encodeURIComponent(SLEEPER)}` });
+  await expect(page.locator("[data-league-select]")).toHaveValue(SLEEPER);
+  expect(new URLSearchParams(requests[0]!).get("league")).toBe(SLEEPER);
+});
+
+test("keeps a league the directory does not list rather than swapping it", async ({ page }) => {
+  const unknown = "sleeper:999";
+  await open(page, baseView(), { directory: TWO_LEAGUES, path: `/command?league=${encodeURIComponent(unknown)}` });
+  const select = page.locator("[data-league-select]");
+  await expect(select).toHaveValue(unknown);
+  await expect(select.locator("option")).toHaveText([
+    "Money League",
+    "Dynasty",
+    "sleeper:999 (not published)",
+  ]);
+});
+
+test("names the team from the league bundle when nothing is published", async ({ page }) => {
+  const empty = baseView();
+  for (const kind of ["lineup", "digest", "retro", "ros"] as const) empty.cards[kind] = { envelope: null };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.clock.setFixedTime(new Date(NOW));
+  await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
+  await serve(page, empty, [], TWO_LEAGUES);
+  await page.goto(`/command?league=${encodeURIComponent(SLEEPER)}`);
+  await expect(page.locator("[data-league-select]")).toHaveValue(SLEEPER);
+  await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
+});
+
+test("a league switch supersedes a week request still in flight", async ({ page }) => {
+  // The week request is answered slowly and the league request immediately, so
+  // the stale week response lands last. It must not repaint the page: its cards
+  // belong to the league the user just left, under the new league's name.
+  const slow = baseView();
+  slow.week = 3;
+  slow.weeks = [1, 2, 3];
+  const fast = baseView();
+  fast.week = 5;
+  fast.weeks = [5];
+  for (const kind of ["lineup", "digest", "retro", "ros"] as const) {
+    const envelope = fast.cards[kind].envelope;
+    if (envelope) envelope.team_name = "Bench Mob";
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.clock.setFixedTime(new Date(NOW));
+  await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
+  await page.route("**/api/leagues*", (route) => route.fulfill({ json: TWO_LEAGUES }));
+  // Week 2 of 1–3, so the "next week" button is enabled to start the race.
+  const initial = baseView();
+  initial.weeks = [1, 2, 3];
+  let first = true;
+  await page.route("**/api/inseason*", async (route) => {
+    const league = new URL(route.request().url()).searchParams.get("league");
+    if (first) {
+      first = false;
+      return route.fulfill({ json: initial });
+    }
+    if (league === SLEEPER) return route.fulfill({ json: fast });
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return route.fulfill({ json: slow });
+  });
+  await page.goto("/command");
+  await expect(page.locator("[data-grid] .card")).toHaveCount(4);
+  await expect(page.locator("[data-league-select]")).toHaveValue(YAHOO);
+
+  await page.locator("[data-week-next]").click();
+  await page.locator("[data-league-select]").selectOption(SLEEPER);
+
+  await expect(page.locator("[data-week]")).toHaveText("Week 5");
+  await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
+  // Well past the slow response; the superseded answer stays discarded.
+  await page.waitForTimeout(1600);
+  await expect(page.locator("[data-week]")).toHaveText("Week 5");
+  await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
+  await expect(page.locator("[data-league-select]")).toHaveValue(SLEEPER);
+});
+
+test("the picker survives the narrow viewport without overflowing", async ({ page }) => {
+  await open(page, baseView(), { width: 420, directory: TWO_LEAGUES });
+  await expect(page.locator("[data-leaguepick]")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });

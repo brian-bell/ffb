@@ -40,6 +40,17 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .topbar-in { width: min(1280px, calc(100% - 32px)); min-height: 56px; margin: auto; display: flex; align-items: center; gap: 18px; }
 .brand { font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; color: var(--ink); text-decoration: none; }
 .brand b { color: var(--good); }
+.leaguepick { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.leaguepick[hidden] { display: none; }
+.leaguepick label { color: var(--muted); font: 650 11px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.04em; }
+.leaguepick select {
+  max-width: 220px; height: 30px; padding: 0 26px 0 9px; border: 1px solid var(--line); border-radius: 7px;
+  background: #131a24 no-repeat right 8px center / 9px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c8798' stroke-width='1.6'/%3E%3C/svg%3E");
+  color: var(--ink); font: 650 13px/1 inherit; text-overflow: ellipsis; appearance: none; cursor: pointer;
+}
+.leaguepick select:disabled { opacity: 0.5; cursor: progress; }
+.leaguepick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .weekpick { display: flex; align-items: center; gap: 4px; font: 800 13px/1 var(--mono); }
 .weekpick button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 7px; background: #131a24; color: var(--ink); }
 .weekpick button:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -164,6 +175,10 @@ td.warn { color: var(--accent); }
 @media (max-width: 760px) {
   .grid { grid-template-columns: 1fr; grid-template-areas: "lineup" "news" "retro" "ros"; }
   .oldest, .team { display: none; }
+  /* The picker stays — it is the only way to reach another league — but the
+     label goes, and the select shrinks to share the row with the week picker. */
+  .leaguepick label { display: none; }
+  .leaguepick select { max-width: 124px; }
   .topbar-in { gap: 10px; }
   .links { margin-left: auto; }
 }

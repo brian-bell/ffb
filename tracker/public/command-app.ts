@@ -5,6 +5,7 @@
 
 import type { DigestPlayer, DigestReport, Headline, InseasonEnvelope, InseasonKind, LineupReport, LineupRow, RetroReport, RetroRow, RosReport } from "../src/inseason";
 import { KIND_LABEL, ageMillis, cardFreshness, formatAge, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
+import { leagueLabels, type LeagueDirectory, type LeagueOption } from "../src/league-directory";
 import { requestJson } from "../src/request-json";
 import { makeStore } from "../src/state";
 
@@ -32,6 +33,12 @@ const $ = <T extends Element>(sel: string): T => {
   return node;
 };
 const gridEl = $<HTMLElement>("[data-grid]");
+const leaguePickEl = $<HTMLElement>("[data-leaguepick]");
+// Queried as HTMLElement and cast: the Workers and DOM `Element` interfaces
+// merge, so `Element` carries both `remove(): void` and `remove(): Element`.
+// HTMLSelectElement declares its own `remove(index?)` overloads, which shadow
+// the inherited pair, so it no longer satisfies `$`'s `extends Element`.
+const leagueSelectEl = $<HTMLElement>("[data-league-select]") as unknown as HTMLSelectElement;
 const statusEl = $<HTMLElement>("[data-status]");
 const weekEl = $<HTMLElement>("[data-week]");
 const weekPrevEl = $<HTMLButtonElement>("[data-week-prev]");
@@ -57,7 +64,11 @@ const gearEl = $<HTMLButtonElement>("[data-gear]");
 // ---- state ----
 let view: InseasonView | null = null;
 let lastFocus: HTMLElement | null = null;
-let loading = false;
+// Monotonic id for the in-flight GET /api/inseason. A later load supersedes an
+// earlier one — a plain in-flight guard would instead drop the *new* request and
+// let the old league's answer render, which is the wrong way round.
+let loadGeneration = 0;
+let directory: LeagueDirectory | null = null;
 
 // ---- tiny DOM helpers (text only) ----
 type Kid = Node | string | number | null | undefined | false;
@@ -498,6 +509,20 @@ function setStatus(message: string, error = false): void {
   statusEl.classList.toggle("error", error);
 }
 
+/**
+ * The header's team name, from a published report or else the league bundle.
+ *
+ * Its own function because the two sources arrive separately: the dashboard
+ * renders first and the league directory lands after it, so this runs again
+ * when the directory resolves rather than leaving an em dash behind.
+ */
+function renderTeam(): void {
+  const published = view
+    ? KINDS.map((kind) => view!.cards[kind].envelope?.team_name).find((name): name is string => Boolean(name))
+    : undefined;
+  teamEl.textContent = published ?? directoryTeamName() ?? "—";
+}
+
 function renderAll(): void {
   if (!view) return;
   const current = view;
@@ -506,8 +531,7 @@ function renderAll(): void {
   const known = current.weeks.length ? current.weeks : [current.week];
   weekPrevEl.disabled = current.week <= Math.min(...known, current.week);
   weekNextEl.disabled = current.week >= Math.max(...known, current.week);
-  const team = KINDS.map((kind) => current.cards[kind].envelope?.team_name).find((name): name is string => Boolean(name));
-  teamEl.textContent = team ?? "—";
+  renderTeam();
   const renderers: Record<InseasonKind, (v: InseasonView, n: number) => HTMLElement> = { lineup: renderLineup, digest: renderDigest, retro: renderRetro, ros: renderRos };
   gridEl.replaceChildren(...KINDS.map((kind) => renderers[kind](current, now)));
   for (const card of gridEl.querySelectorAll<HTMLButtonElement>("button.card")) {
@@ -594,13 +618,97 @@ function selectedLeague(): string | null {
   }
 }
 
+// ---- league picker ----
+
+/**
+ * Load the league directory once per key, for the header picker.
+ *
+ * A league key is a provider id, so the page cannot derive the set of leagues
+ * from anything it already has; this route is the only source. A failure here
+ * is not fatal — the dashboard for the selected league has already loaded, and
+ * the picker simply stays hidden — so it never sets the page's error status.
+ */
+async function loadDirectory(key: string): Promise<void> {
+  const result = await requestJson<LeagueDirectory>(fetch, "/api/leagues", { headers: { Authorization: `Bearer ${key}` } });
+  const value = result.response?.ok ? result.value : null;
+  directory = value && Array.isArray(value.leagues) ? value : null;
+  renderLeagues();
+  renderTeam();
+}
+
+/**
+ * The league the page is showing, as a key the picker can select.
+ *
+ * An absent `?league=` is the default league rather than "no league", which is
+ * exactly what the API resolves it to, so the picker must show it selected.
+ */
+function currentLeague(): string | null {
+  return selectedLeague() ?? directory?.default_league ?? null;
+}
+
+/** The selected league's own team name, from its bundle. */
+function directoryTeamName(): string | null {
+  const current = currentLeague();
+  return directory?.leagues.find((league) => league.league_key === current)?.team_name ?? null;
+}
+
+function renderLeagues(): void {
+  const current = currentLeague();
+  const leagues = directory?.leagues ?? [];
+  // An unlisted league still gets a row: the key came from the URL, so a
+  // bookmark or a hand-typed key must not be silently swapped for another
+  // league. It reads as unpublished because that is what an absent bundle means.
+  const extra: LeagueOption[] =
+    current !== null && !leagues.some((league) => league.league_key === current)
+      ? [{ league_key: current, name: current, source: "", season: null, current_week: null, num_teams: null, synced_at: null, team_name: null }]
+      : [];
+  const all = [...leagues, ...extra];
+  // One league is not a choice, and a select with a single option is noise.
+  leaguePickEl.hidden = all.length < 2;
+  if (all.length < 2) return;
+
+  const labels = leagueLabels(leagues);
+  leagueSelectEl.replaceChildren(
+    ...all.map((league) => {
+      // League name only: the team is already named beside the picker, and both
+      // update together when the league changes.
+      const label = labels.get(league.league_key) ?? `${league.name} (not published)`;
+      return el("option", { value: league.league_key, text: label, selected: league.league_key === current });
+    }),
+  );
+  if (current !== null) leagueSelectEl.value = current;
+}
+
+/**
+ * Switch leagues: reload the dashboard against the newly chosen league.
+ *
+ * Season, week and weeks are all per-league, so the old view is dropped rather
+ * than carried across — the request asks for no week and the API answers with
+ * this league's own current week. The stale `week` in the URL goes with it, or
+ * a bookmark would pin the new league to the old league's week.
+ */
+async function switchLeague(leagueKey: string): Promise<void> {
+  if (leagueKey === currentLeague()) return;
+  closePanel();
+  const url = new URL(window.location.href);
+  url.searchParams.set("league", leagueKey);
+  url.searchParams.delete("week");
+  window.history.replaceState(null, "", url);
+  view = null;
+  gridEl.replaceChildren();
+  teamEl.textContent = "—";
+  leagueSelectEl.disabled = true;
+  await load(null);
+  leagueSelectEl.disabled = false;
+  renderLeagues();
+}
+
 async function load(week: number | null, key = keyStore.get()): Promise<boolean> {
   if (!key) {
     setLocked(true);
     return false;
   }
-  if (loading) return false;
-  loading = true;
+  const generation = ++loadGeneration;
   setStatus("Loading…");
   const params = new URLSearchParams();
   if (view) params.set("season", String(view.season));
@@ -611,7 +719,12 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
   if (league !== null) params.set("league", league);
   const query = params.toString();
   const result = await requestJson<InseasonView & { error?: string; message?: string }>(fetch, `/api/inseason${query ? `?${query}` : ""}`, { headers: { Authorization: `Bearer ${key}` } });
-  loading = false;
+  // A later load started while this one was in flight, so this answer is no
+  // longer the page's. It is dropped rather than rendered: after a league
+  // switch it describes the league the user just left, and painting it would
+  // put that league's lineup under the new league's name. Nothing below this
+  // line — not the status, the key gate, or the view — may run.
+  if (generation !== loadGeneration) return false;
   if (result.transportError) {
     setStatus(result.transportError, true);
     return false;
@@ -620,6 +733,8 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
   if (response.status === 401) {
     keyStore.del();
     view = null;
+    directory = null;
+    leaguePickEl.hidden = true;
     gridEl.replaceChildren();
     setStatus("");
     setLocked(true, "Invalid API key. Check it and try again.");
@@ -635,6 +750,9 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
   setLocked(false);
   rememberWeek(view.week);
   renderAll();
+  // Once per unlock, and after the dashboard is already on screen: the picker
+  // is navigation, not content, so it must never delay the cards.
+  if (directory === null) void loadDirectory(key);
   return true;
 }
 
@@ -655,9 +773,12 @@ keyInputEl.addEventListener("keydown", (event) => { if (event.key === "Enter") v
 keyForgetEl.addEventListener("click", () => {
   keyStore.del();
   view = null;
+  directory = null;
+  leaguePickEl.hidden = true;
   gridEl.replaceChildren();
   setLocked(true);
 });
+leagueSelectEl.addEventListener("change", () => { void switchLeague(leagueSelectEl.value); });
 lockCloseEl.addEventListener("click", () => setLocked(false));
 gearEl.addEventListener("click", () => {
   keyInputEl.value = "";
