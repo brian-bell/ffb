@@ -411,6 +411,55 @@ test("names the team from the league bundle when nothing is published", async ({
   await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
 });
 
+test("a league switch supersedes a week request still in flight", async ({ page }) => {
+  // The week request is answered slowly and the league request immediately, so
+  // the stale week response lands last. It must not repaint the page: its cards
+  // belong to the league the user just left, under the new league's name.
+  const slow = baseView();
+  slow.week = 3;
+  slow.weeks = [1, 2, 3];
+  const fast = baseView();
+  fast.week = 5;
+  fast.weeks = [5];
+  for (const kind of ["lineup", "digest", "retro", "ros"] as const) {
+    const envelope = fast.cards[kind].envelope;
+    if (envelope) envelope.team_name = "Bench Mob";
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.clock.setFixedTime(new Date(NOW));
+  await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
+  await page.route("**/api/leagues*", (route) => route.fulfill({ json: TWO_LEAGUES }));
+  // Week 2 of 1–3, so the "next week" button is enabled to start the race.
+  const initial = baseView();
+  initial.weeks = [1, 2, 3];
+  let first = true;
+  await page.route("**/api/inseason*", async (route) => {
+    const league = new URL(route.request().url()).searchParams.get("league");
+    if (first) {
+      first = false;
+      return route.fulfill({ json: initial });
+    }
+    if (league === SLEEPER) return route.fulfill({ json: fast });
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return route.fulfill({ json: slow });
+  });
+  await page.goto("/command");
+  await expect(page.locator("[data-grid] .card")).toHaveCount(4);
+  await expect(page.locator("[data-league-select]")).toHaveValue(YAHOO);
+
+  await page.locator("[data-week-next]").click();
+  await page.locator("[data-league-select]").selectOption(SLEEPER);
+
+  await expect(page.locator("[data-week]")).toHaveText("Week 5");
+  await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
+  // Well past the slow response; the superseded answer stays discarded.
+  await page.waitForTimeout(1600);
+  await expect(page.locator("[data-week]")).toHaveText("Week 5");
+  await expect(page.locator("[data-team]")).toHaveText("Bench Mob");
+  await expect(page.locator("[data-league-select]")).toHaveValue(SLEEPER);
+});
+
 test("the picker survives the narrow viewport without overflowing", async ({ page }) => {
   await open(page, baseView(), { width: 420, directory: TWO_LEAGUES });
   await expect(page.locator("[data-leaguepick]")).toBeVisible();

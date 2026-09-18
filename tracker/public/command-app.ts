@@ -64,7 +64,10 @@ const gearEl = $<HTMLButtonElement>("[data-gear]");
 // ---- state ----
 let view: InseasonView | null = null;
 let lastFocus: HTMLElement | null = null;
-let loading = false;
+// Monotonic id for the in-flight GET /api/inseason. A later load supersedes an
+// earlier one — a plain in-flight guard would instead drop the *new* request and
+// let the old league's answer render, which is the wrong way round.
+let loadGeneration = 0;
 let directory: LeagueDirectory | null = null;
 
 // ---- tiny DOM helpers (text only) ----
@@ -705,8 +708,7 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
     setLocked(true);
     return false;
   }
-  if (loading) return false;
-  loading = true;
+  const generation = ++loadGeneration;
   setStatus("Loading…");
   const params = new URLSearchParams();
   if (view) params.set("season", String(view.season));
@@ -717,7 +719,12 @@ async function load(week: number | null, key = keyStore.get()): Promise<boolean>
   if (league !== null) params.set("league", league);
   const query = params.toString();
   const result = await requestJson<InseasonView & { error?: string; message?: string }>(fetch, `/api/inseason${query ? `?${query}` : ""}`, { headers: { Authorization: `Bearer ${key}` } });
-  loading = false;
+  // A later load started while this one was in flight, so this answer is no
+  // longer the page's. It is dropped rather than rendered: after a league
+  // switch it describes the league the user just left, and painting it would
+  // put that league's lineup under the new league's name. Nothing below this
+  // line — not the status, the key gate, or the view — may run.
+  if (generation !== loadGeneration) return false;
   if (result.transportError) {
     setStatus(result.transportError, true);
     return false;

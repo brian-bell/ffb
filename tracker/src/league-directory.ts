@@ -46,20 +46,33 @@ export function sortLeagues(leagues: LeagueOption[], defaultLeague: string): Lea
 }
 
 /**
- * Display label per league, disambiguated only when it has to be.
+ * Display label per league, disambiguated only as far as it has to be.
  *
  * Two leagues genuinely can share a name across providers ("Dynasty" on both
- * Yahoo and Sleeper), and a picker with two identical rows is unusable. The
- * provider is appended only to the names that collide, so the common
- * single-provider case stays clean.
+ * Yahoo and Sleeper), and a picker with two identical rows is unusable, so the
+ * provider is appended — but only to the names that collide, leaving the common
+ * case clean. Two leagues on the *same* provider can share a name too, and then
+ * the provider qualifier is identical on both rows; the key is the only field
+ * guaranteed to differ, so it is the last resort. Every label is unique.
  */
 export function leagueLabels(leagues: LeagueOption[]): Map<string, string> {
-  const seen = new Map<string, number>();
-  for (const league of leagues) seen.set(league.name, (seen.get(league.name) ?? 0) + 1);
+  const tally = (of: (league: LeagueOption) => string): Map<string, number> => {
+    const seen = new Map<string, number>();
+    for (const league of leagues) {
+      const value = of(league);
+      seen.set(value, (seen.get(value) ?? 0) + 1);
+    }
+    return seen;
+  };
+  const qualified = (league: LeagueOption): string => `${league.name} · ${league.source}`;
+  const byName = tally((league) => league.name);
+  const byQualified = tally(qualified);
+
   const labels = new Map<string, string>();
   for (const league of leagues) {
-    const collides = (seen.get(league.name) ?? 0) > 1;
-    labels.set(league.league_key, collides ? `${league.name} · ${league.source}` : league.name);
+    if ((byName.get(league.name) ?? 0) < 2) labels.set(league.league_key, league.name);
+    else if ((byQualified.get(qualified(league)) ?? 0) < 2) labels.set(league.league_key, qualified(league));
+    else labels.set(league.league_key, `${league.name} · ${league.league_key}`);
   }
   return labels;
 }

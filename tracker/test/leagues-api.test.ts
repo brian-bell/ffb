@@ -162,4 +162,22 @@ describe("league directory ordering and labels", () => {
     expect(labels.get("sleeper:2")).toBe("Dynasty · sleeper");
     expect(labels.get("sleeper:3")).toBe("Redraft");
   });
+
+  it("falls back to the league key when the provider does not disambiguate", () => {
+    // Two leagues on one provider can share a name, and then the provider
+    // qualifier is identical on both rows; the key is the only thing that
+    // differs, so it has to carry the distinction.
+    const labels = leagueLabels([
+      option("yahoo:470.l.1", "Dynasty", "yahoo"),
+      option("yahoo:470.l.2", "Dynasty", "yahoo"),
+      option("sleeper:9", "Dynasty", "sleeper"),
+      option("sleeper:3", "Redraft", "sleeper"),
+    ]);
+    expect(labels.get("yahoo:470.l.1")).toBe("Dynasty · yahoo:470.l.1");
+    expect(labels.get("yahoo:470.l.2")).toBe("Dynasty · yahoo:470.l.2");
+    // Still uniquely qualified by provider, so it keeps the shorter label.
+    expect(labels.get("sleeper:9")).toBe("Dynasty · sleeper");
+    expect(labels.get("sleeper:3")).toBe("Redraft");
+    expect(new Set(labels.values()).size).toBe(4);
+  });
 });
