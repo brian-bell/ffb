@@ -303,7 +303,8 @@ def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_w
     assert unmapped.isdisjoint(mapped)
     assert mapped >= {"ff", "fgm_60p", "fgmiss"}
     assert "def_st_ff" not in mapped
-    assert next(rule["points"] for rule in bundle.settings["scoring_rules"] if rule["stat_key"] == "ff") == 1.0
+    ff_rule = next(rule for rule in bundle.settings["scoring_rules"] if rule["stat_key"] == "ff")
+    assert ff_rule["points"] == 1.0
 
 
 def test_nfl_state_from_another_season_is_rejected():

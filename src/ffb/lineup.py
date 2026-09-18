@@ -35,9 +35,7 @@ def projection_key(row: dict[str, Any]) -> str | None:
         return str(row["player_key"])
     position = row.get("primary_position") or row.get("position")
     team = row.get("nfl_team") if "nfl_team" in row else row.get("team")
-    defense = defense_identity(
-        position, team, row.get("full_name"), row.get("name")
-    )
+    defense = defense_identity(position, team, row.get("full_name"), row.get("name"))
     if defense is not None:
         return defense[0]
     return None

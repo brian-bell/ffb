@@ -235,7 +235,7 @@ def test_sleeper_lineup_is_scored_with_its_own_weights_not_yahoos(tmp_path):
     assert config.LEAGUE_SCORING.weights.get("rec") != 1.0
     assert context.league_key == config.SLEEPER_LEAGUE_KEY
     # Settings the league scores that no projection source emits are reported.
-    assert "fgmiss" in context.unmodeled_scoring
+    assert "st_ff" in context.unmodeled_scoring
 
 
 def test_sleeper_lineup_snapshots_under_its_own_league_not_yahoos(tmp_path):
