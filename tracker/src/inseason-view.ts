@@ -3,7 +3,7 @@
 // function of the GET /api/inseason response and the client clock, first
 // matching rule wins (docs/specs/in-season-command-center.md, "Freshness").
 
-import type { InseasonEnvelope, InseasonKind } from "./inseason";
+import type { InseasonEnvelope, InseasonKind, LineupReport, LineupRow } from "./inseason";
 
 export interface InseasonCard {
   envelope: InseasonEnvelope | null;
@@ -125,6 +125,81 @@ export function oldestSource(view: InseasonView, now: number): OldestSource | nu
     if (oldest === null || ageMs > oldest.ageMs) oldest = { kind, ageMs };
   }
   return oldest;
+}
+
+export const LINEUP_CARD_CLOSE_CALLS = 4;
+
+/** A close call on the card; `swap` marks one that also stands in for a sit/start pair. */
+export type CardCloseCall = LineupReport["close_calls"][number] & { swap: boolean };
+
+/**
+ * Python's `round(points, 1)`, which the report's close-call deltas use:
+ * correctly rounded on the exact binary value, exact ties to even. `toFixed`
+ * matches except on ties, which it breaks away from zero; a double sits exactly
+ * on a tenths tie only at .x5 multiples of 0.25, where `points * 10` is exact.
+ */
+function tenths(points: number): number {
+  const scaled = points * 10;
+  if (Number.isInteger(points * 4) && !Number.isInteger(scaled)) {
+    const floor = Math.floor(scaled);
+    return (floor % 2 === 0 ? floor : floor + 1) / 10;
+  }
+  return Number(points.toFixed(1));
+}
+
+/**
+ * One-to-one sit/start swaps: within each slot, the best incoming starter
+ * replaces the best outgoing one, and so on down. A cascade across slots (a
+ * starter moving to flex) has no same-slot partner and stays unpaired.
+ */
+function swapPairs(report: LineupReport): Array<{ start: LineupRow; sit: LineupRow; gap: number }> {
+  const bySlot = (rows: LineupRow[]) => {
+    const groups = new Map<string, LineupRow[]>();
+    for (const row of rows) {
+      if (row.slot === null || row.points === null) continue;
+      groups.set(row.slot, [...(groups.get(row.slot) ?? []), row]);
+    }
+    for (const group of groups.values()) group.sort((a, b) => b.points! - a.points!);
+    return groups;
+  };
+  const sitting = bySlot(report.sit);
+  const pairs: Array<{ start: LineupRow; sit: LineupRow; gap: number }> = [];
+  for (const [slot, starters] of bySlot(report.start)) {
+    const outgoing = sitting.get(slot) ?? [];
+    starters.slice(0, outgoing.length).forEach((start, i) => {
+      pairs.push({ start, sit: outgoing[i], gap: tenths(tenths(start.points!) - tenths(outgoing[i].points!)) });
+    });
+  }
+  return pairs;
+}
+
+/**
+ * Rows for the compact lineup card. A one-to-one sit/start swap whose sitting
+ * player is a close call is shown once, as a close row carrying the swap's own
+ * gap. It folds only when that gap is no wider than the close call's, so it
+ * stays inside the close-call threshold. Folded rows always show and come
+ * first; plain close calls fill up to the card's cap in gap order.
+ */
+export function lineupCardRows(report: LineupReport): { start: LineupRow[]; sit: LineupRow[]; close: CardCloseCall[] } {
+  const callFor = new Map(report.close_calls.map((call) => [call.name, call]));
+  const folded = swapPairs(report).filter(({ sit, gap }) => {
+    const call = callFor.get(sit.name);
+    return call !== undefined && gap <= call.delta;
+  });
+  folded.sort((a, b) => a.gap - b.gap);
+  const foldedIn = new Set(folded.map(({ start }) => start));
+  const foldedOut = new Set(folded.map(({ sit }) => sit));
+  const foldedNames = new Set(folded.map(({ sit }) => sit.name));
+  const plain = report.close_calls.filter((call) => !foldedNames.has(call.name));
+  const close: CardCloseCall[] = [
+    ...folded.map(({ start, sit, gap }) => ({ name: sit.name, points: sit.points!, versus: start.name, slot: start.slot!, delta: gap, swap: true })),
+    ...plain.slice(0, Math.max(0, LINEUP_CARD_CLOSE_CALLS - folded.length)).map((call) => ({ ...call, swap: false })),
+  ];
+  return {
+    start: report.start.filter((row) => !foldedIn.has(row)),
+    sit: report.sit.filter((row) => !foldedOut.has(row)),
+    close,
+  };
 }
 
 /** Compact human age: 12m, 5h, 3d. */

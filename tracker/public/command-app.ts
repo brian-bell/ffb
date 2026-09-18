@@ -4,7 +4,7 @@
 // badges come only from cardFreshness (../src/inseason-view).
 
 import type { DigestPlayer, DigestReport, Headline, InseasonEnvelope, InseasonKind, LineupReport, LineupRow, RetroReport, RetroRow, RosReport } from "../src/inseason";
-import { KIND_LABEL, ageMillis, cardFreshness, formatAge, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
+import { KIND_LABEL, ageMillis, cardFreshness, formatAge, lineupCardRows, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
 import { leagueLabels, type LeagueDirectory, type LeagueOption } from "../src/league-directory";
 import { requestJson } from "../src/request-json";
 import { makeStore } from "../src/state";
@@ -161,10 +161,16 @@ function renderLineup(current: InseasonView, now: number): HTMLElement {
   if (!envelope) return cardShell("lineup", freshness, null, now, emptyBody("lineup", freshness, current));
   const report: LineupReport = envelope.report;
   const rows = el("ul", { class: "rows" });
-  for (const player of report.start) rows.appendChild(row("start", "start", player.name, lineupSub(player, true), pts(player.points), "good"));
-  for (const player of report.sit) rows.appendChild(row("sit", "sit", player.name, lineupSub(player, false), pts(player.points), "bad"));
+  const card = lineupCardRows(report);
+  for (const player of card.start) rows.appendChild(row("start", "start", player.name, lineupSub(player, true), pts(player.points), "good"));
+  for (const player of card.sit) rows.appendChild(row("sit", "sit", player.name, lineupSub(player, false), pts(player.points), "bad"));
   for (const player of report.undecidable) rows.appendChild(row("?", "close", player.name, player.position ?? "", "no proj"));
-  for (const call of report.close_calls.slice(0, 2)) rows.appendChild(row("close", "close", call.name, `vs ${call.versus} at ${call.slot}`, `−${call.delta.toFixed(1)}`));
+  for (const call of card.close) {
+    const gap = `−${call.delta.toFixed(1)}`;
+    rows.appendChild(call.swap
+      ? row("close call", "close", `Start ${call.versus}`, `vs. ${call.name} at ${call.slot}`, gap)
+      : row("close call", "close", call.name, `vs ${call.versus} at ${call.slot}`, gap));
+  }
   if (!rows.childElementCount) rows.appendChild(row("ok", "start", "Stored lineup matches the weekly optimum.", null, ""));
   const headline = el("div", { class: "head" },
     el("b", { class: report.delta > 0 ? "good" : "plain", "data-headline": "", text: report.delta > 0 ? `+${report.delta.toFixed(1)}` : "0.0" }),
