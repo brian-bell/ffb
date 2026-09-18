@@ -72,8 +72,8 @@ def test_sleeper_with_unmodeled_rules_keeps_its_own_weights_and_reports_them():
         league_key=config.SLEEPER_LEAGUE_ID,
         scoring_rules=[{"stat_key": "rec", "points": 1.0}],
         unmapped_scoring_rules=[
-            {"points": 1.0, "provider_name": "ff"},
-            {"points": -1.0, "provider_name": "fgmiss"},
+            {"points": 1.0, "provider_name": "st_ff"},
+            {"points": -1.0, "provider_name": "st_fum_rec"},
         ],
     )
     context = load_league_context(_Store(state), 2024)
@@ -82,7 +82,7 @@ def test_sleeper_with_unmodeled_rules_keeps_its_own_weights_and_reports_them():
     assert context.scoring_complete is False
     assert context.league_key == config.SLEEPER_LEAGUE_KEY
     assert context.scoring_provenance == f"partial-{config.SLEEPER_LEAGUE_KEY}"
-    assert context.unmodeled_scoring == ("ff", "fgmiss")
+    assert context.unmodeled_scoring == ("st_ff", "st_fum_rec")
 
 
 def test_sleeper_with_no_usable_scoring_fails_closed_instead_of_borrowing():

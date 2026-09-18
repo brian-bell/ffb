@@ -58,6 +58,19 @@ def test_projection_key_joins_unmatched_defenses_by_nfl_team():
     assert projection_key(row) == "def:LAR"
 
 
+def test_projection_key_joins_unmatched_defenses_by_display_name():
+    row = _roster(
+        full_name="Ravens",
+        nfl_team=None,
+        primary_position="D/ST",
+        eligible_positions=["DEF"],
+        selected_position="DEF",
+        player_key="yahoo:100008",
+        matched=False,
+    )
+    assert projection_key(row) == "def:BAL"
+
+
 def test_projection_key_does_not_guess_unmatched_skill_players():
     assert projection_key(_roster(full_name="Kyle Monangai", native_id="42025")) is None
 

@@ -300,7 +300,7 @@ def season_sync(  # noqa: B008
         None,
         "--source",
         help="all, projections, adp, sleeper, espn, ffc, schedule, injuries, or news; "
-        "repeatable. Default syncs everything except the opt-in news source.",
+        "repeatable. Default syncs every source including news.",
     ),
     missing_only: bool = typer.Option(
         False, "--missing-only", help="Fetch only missing snapshots."

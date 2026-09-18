@@ -74,6 +74,27 @@ def test_zero_value_sleeper_settings_are_ignored():
     assert "pts_allow_21_27" not in scoring["weights"]
 
 
+def test_forced_fumble_and_sixty_plus_fg_are_modeled():
+    parsed = sl.parse_scoring_settings(
+        {"rec": 1.0, "ff": 1.0, "def_st_ff": 1.0, "fgm_60p": 6.0, "fgmiss": -1.0}
+    )
+    assert parsed["weights"]["ff"] == 1.0
+    assert parsed["weights"]["fgm_60p"] == 6.0
+    assert parsed["weights"]["fgmiss"] == -1.0
+    assert parsed["unmapped_scoring_rules"] == []
+    by_key = {rule["stat_key"]: rule for rule in parsed["scoring_rules"]}
+    assert by_key["ff"]["provider_name"] in {"ff", "def_st_ff"}
+
+
+def test_st_only_forced_fumbles_stay_unmodeled():
+    parsed = sl.parse_scoring_settings({"rec": 1.0, "st_ff": 1.0, "st_fum_rec": 1.0})
+    assert parsed["weights"] == {"rec": 1.0}
+    assert {rule["provider_name"] for rule in parsed["unmapped_scoring_rules"]} == {
+        "st_ff",
+        "st_fum_rec",
+    }
+
+
 def test_unsupported_bonus_fails_loud():
     with pytest.raises(ValueError, match="unsupported Sleeper scoring setting 'bonus_rec_te'"):
         sl.parse_scoring_settings({"rec": 1.0, "bonus_rec_te": 0.5})
@@ -124,6 +145,41 @@ def test_two_rosters_for_the_same_user_fail_uniqueness():
             synced_at=SYNCED_AT,
             players_by_id=_load("players.json"),
         )
+
+
+def test_named_defenses_canonicalize_without_team_codes():
+    """OpsBot unmatched Broncos: Sleeper name/id must resolve like SF → SFO."""
+    broncos = sl._parse_player(
+        "DEN",
+        {
+            "first_name": "Denver",
+            "last_name": "Broncos",
+            "position": "DEF",
+            "team": None,
+        },
+        selected_position="DEF",
+    )
+    assert broncos["nfl_team"] == "DEN"
+    named = sl._parse_player(
+        "not-a-code",
+        {
+            "first_name": "Denver",
+            "last_name": "Broncos",
+            "position": "D/ST",
+            "team": None,
+        },
+        selected_position="DEF",
+    )
+    assert named["nfl_team"] == "DEN"
+    assert named["primary_position"] == "DEF"
+
+    class _Store:
+        def resolve_batch(self, source, native_ids):
+            return {}
+
+    [row] = sl.resolve_sleeper_roster_rows(_Store(), [broncos])
+    assert row["player_key"] == "def:DEN"
+    assert row["matched"] is True
 
 
 def test_sf_defense_id_canonicalizes_to_def_sfo():
@@ -239,16 +295,15 @@ def test_mapped_state_is_a_league_bundle_keyed_by_sleeper_league_and_nfl_state_w
     # reported as not modeled, never absorbed as zero-effect weights.
     unmapped = {rule["provider_name"] for rule in bundle.settings["unmapped_scoring_rules"]}
     assert unmapped == {
-        "ff",
         "st_ff",
-        "def_st_ff",
         "st_fum_rec",
         "def_st_fum_rec",
-        "fgmiss",
-        "fgm_60p",
     }
     mapped = {rule["stat_key"] for rule in bundle.settings["scoring_rules"]}
     assert unmapped.isdisjoint(mapped)
+    assert mapped >= {"ff", "fgm_60p", "fgmiss"}
+    assert "def_st_ff" not in mapped
+    assert next(rule["points"] for rule in bundle.settings["scoring_rules"] if rule["stat_key"] == "ff") == 1.0
 
 
 def test_nfl_state_from_another_season_is_rejected():

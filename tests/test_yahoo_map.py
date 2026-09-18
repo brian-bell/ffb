@@ -85,8 +85,17 @@ def test_scoring_rules_use_static_stat_map_and_fan_out_two_point_conversions():
 def test_unmappable_stats_are_surfaced_not_dropped():
     settings = _bundle_payload()["settings"]
     assert settings["unmapped_scoring_rules"] == [
-        {"points": 6.0, "provider_stat_id": "15", "provider_name": "Return Touchdowns"}
+        {"points": 6.0, "provider_stat_id": "15", "provider_name": "Return Touchdowns"},
+        {"points": 2.0, "provider_stat_id": "82", "provider_name": "Extra Point Returned"},
     ]
+
+
+def test_yahoo_extra_point_returned_is_intentionally_unmapped():
+    """Stat 82 is a real Yahoo category with no projection line."""
+    from ffb import config
+
+    assert 82 in config.YAHOO_UNMODELED_STAT_IDS
+    assert 82 not in config.YAHOO_STAT_MAP
 
 
 def test_provider_settings_keep_only_scalars():
@@ -113,6 +122,25 @@ def test_teams_flatten_positional_fragments_and_detect_user_team():
             "is_user_team": False,
         },
     ]
+
+
+def test_yahoo_defense_names_canonicalize_without_abbr():
+    raw = _load("roster_team1.json")
+    players = raw["fantasy_content"]["team"][1]["roster"]["0"]["players"]
+    players["1"]["player"][0] = [
+        {"player_key": "461.p.100014"},
+        {"player_id": "100014"},
+        {"name": {"full": "Rams", "first": "Rams", "last": ""}},
+        {"editorial_team_abbr": ""},
+        {"display_position": "D/ST"},
+        {"primary_position": "D/ST"},
+        {"eligible_positions": [{"position": "DEF"}]},
+    ]
+    roster = yahoo.parse_roster(raw)
+    dst = roster["players"][1]
+    assert dst["name"] == "Rams"
+    assert dst["nfl_team"] == "LAR"
+    assert dst["primary_position"] == "D/ST"
 
 
 def test_rosters_normalize_teams_and_free_agents():
@@ -268,6 +296,9 @@ def test_every_mapped_stat_key_is_a_known_scoring_key():
             "fgm_30_39",
             "fgm_40_49",
             "fgm_50p",
+            "fgm_60p",
+            "fgmiss",
+            "ff",
             "xpm",
             "pts_allow_28_34",
             "pts_allow_35p",

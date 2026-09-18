@@ -92,6 +92,8 @@ def test_decodes_real_kicker_projection(raw):
         "fgm_50p": 4.622432766,
         "fgm_40_49": 7.461598239,
         "fgm_30_39": 16.46551991,
+        "fgm_60p": 0.4,
+        "fgmiss": 3.931863785,
         "xpm": 43.46817787,
     }
     assert (
@@ -123,6 +125,7 @@ def test_decodes_and_normalizes_real_team_defense_projection(raw):
             "sack": 42.86403207,
             "def_ret_td": 0.551187564,
             "pass_int_td": 0.562739773,
+            "ff": 8.25,
         }
     )
     assert ppr_points(defense["stats"], LEAGUE_SCORING) > 0

@@ -25,10 +25,12 @@ from ffb.store import Store
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries")
-# Opt-in sources: not synced by a bare ``season sync`` and not required for
-# ``complete`` until they have been synced at least once.
-OPTIONAL_SOURCES = ("news",)
+# News is in the default set so Wednesday ``season sync --week W --refresh``
+# (OpsBot) actually fetches headlines. A bare sync that skipped news left
+# digest at 0 rows even though both ESPN feeds were healthy.
+DEFAULT_SOURCES = ("sleeper", "espn", "ffc", "schedule", "injuries", "news")
+# Reserved for sources that must not block ``complete`` until first synced.
+OPTIONAL_SOURCES: tuple[str, ...] = ()
 SYNCABLE_SOURCES = (*DEFAULT_SOURCES, *OPTIONAL_SOURCES)
 ALL_SOURCES = ("crosswalk", *SYNCABLE_SOURCES)
 SOURCE_KIND = {

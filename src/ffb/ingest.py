@@ -93,7 +93,9 @@ def resolve_rows(
     recon = Reconciliation(source=source, n_rows=len(rows))
     resolved: list[dict[str, Any]] = []
     for row in rows:
-        defense = identity.canonical_defense_key(row.get("position"), row.get("team"))
+        defense = identity.defense_identity(
+            row.get("position"), row.get("team"), row.get("full_name")
+        )
         if defense is not None:
             player_key, team = defense
             recon.matched += 1
@@ -522,7 +524,9 @@ def resolve_adp_rows(
     recon = Reconciliation(source="ffc", n_rows=len(rows))
     resolved: list[dict[str, Any]] = []
     for row in rows:
-        defense = identity.canonical_defense_key(row.get("position"), row.get("team"))
+        defense = identity.defense_identity(
+            row.get("position"), row.get("team"), row.get("full_name")
+        )
         if defense is not None:
             player_key, team = defense
             recon.matched += 1

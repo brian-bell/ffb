@@ -163,6 +163,9 @@ Rules the validator enforces. A violation is a 400 and nothing is stored.
 | 53 | `53` | `pts_allow_14_20` | Points Allowed 14-20 |
 | 54 | `54` | `pts_allow_21_27` | Points Allowed 21-27 |
 
+Yahoo stat id 82 (Extra Point Returned / XPR) is a real category with no
+projection line. Put it in `unmapped_scoring_rules`, not this table.
+
 The point values come from the league's scoring settings page (currently
 half PPR: 0.05 per passing yard, 4 per passing TD, 0.5 per reception, 0.1 per
 rushing or receiving yard, 6 per rushing or receiving TD). Read them from

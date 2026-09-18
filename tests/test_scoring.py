@@ -26,6 +26,11 @@ def test_fumble_and_two_point_conversions():
     assert ppr_points(stats) == 1.0
 
 
+def test_forced_fumble_and_sixty_yard_fg_score_when_weighted():
+    cfg = ScoringConfig(weights={"ff": 1.0, "fgm_60p": 6.0, "fgmiss": -1.0})
+    assert ppr_points({"ff": 2, "fgm_60p": 1, "fgmiss": 1}, cfg) == 7.0
+
+
 def test_unknown_stats_are_ignored():
     stats = {"rec": 3, "made_up_stat": 999, "adp_ppr": 20.5}
     assert ppr_points(stats) == 3.0
