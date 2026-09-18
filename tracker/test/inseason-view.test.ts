@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { InseasonEnvelope, InseasonKind } from "../src/inseason";
-import { cardFreshness, formatAge, oldestSource, type InseasonView, DAY_MS } from "../src/inseason-view";
+import type { InseasonEnvelope, InseasonKind, LineupReport, LineupRow } from "../src/inseason";
+import { cardFreshness, formatAge, lineupCardRows, oldestSource, type InseasonView, DAY_MS } from "../src/inseason-view";
 import digestFixture from "./fixtures/inseason/digest.json";
 import lineupFixture from "./fixtures/inseason/lineup.json";
 import retroFixture from "./fixtures/inseason/retro.json";
@@ -248,5 +248,56 @@ describe("oldestSource and formatAge", () => {
     expect(formatAge(5 * 3_600_000)).toBe("5h");
     expect(formatAge(35 * 3_600_000)).toBe("35h");
     expect(formatAge(4 * DAY_MS + 3_600_000)).toBe("4d");
+  });
+});
+
+describe("lineupCardRows", () => {
+  const player = (name: string, slot: string, points: number): LineupRow => ({
+    name, position: slot, team: null, slot, points, selected_position: null,
+  });
+  const report = (overrides: Partial<LineupReport>): LineupReport => ({
+    start: [], sit: [], undecidable: [], missing_projections: [], aligned: [], close_calls: [],
+    current_total: 0, optimal_total: 0, delta: 0, injury_as_of: null, ...overrides,
+  });
+
+  it("folds a swap that is also a close call into its close row", () => {
+    const rows = lineupCardRows(report({
+      start: [player("Jared Goff", "QB", 17.0), player("Derrick Henry", "RB", 20.0)],
+      sit: [player("Trevor Lawrence", "QB", 16.9), player("Zack Moss", "RB", 8.0)],
+      close_calls: [
+        { name: "Trevor Lawrence", points: 16.9, versus: "Jared Goff", slot: "QB", delta: 0.1 },
+        { name: "Wan'Dale Robinson", points: 11.0, versus: "Brian Thomas Jr.", slot: "W/R/T", delta: 0.4 },
+        { name: "Tyjae Spears", points: 9.0, versus: "Derrick Henry", slot: "RB", delta: 1.2 },
+      ],
+    }));
+    expect(rows.start.map((row) => row.name)).toEqual(["Derrick Henry"]);
+    expect(rows.sit.map((row) => row.name)).toEqual(["Zack Moss"]);
+    expect(rows.close.map((call) => [call.name, call.swap])).toEqual([["Trevor Lawrence", true], ["Wan'Dale Robinson", false]]);
+  });
+
+  it("always shows a folded close call even past the two-row cap", () => {
+    const rows = lineupCardRows(report({
+      start: [player("Jared Goff", "QB", 17.0)],
+      sit: [player("Trevor Lawrence", "QB", 16.0)],
+      close_calls: [
+        { name: "A", points: 16.8, versus: "B", slot: "W/R/T", delta: 0.2 },
+        { name: "C", points: 16.7, versus: "D", slot: "W/R/T", delta: 0.3 },
+        { name: "Trevor Lawrence", points: 16.0, versus: "Jared Goff", slot: "QB", delta: 1.0 },
+      ],
+    }));
+    expect(rows.start).toEqual([]);
+    expect(rows.sit).toEqual([]);
+    expect(rows.close.map((call) => call.name)).toEqual(["A", "Trevor Lawrence"]);
+  });
+
+  it("keeps start and sit when the close call pairs different players", () => {
+    const rows = lineupCardRows(report({
+      start: [player("Jared Goff", "QB", 17.0)],
+      sit: [player("Trevor Lawrence", "QB", 14.0)],
+      close_calls: [{ name: "Trevor Lawrence", points: 14.0, versus: "Someone Else", slot: "SUPERFLEX", delta: 1.0 }],
+    }));
+    expect(rows.start.map((row) => row.name)).toEqual(["Jared Goff"]);
+    expect(rows.sit.map((row) => row.name)).toEqual(["Trevor Lawrence"]);
+    expect(rows.close.map((call) => [call.name, call.swap])).toEqual([["Trevor Lawrence", false]]);
   });
 });

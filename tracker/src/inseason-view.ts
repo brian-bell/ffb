@@ -3,7 +3,7 @@
 // function of the GET /api/inseason response and the client clock, first
 // matching rule wins (docs/specs/in-season-command-center.md, "Freshness").
 
-import type { InseasonEnvelope, InseasonKind } from "./inseason";
+import type { InseasonEnvelope, InseasonKind, LineupReport, LineupRow } from "./inseason";
 
 export interface InseasonCard {
   envelope: InseasonEnvelope | null;
@@ -125,6 +125,36 @@ export function oldestSource(view: InseasonView, now: number): OldestSource | nu
     if (oldest === null || ageMs > oldest.ageMs) oldest = { kind, ageMs };
   }
   return oldest;
+}
+
+export const LINEUP_CARD_CLOSE_CALLS = 2;
+
+/** A close call on the card; `swap` marks one that also stands in for a sit/start pair. */
+export type CardCloseCall = LineupReport["close_calls"][number] & { swap: boolean };
+
+/**
+ * Rows for the compact lineup card. A sit/start swap whose sitting player is a
+ * close call against the incoming starter is shown once, as that close row;
+ * folded close rows always show, and the rest fill up to the card's cap.
+ */
+export function lineupCardRows(report: LineupReport): { start: LineupRow[]; sit: LineupRow[]; close: CardCloseCall[] } {
+  const starting = new Set(report.start.map((row) => row.name));
+  const sitting = new Set(report.sit.map((row) => row.name));
+  const folded = new Set(report.close_calls.filter((call) => sitting.has(call.name) && starting.has(call.versus)));
+  let room = Math.max(0, LINEUP_CARD_CLOSE_CALLS - folded.size);
+  const close = report.close_calls.filter((call) => {
+    if (folded.has(call)) return true;
+    if (room === 0) return false;
+    room -= 1;
+    return true;
+  }).map((call) => ({ ...call, swap: folded.has(call) }));
+  const foldedIn = new Set([...folded].map((call) => call.versus));
+  const foldedOut = new Set([...folded].map((call) => call.name));
+  return {
+    start: report.start.filter((row) => !foldedIn.has(row.name)),
+    sit: report.sit.filter((row) => !foldedOut.has(row.name)),
+    close,
+  };
 }
 
 /** Compact human age: 12m, 5h, 3d. */
