@@ -149,7 +149,7 @@ body {
   .appbar .row1 { flex-wrap: wrap; }
   .appbar .right { display: contents; }
   .appbar .brand { order: 1; }
-  .appbar .gear { order: 2; margin-left: auto; }
+  .appbar .right > .gear { order: 2; }
   .appbar .clock, .appbar .setupdraft { order: 3; width: 100%; justify-content: center; margin-top: 4px; }
 }
 /* ---------- position pills ---------- */
@@ -478,7 +478,7 @@ body {
 }
 .setupmodal { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: max(16px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom)); background: rgba(4, 7, 11, .72); backdrop-filter: blur(5px); }
 .setup { position: relative; width: min(100%, 480px); margin: auto; padding: 22px; background: #10161e; border: 1px solid #34404f; border-radius: 18px; box-shadow: 0 24px 64px #000b; }
-.setup .setupclose { position: absolute; top: 12px; right: 12px; width: 32px; min-height: 32px; margin: 0; padding: 0; border-radius: 8px; background: #171e26; color: var(--dr-muted); border-color: #2b3542; font-size: 18px; }
+.setup .setupclose { position: absolute; top: 12px; right: 12px; width: 32px; min-height: 32px; margin: 0; padding: 0; border-radius: 8px; background: #171e26; color: var(--dr-muted); border-color: #2b3542; display: grid; place-items: center; }
 .setup .setupclose:hover { color: var(--dr-ink); }
 .setuphead { margin-bottom: 18px; }
 .eyebrow, .field { display: block; color: var(--dr-muted); font: 700 10px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
@@ -563,8 +563,9 @@ body {
   background: #171e26;
   color: var(--dr-muted);
   cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
 }
 .lockcard .close[hidden] {
   display: none;
@@ -691,17 +692,6 @@ body {
 .reset-draft-setting:hover { border-color: var(--reach); }
 .reset-draft-setting:disabled { cursor: not-allowed; opacity: .48; }
 .reset-draft-setting:focus-visible { outline: 2px solid var(--reach); outline-offset: 2px; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .tab,
-  .save,
-  .gear {
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease,
-      border-color 0.15s ease;
-  }
-}
 
 /* ---------- isolated mock draft ---------- */
 .mock-appbar { border-bottom-color: #1d5d3a; }
@@ -1027,7 +1017,7 @@ body {
   .mock-dock .dock-summary .onclock { color: var(--good); }
   .selection-summary { margin-top: 7px; white-space: normal; }
   .pick-tools-toggle[hidden] { display: none; }
-  .pick-tools { margin-top: 11px; padding: 0; }
+  .mock-dock .pick-tools { margin-top: 11px; padding: 0; }
   .dock-error { padding: 0; }
   .mock-suggestions {
     grid-template-columns: 1fr;
@@ -1100,7 +1090,7 @@ body {
 }
 
 .starter-needs { flex: none; margin: 0; padding: 0 14px 9px; background: var(--dr-chrome); color: var(--dr-accent); font: 11px/1.5 var(--mono); }
-.bye-clash { display: inline-block; margin-top: 3px; white-space: nowrap; padding: 1px 3px; border: 1px solid #a87a25; border-radius: 3px; color: #f2c66d; font-size: 9px; font-style: normal; }
+.bye-clash { display: inline-block; margin-top: 3px; white-space: nowrap; padding: 2px 4px; border: 1px solid #a87a25; border-radius: 4px; color: #f2c66d; font-size: 9px; font-style: normal; }
 
 .viewtabs:has([data-view="my-team"]) { flex-wrap: wrap; }
 .player-search[hidden] { display: none; }
@@ -1122,7 +1112,7 @@ body {
 .replay-dock { flex-shrink: 0; padding: 10px 14px; border-top: 1px solid var(--dr-line); background: var(--dr-chrome); }
 .replay-heading, .replay-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .replay-heading { justify-content: space-between; }
-.replay-dock button { border: 1px solid var(--dr-muted); border-radius: 6px; background: var(--dr-screen); color: var(--dr-ink); padding: 8px 10px; font: inherit; font-size: 12px; min-height: 36px; }
+.replay-dock button { border: 1px solid #29323e; border-radius: 9px; background: #171e26; color: var(--dr-ink); padding: 8px 10px; font: inherit; font-size: 12px; min-height: 36px; }
 .replay-dock button:disabled { opacity: .4; }
 .replay-dock p { font-size: 12px; margin: 4px 0; }
 .replay-dock p:empty { display: none; }
@@ -1152,3 +1142,28 @@ body {
 .settings-action:focus-visible { outline: 2px solid var(--dr-accent); outline-offset: 2px; }
 .settings-action:disabled { opacity: .48; cursor: not-allowed; }
 [data-replay-start-error]:empty { display: none; }
+
+/* Tactile press on board controls. Player rows stay static: a 0.96 scale on a
+   full-width row reads as the list jumping. */
+.tab, .viewtab, .gear, .appbar .setupdraft, .pickdock button, .save, .lockcard .close, .setup .setupclose, .settings-action, .replay-dock button {
+  transition-property: scale, background-color, color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.tab:active:not(:disabled), .viewtab:active:not(:disabled), .gear:active, .appbar .setupdraft:active,
+.pickdock button:active:not(:disabled), .save:active, .lockcard .close:active, .setup .setupclose:active,
+.settings-action:active:not(:disabled), .replay-dock button:active:not(:disabled) { scale: 0.96; }
+
+/* Settings and draft-setup dialogs ease in; the first-run key gate (no close
+   button) appears at once, and closing stays instant so focus returns. */
+@media (prefers-reduced-motion: no-preference) {
+  .lock:has(> .lockcard > .close:not([hidden])), .setupmodal { transition-property: opacity; transition-duration: 200ms; transition-timing-function: ease-out; }
+  .lock:has(> .lockcard > .close:not([hidden])) .lockcard, .setup { transition-property: translate, opacity; transition-duration: 200ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+  @starting-style {
+    .lock:has(> .lockcard > .close:not([hidden])), .setupmodal { opacity: 0; }
+    .lock:has(> .lockcard > .close:not([hidden])) .lockcard, .setup { translate: 0 8px; opacity: 0; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab, .viewtab, .gear, .appbar .setupdraft, .pickdock button, .save, .lockcard .close, .setup .setupclose, .settings-action, .replay-dock button { transition-property: none; }
+}
