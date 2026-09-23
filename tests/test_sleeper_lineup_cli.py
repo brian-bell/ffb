@@ -512,6 +512,26 @@ def test_sleeper_retro_refuses_matchups_without_points(tmp_path):
     assert "players_points" in result.output
 
 
+def test_sleeper_retro_refuses_another_leagues_fixture(tmp_path):
+    """A Yahoo fixture must not lock actuals in the Sleeper partition."""
+    env = _synced(tmp_path)
+    fixture = Path(__file__).parent / "fixtures" / "weekly_actuals_minimal.json"
+    payload = json.loads(fixture.read_text())
+    payload["league"]["season"] = 2026
+    payload["league"]["week"] = 2
+    for matchup in payload["matchups"]:
+        matchup["week"] = 2
+    path = tmp_path / "yahoo_actuals.json"
+    path.write_text(json.dumps(payload))
+    result = runner.invoke(
+        app, ["retro", "2026", "--league", "sleeper", "--fixture", str(path)], env=env
+    )
+    assert result.exit_code == 1, result.output
+    assert "does not match" in result.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    assert not cache.has(actuals_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+
+
 def test_from_matchups_cannot_combine_with_a_fixture(tmp_path):
     env = _synced(tmp_path)
     result = runner.invoke(

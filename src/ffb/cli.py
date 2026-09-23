@@ -699,6 +699,15 @@ def retro(
                 f"week {chosen_week}.[/red]"
             )
             raise typer.Exit(code=1)
+        fixture_league = config.namespaced_league_key(
+            bundle.data["source"], bundle.league["league_key"]
+        )
+        if league_key is not None and fixture_league != league_key:
+            console.print(
+                f"[red]Actuals fixture league {fixture_league} does not match the selected "
+                f"league {league_key}.[/red]"
+            )
+            raise typer.Exit(code=1)
         _lock_actuals_snapshot(
             cache,
             actuals_snapshot_key(season, chosen_week, league_key),
