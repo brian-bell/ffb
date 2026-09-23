@@ -653,8 +653,17 @@ def retro(
     fixture: Path | None = typer.Option(  # noqa: B008
         None, "--fixture", help="WeeklyActualsBundle JSON. Stored under snapshots/actuals/."
     ),
+    from_matchups: bool = typer.Option(
+        False,
+        "--from-matchups",
+        help="Sleeper only: build a finished week's actuals from the cached /matchups "
+        "snapshot. Needs --week. Does not fetch. "
+        "`league sync --league sleeper --week N` writes that snapshot.",
+    ),
     force: bool = typer.Option(
-        False, "--force", help="Replace already-locked weekly actuals with the fixture."
+        False,
+        "--force",
+        help="Replace already-locked weekly actuals with the fixture or cached matchups.",
     ),
     publish: bool = typer.Option(
         False, "--publish", help="POST the rendered report to the tracker command center."
@@ -664,6 +673,8 @@ def retro(
     """Compare a snapshotted sit/start run to ingested weekly actuals."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
+    if from_matchups and fixture is not None:
+        raise typer.BadParameter("--from-matchups cannot be combined with --fixture")
     # One league for the whole command: the actuals snapshot, the sit/start
     # snapshot and the publish slot must all name the same one.
     store = _open_store()
@@ -688,19 +699,53 @@ def retro(
                 f"week {chosen_week}.[/red]"
             )
             raise typer.Exit(code=1)
-        key = actuals_snapshot_key(season, chosen_week, league_key)
-        if cache.has(key) and not force:
-            stored = cache.read_json(key)
-            if stored != bundle.data:
-                console.print(
-                    f"[red]Weekly actuals for {season} week {chosen_week} are already locked "
-                    f"and differ from the fixture.[/red] Re-run with --force to replace them."
-                )
-                raise typer.Exit(code=1)
-        else:
-            if cache.has(key):
-                console.print(f"[yellow]Replaced the week {chosen_week} actuals snapshot.[/yellow]")
-            cache.put_json(key, bundle.data, mode=0o600)
+        fixture_league = config.namespaced_league_key(
+            bundle.data["source"], bundle.league["league_key"]
+        )
+        if league_key is not None and fixture_league != league_key:
+            console.print(
+                f"[red]Actuals fixture league {fixture_league} does not match the selected "
+                f"league {league_key}.[/red]"
+            )
+            raise typer.Exit(code=1)
+        _lock_actuals_snapshot(
+            cache,
+            actuals_snapshot_key(season, chosen_week, league_key),
+            bundle,
+            force=force,
+            season=season,
+            week=chosen_week,
+            source_label="fixture",
+        )
+    elif from_matchups:
+        if league_key is None or not league_key.startswith("sleeper:"):
+            raise typer.BadParameter("--from-matchups applies only to a stored Sleeper league")
+        if week is None:
+            # The stored week is the one still in play, never a finished one.
+            raise typer.BadParameter("--from-matchups needs --week N for a finished week")
+        chosen_week = week
+        try:
+            bundle = sleeper_league.actuals_from_cache(
+                cache, league_id=league_key.split(":", 1)[1], season=season, week=chosen_week
+            )
+        except FileNotFoundError as exc:
+            console.print(
+                f"[red]Sleeper weekly actuals unavailable:[/red] {exc}. "
+                f"Run: ffb league sync {season} --league sleeper --week {chosen_week}"
+            )
+            raise typer.Exit(code=1) from exc
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Sleeper weekly actuals unavailable:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        _lock_actuals_snapshot(
+            cache,
+            actuals_snapshot_key(season, chosen_week, league_key),
+            bundle,
+            force=force,
+            season=season,
+            week=chosen_week,
+            source_label="cached matchups",
+        )
     else:
         chosen_week = week
         if chosen_week is None:
@@ -803,6 +848,41 @@ def _publish_report(envelope: dict, league_key: str | None = None) -> None:
     console.print(f"[green]Published {kind} week {week} to the tracker.[/green]")
 
 
+def _lock_actuals_snapshot(
+    cache: SnapshotCache,
+    key: str,
+    bundle,
+    *,
+    force: bool,
+    season: int,
+    week: int,
+    source_label: str,
+) -> None:
+    """Write a validated bundle, refusing to replace a different locked snapshot.
+
+    ``synced_at`` records when the scores were read, not the scores, so a
+    re-read of the same week (a re-synced matchups cache) is not a difference.
+    """
+    if cache.has(key) and not force:
+        stored = cache.read_json(key)
+        if _without_synced_at(stored) != _without_synced_at(bundle.data):
+            console.print(
+                f"[red]Weekly actuals for {season} week {week} are already locked "
+                f"and differ from the {source_label}.[/red] Re-run with --force to replace them."
+            )
+            raise typer.Exit(code=1)
+        return
+    if cache.has(key):
+        console.print(f"[yellow]Replaced the week {week} actuals snapshot.[/yellow]")
+    cache.put_json(key, bundle.data, mode=0o600)
+
+
+def _without_synced_at(data: object) -> object:
+    if not isinstance(data, dict):
+        return data
+    return {key: value for key, value in data.items() if key != "synced_at"}
+
+
 def _pull_actuals_from_tracker(
     cache: SnapshotCache, *, season: int, week: int, league_key: str | None = None
 ):
@@ -817,7 +897,7 @@ def _pull_actuals_from_tracker(
         raise typer.Exit(code=1) from exc
     try:
         with _tracker_client() as client:
-            payload = fetch_actuals(client, cfg, season, week)
+            payload = fetch_actuals(client, cfg, season, week, league_key)
     except httpx.HTTPError as exc:
         console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
         raise typer.Exit(code=1) from exc

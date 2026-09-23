@@ -104,6 +104,19 @@ Retro runs first: it pulls actuals from the Worker and grades the locked `W-1`
 snapshot. If the actuals scrape lags, retry retro alone later. Lineup runs
 after league sync and writes the week `W` snapshot.
 
+Sleeper week roll, same window, after the Yahoo commands. It does not scrape
+Yahoo. `league sync --week` caches Sleeper `/matchups` (that fetch is live).
+`retro --from-matchups` maps the cache offline and `--publish` posts the retro
+envelope to the Sleeper slot. `retro --league sleeper` without
+`--from-matchups` instead pulls `GET /api/actuals?league=sleeper:…`, so a
+posted Sleeper bundle grades the same way Yahoo's does. Retro does not itself
+call Sleeper, and `--publish` does not POST the actuals bundle.
+
+```sh
+ffb league sync S --league sleeper --week W-1
+ffb retro S --week W-1 --league sleeper --from-matchups --publish
+```
+
 **Sunday 07:00 ET, pre-kickoff refresh.** Early enough to act before the
 9:30 AM ET international games; Friday and Saturday injury designations are
 already in.

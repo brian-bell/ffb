@@ -77,8 +77,9 @@ immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
 week and refuses to replace it, skips past weeks as post-hoc, and replaces or
 backfills only with `--force`; `ffb retro --fixture` likewise refuses to
 replace differing locked actuals without `--force`; `ffb retro` joins that
-advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, or a
-one-time pull from the Worker's `GET /api/actuals`) and never stores actuals in
+advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, a
+Sleeper `/matchups` cache via `--from-matchups`, or a one-time pull from the
+Worker's `GET /api/actuals?league=`) and never stores actuals in
 DuckDB. The retro report keeps two additive metrics: **advice**
 (`recommended_total` / `delta`) is snapshotted sit/start vs who started, and
 **hindsight** (`hindsight_total` / `hindsight_delta`) is the greedy actuals
@@ -200,8 +201,10 @@ The Worker streams the current board from KV key `board:current`. The last
 valid `LeagueBundle` v2 is stored under a separate KV key,
 `league:bundle:current`, so a producer can POST league state without writing
 DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
-`WeeklyActualsBundle` v2 and stores it under `actuals:v1:{season}:{week}` in the
-same KV namespace, never DuckDB. `POST /api/inseason/{kind}` stores the CLI's
+`WeeklyActualsBundle` v2 and stores it under
+`actuals:v2:{season}:{league}:{week}` in the same KV namespace, never DuckDB.
+Reads of a Yahoo league still accept an unpartitioned `actuals:v1:{season}:{week}`
+blob when the new key is empty. `POST /api/inseason/{kind}` stores the CLI's
 published in-season report envelopes under `inseason:v1:{season}:{kind}:{week}`
 and `GET /api/inseason` composes the read-only `/command` dashboard from them.
 D1 stores mutable draft state separately:

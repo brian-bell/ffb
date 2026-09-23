@@ -18,7 +18,7 @@ import { buildPlayerPool } from "../../src/player-pool";
 import { playersEquivalent } from "../../src/player-identity";
 import actualsFixture from "../fixtures/weekly-actuals.json";
 import { api } from "./api-client";
-import type { WeeklyActualsBundle } from "../../src/actuals";
+import { actualsKey, actualsLeagueKey, type WeeklyActualsBundle } from "../../src/actuals";
 import leagueBundleFixture from "../fixtures/league-bundle.json";
 
 async function liveTableSnapshot() {
@@ -478,10 +478,16 @@ describe("weekly actuals ingest", () => {
 
   it("stores a closed WeeklyActualsBundle beside the board key", async () => {
     const bundle = actualsFixture as WeeklyActualsBundle;
+    const league = actualsLeagueKey(bundle);
     const posted = await api.postActuals(bundle);
     expect(posted.status).toBe(200);
-    expect(posted.json).toMatchObject({ ok: true, season: 2024, week: 1, key: "actuals:v1:2024:1" });
-    const loaded = await api.getActuals(2024, 1);
+    expect(posted.json).toMatchObject({
+      ok: true,
+      season: 2024,
+      week: 1,
+      key: actualsKey(bundle.league.season, bundle.league.week, league),
+    });
+    const loaded = await api.getActuals(2024, 1, league);
     expect(loaded.status).toBe(200);
     expect(loaded.json).toEqual(bundle);
     expect((await api.getBoard()).status).toBe(200);

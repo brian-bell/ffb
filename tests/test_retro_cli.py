@@ -276,7 +276,7 @@ def test_retro_pulls_actuals_from_tracker_when_no_local_snapshot(tmp_path, monke
     result = runner.invoke(app, ["retro", "2024"], env=env)
     assert result.exit_code == 0, result.output
     assert seen == {
-        "url": "https://tracker.test/api/actuals?season=2024&week=1",
+        "url": "https://tracker.test/api/actuals?season=2024&week=1&league=yahoo%3A1.l.sit",
         "auth": "Bearer sekrit",
     }
     assert "Recommended 46.5" in " ".join(result.output.split())

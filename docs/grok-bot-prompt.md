@@ -284,6 +284,30 @@ there is no sit/start snapshot for week `W-1`, skip retro for this run and
 say so in the report; do not run `lineup --force` for a past week on your own.
 Continue with `season sync` regardless of retro's outcome.
 
+`POST /api/actuals` stores under the bundle's own league. A Yahoo bundle with
+`league_key` `470.l.928421` still lands in the MCFFL slot when you omit
+`?league=`. A Yahoo bundle with any other `league_key` is refused (400)
+until you fix the key; do not add `?league=` to force it. `GET` without
+`league` reads the MCFFL slot, including any unpartitioned blob from before
+the rekey. Do not point a Sleeper bundle at
+the Yahoo slot.
+
+### Sleeper, same Wednesday window
+
+Run this after the Yahoo commands. Do not scrape Yahoo for it.
+
+1. `uv run ffb league sync S --league sleeper --week W-1` caches `/matchups`
+   for that week (this is the live Sleeper fetch).
+2. `uv run ffb retro S --week W-1 --league sleeper --from-matchups --publish`
+   maps that cache into a local actuals snapshot and posts the retro envelope
+   to the Sleeper command-center slot. It does not call Sleeper again, and it
+   does not POST the actuals bundle.
+
+`--publish` without `--from-matchups` pulls `GET /api/actuals?league=sleeper:…`
+instead. Use that only after something has POSTed a `source: "sleeper"`
+bundle. If retro exits 1 because there is no sit/start snapshot for week
+`W-1`, skip it and say so; do not pass `--force`.
+
 `season sync` fetches Sleeper, ESPN, FFC, nflverse, and news. It never touches
 Yahoo. If it exits 1 for one source, the output names the failed source; run
 the remaining commands anyway and include the failure in the report.

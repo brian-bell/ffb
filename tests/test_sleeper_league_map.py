@@ -517,3 +517,91 @@ def test_stored_rosters_keep_multi_position_eligibility(store, crosswalk_rows):
     assert row["primary_position"] == "RB"
     assert "TE" in row["eligible_positions"]
     assert row["eligible_positions"][:2] == ["RB", "W/R/T"]
+
+
+def test_matchups_become_a_sleeper_actuals_bundle():
+    bundle = sl.actuals_from_matchups(
+        league=_load("league.json"),
+        matchups=_load("matchups_week2.json"),
+        week=2,
+        season=2026,
+        synced_at=SYNCED_AT,
+        players_by_id=_load("players.json"),
+    )
+    assert bundle.data["source"] == "sleeper"
+    assert bundle.league["league_key"] == config.SLEEPER_LEAGUE_KEY
+    assert bundle.league["week"] == 2
+    assert bundle.league["num_teams"] == 2
+    assert bundle.matchups == [
+        {
+            "matchup_id": "1",
+            "week": 2,
+            "teams": [
+                {"team_key": f"{config.SLEEPER_LEAGUE_KEY}.t.6", "points": 101.5},
+                {"team_key": f"{config.SLEEPER_LEAGUE_KEY}.t.1", "points": 88.0},
+            ],
+        }
+    ]
+    by_id = {player["native_id"]: player for player in bundle.players}
+    assert by_id["3198"]["name"] == "Derrick Henry"
+    assert by_id["3198"]["selected_position"] == "RB"
+    assert by_id["3198"]["points"] == 24.0
+    assert by_id["3198"]["native_player_key"] == "sleeper:3198"
+    assert by_id["slow"]["selected_position"] == "BN"
+    assert by_id["slow"]["points"] == 2.0
+    assert by_id["SF"]["selected_position"] == "DEF"
+    assert by_id["rival-wr"]["team_key"].endswith(".t.1")
+
+
+def test_matchups_prefer_custom_points_when_the_commissioner_overrode_the_total():
+    matchups = _load("matchups_week2.json")
+    matchups[0]["custom_points"] = 99.5
+    bundle = sl.actuals_from_matchups(
+        league=_load("league.json"),
+        matchups=matchups,
+        week=2,
+        season=2026,
+        synced_at=SYNCED_AT,
+        players_by_id=_load("players.json"),
+    )
+    user = bundle.matchups[0]["teams"][0]
+    assert user["points"] == 99.5
+
+
+def test_matchups_without_player_points_are_refused():
+    matchups = _load("matchups_week2.json")
+    del matchups[0]["players_points"]
+    with pytest.raises(ValueError, match="players_points"):
+        sl.actuals_from_matchups(
+            league=_load("league.json"),
+            matchups=matchups,
+            week=2,
+            season=2026,
+            synced_at=SYNCED_AT,
+        )
+
+
+def test_unpaired_matchup_ids_are_refused():
+    matchups = _load("matchups_week2.json")
+    matchups[1]["matchup_id"] = 2
+    with pytest.raises(ValueError, match="pairs 1"):
+        sl.actuals_from_matchups(
+            league=_load("league.json"),
+            matchups=matchups,
+            week=2,
+            season=2026,
+            synced_at=SYNCED_AT,
+        )
+
+
+def test_a_bye_matchup_id_is_refused():
+    matchups = _load("matchups_week2.json")
+    matchups[1]["matchup_id"] = None
+    with pytest.raises(ValueError, match="bye"):
+        sl.actuals_from_matchups(
+            league=_load("league.json"),
+            matchups=matchups,
+            week=2,
+            season=2026,
+            synced_at=SYNCED_AT,
+        )

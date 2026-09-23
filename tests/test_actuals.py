@@ -31,6 +31,11 @@ def test_actuals_rejects_closed_schema_and_incomplete_scoreboard(change, message
         parse_actuals(_bundle(**change), season=2024)
 
 
+def test_actuals_accepts_a_sleeper_source():
+    bundle = parse_actuals(_bundle(source="sleeper"), season=2024)
+    assert bundle.data["source"] == "sleeper"
+
+
 def test_actuals_accepts_the_committed_minimal_fixture():
     bundle = parse_actuals(json.loads(FIXTURE.read_text()), season=2024)
     assert bundle.league["week"] == 1

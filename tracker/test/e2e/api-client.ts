@@ -116,8 +116,12 @@ export const api = {
       "/api/actuals",
       { method: "POST", body: JSON.stringify(bundle) },
     ),
-  getActuals: (season: number, week: number) =>
-    request<WeeklyActualsBundle>(`/api/actuals?season=${season}&week=${week}`),
+  getActuals: (season: number, week: number, league?: string) =>
+    request<WeeklyActualsBundle>(
+      `/api/actuals?season=${season}&week=${week}${
+        league === undefined ? "" : `&league=${encodeURIComponent(league)}`
+      }`,
+    ),
   publishInseason: (kind: InseasonKind, envelopeText: string) =>
     request<{ kind: InseasonKind; season: number; week: number; generated_at: string }>(
       `/api/inseason/${kind}`,

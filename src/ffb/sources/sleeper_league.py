@@ -20,6 +20,7 @@ native ids. They are not Yahoo identities and must be resolved with
 from __future__ import annotations
 
 import logging
+import math
 import os
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -28,7 +29,9 @@ from typing import Any
 import httpx
 
 from ffb import config, identity
+from ffb.actuals import WeeklyActualsBundle, parse_actuals
 from ffb.league import LeagueBundle, parse_bundle
+from ffb.sources import sleeper_players
 from ffb.sources.sleeper import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -508,6 +511,188 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
     return rows
 
 
+def actuals_from_matchups(
+    *,
+    league: Any,
+    matchups: Any,
+    week: int,
+    season: int,
+    synced_at: str,
+    players_by_id: Mapping[str, Any] | None = None,
+) -> WeeklyActualsBundle:
+    """Map one week's Sleeper ``/matchups`` payload to a ``WeeklyActualsBundle``.
+
+    Does not fetch. ``points`` on each entry is the team's league total, unless
+    ``custom_points`` is set, in which case that override is what the league
+    counted. ``players_points`` is each rostered player's score; a missing map
+    is a refusal, not a zero scoreboard. Starters zip with ``roster_positions``
+    the same way ``parse_roster`` does, so the slots line up with a sit/start
+    snapshot from that week. ``/matchups`` has no reserve list, so an IR player
+    is labeled BN. A null ``matchup_id`` (bye) is rejected.
+    """
+    if type(week) is not int or week <= 0:
+        raise ValueError("week must be a positive integer")
+    meta = parse_league_meta(league, current_week=week)
+    if meta["season"] != season:
+        raise ValueError(
+            f"requested season {season} does not match Sleeper league season {meta['season']}"
+        )
+    if not isinstance(matchups, list) or not matchups:
+        raise ValueError("Sleeper matchups must be a nonempty list")
+    if len(matchups) != meta["num_teams"]:
+        raise ValueError(
+            f"Sleeper matchups cover {len(matchups)} rosters, league has {meta['num_teams']}"
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    player_rows: list[dict[str, Any]] = []
+    for i, entry in enumerate(matchups):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Sleeper matchup [{i}] must be an object")
+        raw_id = entry.get("matchup_id")
+        if raw_id is None:
+            raise ValueError(f"Sleeper matchup [{i}] has no matchup_id; bye weeks are unsupported")
+        matchup_id = (
+            str(raw_id) if type(raw_id) is int else _str(raw_id, f"matchups[{i}].matchup_id")
+        )
+        raw_player_points = entry.get("players_points")
+        if not isinstance(raw_player_points, dict):
+            raise ValueError(
+                f"Sleeper matchup [{i}] has no players_points object; "
+                "refusing to invent a zero scoreboard"
+            )
+        parsed = parse_roster(
+            matchup_as_roster(entry),
+            roster_positions=meta["roster_positions"],
+            week=week,
+            league_id=meta["league_id"],
+            players_by_id=players_by_id,
+        )
+        if matchup_id not in grouped:
+            order.append(matchup_id)
+            grouped[matchup_id] = []
+        grouped[matchup_id].append(
+            {"team_key": parsed["team_key"], "points": _team_points(entry, i)}
+        )
+        for player in parsed["players"]:
+            pid = player["native_id"]
+            player_rows.append(
+                {
+                    "native_id": pid,
+                    "native_player_key": player["native_player_key"],
+                    "name": player["name"],
+                    "team_key": parsed["team_key"],
+                    "selected_position": player["selected_position"],
+                    "points": _player_points(raw_player_points, pid),
+                }
+            )
+
+    matchup_rows = []
+    for matchup_id in order:
+        teams = grouped[matchup_id]
+        if len(teams) != 2:
+            raise ValueError(
+                f"Sleeper matchup_id {matchup_id} pairs {len(teams)} teams; expected 2"
+            )
+        matchup_rows.append({"matchup_id": matchup_id, "week": week, "teams": teams})
+
+    payload = {
+        "schema_version": 2,
+        "source": "sleeper",
+        "synced_at": synced_at,
+        "league": {
+            "league_id": meta["league_id"],
+            "league_key": meta["league_key"],
+            "name": meta["name"],
+            "season": meta["season"],
+            "week": week,
+            "num_teams": meta["num_teams"],
+        },
+        "matchups": matchup_rows,
+        "players": player_rows,
+    }
+    return parse_actuals(payload, season=season)
+
+
+def actuals_from_cache(
+    cache: Any, *, league_id: str, season: int, week: int
+) -> WeeklyActualsBundle:
+    """Build a finished week's actuals from the snapshots ``fetch(week=)`` wrote.
+
+    Does not fetch. A past week's matchups are cached because they do not
+    change; the week still in play is refused, since its points are still
+    moving and a locked partial scoreboard would grade retro on it. The live
+    week comes from the NFL state snapshot that the same sync refreshed.
+    """
+    league_key = snapshot_key(league_id, "league")
+    matchups_key = matchups_snapshot_key(league_id, week)
+    state_key = state_snapshot_key()
+    missing = [key for key in (league_key, matchups_key, state_key) if not cache.has(key)]
+    if missing:
+        raise FileNotFoundError("missing Sleeper snapshot(s): " + ", ".join(missing))
+    nfl = parse_nfl_state(cache.read_json(state_key))
+    if (season, week) >= (nfl["season"], nfl["week"]):
+        raise ValueError(
+            f"{season} week {week} is not over (Sleeper is on {nfl['season']} week "
+            f"{nfl['week']}); its points are still moving"
+        )
+    bundle = actuals_from_matchups(
+        league=cache.read_json(league_key),
+        matchups=cache.read_json(matchups_key),
+        week=week,
+        season=season,
+        synced_at=_snapshot_synced_at(cache, [matchups_key]),
+        players_by_id=_cached_players(cache),
+    )
+    if bundle.league["league_key"] != sleeper_league_key(league_id):
+        raise ValueError(
+            f"cached Sleeper league {bundle.league['league_key']} does not match "
+            f"requested league {sleeper_league_key(league_id)}"
+        )
+    return bundle
+
+
+def _cached_players(cache: Any) -> dict[str, Any] | None:
+    """The cached ``/players/nfl`` map, if a season sync wrote one."""
+    key = sleeper_players.snapshot_key()
+    if not cache.has(key):
+        return None
+    cached = cache.read_json(key)
+    return cached if isinstance(cached, dict) else None
+
+
+def _snapshot_synced_at(cache: Any, keys: list[str]) -> str:
+    """The oldest of these snapshots' mtimes, or ``now`` when none exist."""
+    stamps = [meta.modified_at for meta in map(cache.metadata, keys) if meta is not None]
+    return min(stamps) if stamps else datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _team_points(entry: dict[str, Any], index: int) -> float:
+    """League total: a commissioner override when present, otherwise ``points``."""
+    custom = entry.get("custom_points")
+    if custom is not None:
+        return _number(custom, f"matchups[{index}].custom_points")
+    if "points" not in entry:
+        raise ValueError(f"Sleeper matchup [{index}] is missing points")
+    return _number(entry.get("points"), f"matchups[{index}].points")
+
+
+def _player_points(raw: Mapping[str, Any], player_id: str) -> float:
+    if player_id not in raw or raw[player_id] is None:
+        return 0.0
+    return _number(raw[player_id], f"players_points[{player_id}]")
+
+
+def _number(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
 def _week_rosters(rosters: Any, matchups: Any) -> list[Any]:
     """Current-state rosters, or one adapted roster per matchup for a past week."""
     if matchups is None:
@@ -685,10 +870,7 @@ class SleeperLeagueSource:
                     matchups_snapshot_key(self.league_id, week),
                     lambda: fetch_matchups(client, self.league_id, week),
                 )
-        lookup = players_by_id
-        if lookup is None and self.cache.has("sleeper/players_nfl"):
-            cached = self.cache.read_json("sleeper/players_nfl")
-            lookup = cached if isinstance(cached, dict) else None
+        lookup = players_by_id if players_by_id is not None else _cached_players(self.cache)
         mapped = map_state(
             league=league,
             rosters=rosters,
@@ -711,11 +893,7 @@ class SleeperLeagueSource:
         A run is either wholly live or wholly replayed, so this is ``now`` for a
         live pull and the oldest replayed snapshot's mtime under ``--offline``.
         """
-        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-        stamps = [
-            meta.modified_at for meta in map(self.cache.metadata, cached_keys) if meta is not None
-        ]
-        return min(stamps) if stamps else now
+        return _snapshot_synced_at(self.cache, cached_keys)
 
 
 def league_source_from_env(
