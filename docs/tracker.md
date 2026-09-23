@@ -157,14 +157,18 @@ and stores the payload in KV as `actuals:v2:{season}:{league}:{week}`, where
 `league` is the percent-encoded namespaced key derived from the bundle
 (`source` plus `league.league_key`). `fixture` and `yahoo` share the `yahoo:`
 namespace. `source` may also be `sleeper`. An optional `?league=` on POST must
-match that key; omitting it still stores under the bundle's own league.
+match that key; omitting it still stores under the bundle's own league, except
+that a `yahoo` bundle outside the default league is refused (400) unless
+`?league=` names it, so a stale game key cannot land where a plain GET never
+reads.
 `GET /api/actuals?season=&week=&league=` reads that slot. Omitting `league`
 means the default league, Yahoo MCFFL (`yahoo:470.l.928421`).
 
-Writes never touch the old unpartitioned key. Reads of the default league fall
-back to `actuals:v1:{season}:{week}` when the v2 key is empty, so blobs posted
-before the rekey still grade Yahoo retro. A non-default league does not fall
-back, and must never be served Yahoo's blob. Live scores never belong in git.
+Writes never touch the old unpartitioned key. Reads of any `yahoo:` league
+fall back to `actuals:v1:{season}:{week}` when the v2 key is empty, so blobs
+posted before the rekey (only fixture/yahoo sources were accepted then) still
+grade Yahoo retro, whatever that season's game key. A Sleeper league does not
+fall back, and must never be served Yahoo's blob. Live scores never belong in git.
 
 The tracker does not import Python; `ffb retro` consumes a local snapshot,
 `--fixture`, or `--from-matchups` (Sleeper only: the cached `/matchups`
@@ -404,5 +408,5 @@ prefixes so the dashboard's week picker still shows pre-rekey weeks. Drop the
 fallback once nothing is left under the v1 keys.
 
 `actuals:v2:{season}:{league}:{week}` is the league-scoped actuals key. Reads of
-the default league still accept `actuals:v1:{season}:{week}` when the v2 key
+a Yahoo league still accept `actuals:v1:{season}:{week}` when the v2 key
 is empty. Drop that fallback once nothing is left under the v1 prefix.

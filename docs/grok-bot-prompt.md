@@ -286,8 +286,10 @@ Continue with `season sync` regardless of retro's outcome.
 
 `POST /api/actuals` stores under the bundle's own league. A Yahoo bundle with
 `league_key` `470.l.928421` still lands in the MCFFL slot when you omit
-`?league=`. `GET` without `league` reads that same slot, including any
-unpartitioned blob from before the rekey. Do not point a Sleeper bundle at
+`?league=`. A Yahoo bundle with any other `league_key` is refused (400)
+until you fix the key; do not add `?league=` to force it. `GET` without
+`league` reads the MCFFL slot, including any unpartitioned blob from before
+the rekey. Do not point a Sleeper bundle at
 the Yahoo slot.
 
 ### Sleeper, same Wednesday window

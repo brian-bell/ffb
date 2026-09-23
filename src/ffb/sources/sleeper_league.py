@@ -31,6 +31,7 @@ import httpx
 from ffb import config, identity
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
 from ffb.league import LeagueBundle, parse_bundle
+from ffb.sources import sleeper_players
 from ffb.sources.sleeper import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -614,6 +615,59 @@ def actuals_from_matchups(
     return parse_actuals(payload, season=season)
 
 
+def actuals_from_cache(
+    cache: Any, *, league_id: str, season: int, week: int
+) -> WeeklyActualsBundle:
+    """Build a finished week's actuals from the snapshots ``fetch(week=)`` wrote.
+
+    Does not fetch. A past week's matchups are cached because they do not
+    change; the week still in play is refused, since its points are still
+    moving and a locked partial scoreboard would grade retro on it. The live
+    week comes from the NFL state snapshot that the same sync refreshed.
+    """
+    league_key = snapshot_key(league_id, "league")
+    matchups_key = matchups_snapshot_key(league_id, week)
+    state_key = state_snapshot_key()
+    missing = [key for key in (league_key, matchups_key, state_key) if not cache.has(key)]
+    if missing:
+        raise FileNotFoundError("missing Sleeper snapshot(s): " + ", ".join(missing))
+    nfl = parse_nfl_state(cache.read_json(state_key))
+    if (season, week) >= (nfl["season"], nfl["week"]):
+        raise ValueError(
+            f"{season} week {week} is not over (Sleeper is on {nfl['season']} week "
+            f"{nfl['week']}); its points are still moving"
+        )
+    bundle = actuals_from_matchups(
+        league=cache.read_json(league_key),
+        matchups=cache.read_json(matchups_key),
+        week=week,
+        season=season,
+        synced_at=_snapshot_synced_at(cache, [matchups_key]),
+        players_by_id=_cached_players(cache),
+    )
+    if bundle.league["league_key"] != sleeper_league_key(league_id):
+        raise ValueError(
+            f"cached Sleeper league {bundle.league['league_key']} does not match "
+            f"requested league {sleeper_league_key(league_id)}"
+        )
+    return bundle
+
+
+def _cached_players(cache: Any) -> dict[str, Any] | None:
+    """The cached ``/players/nfl`` map, if a season sync wrote one."""
+    key = sleeper_players.snapshot_key()
+    if not cache.has(key):
+        return None
+    cached = cache.read_json(key)
+    return cached if isinstance(cached, dict) else None
+
+
+def _snapshot_synced_at(cache: Any, keys: list[str]) -> str:
+    """The oldest of these snapshots' mtimes, or ``now`` when none exist."""
+    stamps = [meta.modified_at for meta in map(cache.metadata, keys) if meta is not None]
+    return min(stamps) if stamps else datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _team_points(entry: dict[str, Any], index: int) -> float:
     """League total: a commissioner override when present, otherwise ``points``."""
     custom = entry.get("custom_points")
@@ -816,10 +870,7 @@ class SleeperLeagueSource:
                     matchups_snapshot_key(self.league_id, week),
                     lambda: fetch_matchups(client, self.league_id, week),
                 )
-        lookup = players_by_id
-        if lookup is None and self.cache.has("sleeper/players_nfl"):
-            cached = self.cache.read_json("sleeper/players_nfl")
-            lookup = cached if isinstance(cached, dict) else None
+        lookup = players_by_id if players_by_id is not None else _cached_players(self.cache)
         mapped = map_state(
             league=league,
             rosters=rosters,
@@ -842,11 +893,7 @@ class SleeperLeagueSource:
         A run is either wholly live or wholly replayed, so this is ``now`` for a
         live pull and the oldest replayed snapshot's mtime under ``--offline``.
         """
-        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-        stamps = [
-            meta.modified_at for meta in map(self.cache.metadata, cached_keys) if meta is not None
-        ]
-        return min(stamps) if stamps else now
+        return _snapshot_synced_at(self.cache, cached_keys)
 
 
 def league_source_from_env(

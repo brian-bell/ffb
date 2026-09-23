@@ -4,17 +4,13 @@
 // upgradeV1Players.
 //
 // KV keys gained a league segment the same way in-season reports did. Writes
-// go to `actuals:v2:{season}:{league}:{week}`. Reads of the default league
-// (Yahoo MCFFL) still accept the unpartitioned `actuals:v1:{season}:{week}`
-// key when the v2 key is empty. The v1 prefix namespaces that legacy key, not
-// the payload schema.
+// go to `actuals:v2:{season}:{league}:{week}`. Reads of a Yahoo league still
+// accept the unpartitioned `actuals:v1:{season}:{week}` key when the v2 key is
+// empty: before the rekey only fixture/yahoo bundles were accepted, so every
+// v1 blob is Yahoo's, whatever that season's game key. The v1 prefix
+// namespaces that legacy key, not the payload schema.
 
-import {
-  DEFAULT_LEAGUE_KEY,
-  isDefaultLeague,
-  leagueSlug,
-  namespacedLeagueKey,
-} from "./league-keys";
+import { DEFAULT_LEAGUE_KEY, leagueSlug, namespacedLeagueKey } from "./league-keys";
 
 export const ACTUALS_KEY_PREFIX = "actuals:v1:";
 export const ACTUALS_KEY_PREFIX_V2 = "actuals:v2:";
@@ -83,7 +79,7 @@ export function actualsLeagueKey(bundle: Pick<WeeklyActualsBundle, "source" | "l
 
 /**
  * Keys to try, in order. The v2 key wins. The v1 key is a read fallback for
- * the default league only — another league must never be served Yahoo's blob.
+ * Yahoo leagues only — a Sleeper league must never be served Yahoo's blob.
  */
 export function actualsReadKeys(
   season: number,
@@ -91,8 +87,22 @@ export function actualsReadKeys(
   leagueKey: string = DEFAULT_LEAGUE_KEY,
 ): string[] {
   const keys = [actualsKey(season, week, leagueKey)];
-  if (isDefaultLeague(leagueKey)) keys.push(actualsKeyV1(season, week));
+  if (leagueKey.startsWith("yahoo:")) keys.push(actualsKeyV1(season, week));
   return keys;
+}
+
+/** First stored actuals blob for this league, in `actualsReadKeys` order. */
+export async function readActuals(
+  kv: KVNamespace,
+  season: number,
+  week: number,
+  leagueKey: string,
+): Promise<string | null> {
+  for (const key of actualsReadKeys(season, week, leagueKey)) {
+    const text = await kv.get(key);
+    if (text !== null) return text;
+  }
+  return null;
 }
 
 export function parseActuals(

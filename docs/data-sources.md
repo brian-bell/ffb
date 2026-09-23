@@ -518,8 +518,11 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   ```
   `GET /league/{id}/matchups/{week}` is the historical-starter and weekly-points
   source. `actuals_from_matchups` maps that payload to a `WeeklyActualsBundle`
-  (`source: "sleeper"`). `ffb retro --league sleeper --from-matchups` reads the
-  cached snapshot and does not fetch. A live pull of that week is
+  (`source: "sleeper"`). `ffb retro --league sleeper --week N --from-matchups`
+  reads the cached snapshot and does not fetch; it refuses a week that the
+  cached `state_nfl` says is still in play. A re-sync that rewrites the same
+  scores does not break the lock (`synced_at` is ignored when comparing). A live
+  pull of that week is
   `ffb league sync SEASON --league sleeper --week N`.
 - **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`, plus
   `sleeper/state_nfl`. These keys carry no week, so sit/start refetches on

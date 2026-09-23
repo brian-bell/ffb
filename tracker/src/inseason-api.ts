@@ -3,7 +3,7 @@
 // single response. KV only — never DuckDB, D1, or the draft tables. The error
 // vocabulary mirrors the LeagueBundle ingest route.
 
-import { actualsReadKeys } from "./actuals";
+import { readActuals } from "./actuals";
 import { getBoardText } from "./board";
 import {
   generatedAtMillis,
@@ -208,20 +208,6 @@ async function leagueSummary(env: InseasonApiEnv, leagueKey: string): Promise<Le
   }
 }
 
-/** First stored actuals blob for this league, or the default league's legacy key. */
-async function readActualsText(
-  env: InseasonApiEnv,
-  season: number,
-  week: number,
-  leagueKey: string,
-): Promise<string | null> {
-  for (const key of actualsReadKeys(season, week, leagueKey)) {
-    const text = await env.BOARD.get(key);
-    if (text !== null) return text;
-  }
-  return null;
-}
-
 function parsePositiveInt(value: string | null): number | null {
   if (value === null || !/^[1-9]\d*$/.test(value)) return null;
   return Number(value);
@@ -266,7 +252,7 @@ async function getDashboard(
     rosWeek === null
       ? Promise.resolve(null)
       : readInseason(env, season, "ros", rosWeek, leagueKey),
-    week > 1 ? readActualsText(env, season, week - 1, leagueKey) : Promise.resolve(null),
+    week > 1 ? readActuals(env.BOARD, season, week - 1, leagueKey) : Promise.resolve(null),
   ]);
 
   const cards = Object.fromEntries(INSEASON_KINDS.map((kind) => [kind, { envelope: null }])) as Record<InseasonKind, InseasonCard>;

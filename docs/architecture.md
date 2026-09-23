@@ -203,7 +203,7 @@ valid `LeagueBundle` v2 is stored under a separate KV key,
 DuckDB. Authenticated `POST /api/actuals` is its sibling: it validates a closed
 `WeeklyActualsBundle` v2 and stores it under
 `actuals:v2:{season}:{league}:{week}` in the same KV namespace, never DuckDB.
-Reads of Yahoo MCFFL still accept an unpartitioned `actuals:v1:{season}:{week}`
+Reads of a Yahoo league still accept an unpartitioned `actuals:v1:{season}:{week}`
 blob when the new key is empty. `POST /api/inseason/{kind}` stores the CLI's
 published in-season report envelopes under `inseason:v1:{season}:{kind}:{week}`
 and `GET /api/inseason` composes the read-only `/command` dashboard from them.

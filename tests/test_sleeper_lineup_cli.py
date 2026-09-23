@@ -1,6 +1,7 @@
 """Sleeper sit/start and retro: ``--league sleeper`` is the Yahoo path on another league."""
 
 import json
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -353,13 +354,22 @@ def test_backfilled_week_reads_matchup_starters_not_current_rosters(tmp_path):
     assert "slow" not in started
 
 
+FROM_MATCHUPS = ["retro", "2026", "--week", "2", "--league", "sleeper", "--from-matchups"]
+
+
+def _week_over(tmp_path, week=3):
+    """Advance the cached NFL state, as the next ``league sync --week`` would."""
+    cache = SnapshotCache(tmp_path / "snapshots")
+    state = cache.read_json("sleeper/state_nfl")
+    cache.put_json("sleeper/state_nfl", {**state, "week": week, "display_week": week})
+
+
 def test_sleeper_retro_builds_actuals_from_cached_matchups(tmp_path):
     """``--from-matchups`` reads the cache league sync already wrote. It does not fetch."""
     env = _synced(tmp_path)
     assert runner.invoke(app, LINEUP, env=env).exit_code == 0
-    result = runner.invoke(
-        app, ["retro", "2026", "--league", "sleeper", "--from-matchups"], env=env
-    )
+    _week_over(tmp_path)
+    result = runner.invoke(app, FROM_MATCHUPS, env=env)
     assert result.exit_code == 0, result.output
     output = " ".join(result.output.split())
     assert "Derrick Henry" in output
@@ -372,9 +382,52 @@ def test_sleeper_retro_builds_actuals_from_cached_matchups(tmp_path):
     assert not cache.has(actuals_snapshot_key(2026, 2))
 
 
+def test_sleeper_retro_reruns_after_the_matchups_cache_is_rewritten(tmp_path):
+    """A re-sync rewrites the snapshot (new mtime, same scores); that is not a change."""
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    _week_over(tmp_path)
+    assert runner.invoke(app, FROM_MATCHUPS, env=env).exit_code == 0
+    cache = SnapshotCache(tmp_path / "snapshots")
+    key = f"sleeper/league_{LEAGUE_ID}_matchups_week2"
+    path = tmp_path / "snapshots" / f"{key}.json"
+    cache.put_json(key, cache.read_json(key))
+    os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 3600))
+    again = runner.invoke(app, FROM_MATCHUPS, env=env)
+    assert again.exit_code == 0, again.output
+    assert "already locked" not in again.output
+
+    matchups = cache.read_json(key)
+    matchups[0]["players_points"]["3198"] = 1.0
+    cache.put_json(key, matchups)
+    changed = runner.invoke(app, FROM_MATCHUPS, env=env)
+    assert changed.exit_code == 1
+    assert "already locked" in changed.output
+
+
+def test_sleeper_retro_refuses_the_week_still_in_play(tmp_path):
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    result = runner.invoke(app, FROM_MATCHUPS, env=env)
+    assert result.exit_code == 1
+    assert "not over" in result.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    assert not cache.has(actuals_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+
+
+def test_from_matchups_needs_an_explicit_week(tmp_path):
+    env = _synced(tmp_path)
+    result = runner.invoke(
+        app, ["retro", "2026", "--league", "sleeper", "--from-matchups"], env=env
+    )
+    assert result.exit_code == 2
+    assert "--week" in result.output
+
+
 def test_sleeper_retro_publish_posts_to_its_own_slot(tmp_path, monkeypatch):
     env = _synced(tmp_path)
     assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    _week_over(tmp_path)
     posted = []
 
     def fake_post(self, url, **kwargs):
@@ -453,9 +506,8 @@ def test_sleeper_retro_refuses_matchups_without_points(tmp_path):
     for entry in matchups:
         entry.pop("players_points", None)
     cache.put_json(key, matchups)
-    result = runner.invoke(
-        app, ["retro", "2026", "--league", "sleeper", "--from-matchups"], env=env
-    )
+    _week_over(tmp_path)
+    result = runner.invoke(app, FROM_MATCHUPS, env=env)
     assert result.exit_code == 1
     assert "players_points" in result.output
 

@@ -179,6 +179,45 @@ describe("Worker /api/actuals", () => {
     expect(await mismatch.json()).toMatchObject({ error: "invalid_actuals" });
   });
 
+  it("makes a non-default Yahoo bundle name its slot, then serves it there", async () => {
+    const bundle = structuredClone(fixture) as unknown as WeeklyActualsBundle;
+    bundle.source = "yahoo";
+    bundle.league = { ...bundle.league, league_id: "928421", league_key: "461.l.928421" };
+    const stale = "yahoo:461.l.928421";
+    const unnamed = await SELF.fetch("https://x/api/actuals", {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(bundle),
+    });
+    expect(unnamed.status).toBe(400);
+    expect(await unnamed.json()).toMatchObject({ error: "invalid_actuals" });
+    expect(await env.BOARD.get(actualsKey(2024, 1, stale))).toBeNull();
+
+    const named = await SELF.fetch(`https://x/api/actuals?league=${encodeURIComponent(stale)}`, {
+      method: "POST",
+      headers: { ...bearer(KEY), "content-type": "application/json" },
+      body: JSON.stringify(bundle),
+    });
+    expect(named.status).toBe(200);
+    expect(await named.json()).toMatchObject({ key: actualsKey(2024, 1, stale) });
+  });
+
+  it("serves a v1 blob to any Yahoo league, never to Sleeper", async () => {
+    await env.BOARD.put(actualsKeyV1(2025, 3), JSON.stringify({ legacy: 2025 }));
+    const prior = await SELF.fetch(
+      `https://x/api/actuals?season=2025&week=3&league=${encodeURIComponent("yahoo:461.l.928421")}`,
+      { headers: bearer(KEY) },
+    );
+    expect(prior.status).toBe(200);
+    expect(await prior.json()).toEqual({ legacy: 2025 });
+
+    const sleeper = await SELF.fetch(
+      "https://x/api/actuals?season=2025&week=3&league=sleeper%3A1395854363380965376",
+      { headers: bearer(KEY) },
+    );
+    expect(sleeper.status).toBe(404);
+  });
+
   it("rejects GET without season and week (400)", async () => {
     const res = await SELF.fetch("https://x/api/actuals", { headers: bearer(KEY) });
     expect(res.status).toBe(400);
@@ -194,10 +233,14 @@ describe("Worker /api/actuals", () => {
 });
 
 describe("actualsReadKeys", () => {
-  it("falls back to v1 only for the default league", () => {
+  it("falls back to v1 only for Yahoo leagues", () => {
     expect(actualsReadKeys(2026, 2)).toEqual([
       actualsKey(2026, 2, DEFAULT_LEAGUE_KEY),
       actualsKeyV1(2026, 2),
+    ]);
+    expect(actualsReadKeys(2025, 2, "yahoo:461.l.928421")).toEqual([
+      actualsKey(2025, 2, "yahoo:461.l.928421"),
+      actualsKeyV1(2025, 2),
     ]);
     expect(actualsReadKeys(2026, 2, "sleeper:1395854363380965376")).toEqual([
       actualsKey(2026, 2, "sleeper:1395854363380965376"),

@@ -1,11 +1,11 @@
 import {
   actualsKey,
   actualsLeagueKey,
-  actualsReadKeys,
   parseActuals,
+  readActuals,
   type WeeklyActualsBundle,
 } from "./actuals";
-import { leagueFromParam } from "./league-keys";
+import { isDefaultLeague, leagueFromParam } from "./league-keys";
 
 export interface ActualsApiEnv {
   BOARD: KVNamespace;
@@ -50,6 +50,16 @@ async function postActuals(request: Request, env: ActualsApiEnv, url: URL): Prom
   const { bundle } = parsed;
   const leagueKey = actualsLeagueKey(bundle);
   const requested = url.searchParams.get("league");
+  if (requested === null && bundle.source === "yahoo" && !isDefaultLeague(leagueKey)) {
+    // A plain GET reads the default league, so silently storing a live Yahoo
+    // bundle elsewhere (a stale game key, say) would strand it. Make the
+    // caller name the slot.
+    return error(
+      "invalid_actuals",
+      `bundle league ${leagueKey} is not the default league; pass ?league= to store it`,
+      400,
+    );
+  }
   if (requested !== null) {
     const named = leagueFromParam(requested);
     if (named === null) {
@@ -85,26 +95,13 @@ async function getActuals(env: ActualsApiEnv, url: URL): Promise<Response> {
   if (leagueKey === null) {
     return error("invalid_request", "league must be a nonempty league key", 400);
   }
-  const text = await readActualsText(env, season, week, leagueKey);
+  const text = await readActuals(env.BOARD, season, week, leagueKey);
   if (text === null) return error("not_found", "No weekly actuals stored for that week.", 404);
   try {
     return json(JSON.parse(text) as WeeklyActualsBundle);
   } catch {
     return error("actuals_unreadable", "Stored weekly actuals are unreadable.", 503);
   }
-}
-
-async function readActualsText(
-  env: ActualsApiEnv,
-  season: number,
-  week: number,
-  leagueKey: string,
-): Promise<string | null> {
-  for (const key of actualsReadKeys(season, week, leagueKey)) {
-    const text = await env.BOARD.get(key);
-    if (text !== null) return text;
-  }
-  return null;
 }
 
 function parsePositiveInt(value: string | null): number | null {
