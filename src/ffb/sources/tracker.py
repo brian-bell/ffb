@@ -1,7 +1,7 @@
 """Thin HTTP client for the tracker Worker.
 
-``GET /api/actuals?season=&week=`` returns the ``WeeklyActualsBundle`` that
-Grok (or a fixture) posted to the Worker; ``GET /api/league/bundle`` returns
+``GET /api/actuals?season=&week=&league=`` returns the ``WeeklyActualsBundle``
+posted for that league (absent ``league`` is Yahoo MCFFL); ``GET /api/league/bundle`` returns
 the last accepted ``LeagueBundle``; ``POST /api/inseason/{kind}`` stores one
 in-season report envelope. Validation lives beside each contract
 (``ffb.actuals``, ``ffb.league``, ``ffb.inseason``); this module only moves
@@ -66,13 +66,30 @@ def _headers(cfg: TrackerConfig) -> dict[str, str]:
     }
 
 
-def fetch_actuals(client: httpx.Client, cfg: TrackerConfig, season: int, week: int) -> Any | None:
-    """Return the raw stored bundle, or ``None`` when the Worker has none for that week."""
+def fetch_actuals(
+    client: httpx.Client,
+    cfg: TrackerConfig,
+    season: int,
+    week: int,
+    league_key: str | None = None,
+) -> Any | None:
+    """Return the raw stored bundle, or ``None`` when the Worker has none for that week.
+
+    ``league_key`` selects the league partition. Omitting it asks for the default
+    league, which is where unpartitioned ``actuals:v1`` blobs are still served.
+    """
     url = f"{cfg.base_url}/api/actuals"
-    log.info("api request provider=tracker method=GET url=%s season=%s week=%s", url, season, week)
-    response = client.get(
-        url, params={"season": season, "week": week}, headers=_headers(cfg), timeout=30.0
+    params: dict[str, Any] = {"season": season, "week": week}
+    if league_key:
+        params["league"] = league_key
+    log.info(
+        "api request provider=tracker method=GET url=%s season=%s week=%s league=%s",
+        url,
+        season,
+        week,
+        league_key,
     )
+    response = client.get(url, params=params, headers=_headers(cfg), timeout=30.0)
     log.info("api response provider=tracker status=%s", response.status_code)
     if response.status_code == 404:
         return None

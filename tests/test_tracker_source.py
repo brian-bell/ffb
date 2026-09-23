@@ -52,6 +52,20 @@ def test_fetch_sends_bearer_and_returns_json(caplog):
     assert "sekrit" not in caplog.text
 
 
+def test_fetch_actuals_names_the_league_partition():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"schema_version": 2})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        fetch_actuals(c, _cfg(), 2026, 2, "sleeper:1395854363380965376")
+    assert seen["url"] == (
+        "https://tracker.test/api/actuals?season=2026&week=2&league=sleeper%3A1395854363380965376"
+    )
+
+
 def test_fetch_returns_none_on_404_and_raises_otherwise():
     def not_found(_request):
         return httpx.Response(404, json={"error": "not_found"})

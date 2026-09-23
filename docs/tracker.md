@@ -150,20 +150,33 @@ while rebuilding the initial seeded prefix.
 
 ## Weekly actuals ingest
 
-Sibling of any LeagueBundle ingest route. Grok (or a fixture) `POST`s a closed
+Sibling of any LeagueBundle ingest route. A producer `POST`s a closed
 `WeeklyActualsBundle` v2 to `/api/actuals` with the same
 `Authorization: Bearer <TRACKER_API_KEY>` gate. The Worker validates exact keys
-and stores the payload in KV as `actuals:v1:{season}:{week}`.
-`GET /api/actuals?season=&week=` reads it back. Live scores never belong in git.
-The tracker does not import Python; `ffb retro` consumes a local snapshot or
-`--fixture` of the same contract. When neither exists, the CLI pulls the blob
-from `GET /api/actuals` using `FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY`,
-validates it, and snapshots it under `snapshots/actuals/` before the retro runs.
+and stores the payload in KV as `actuals:v2:{season}:{league}:{week}`, where
+`league` is the percent-encoded namespaced key derived from the bundle
+(`source` plus `league.league_key`). `fixture` and `yahoo` share the `yahoo:`
+namespace. `source` may also be `sleeper`. An optional `?league=` on POST must
+match that key; omitting it still stores under the bundle's own league.
+`GET /api/actuals?season=&week=&league=` reads that slot. Omitting `league`
+means the default league, Yahoo MCFFL (`yahoo:470.l.928421`).
+
+Writes never touch the old unpartitioned key. Reads of the default league fall
+back to `actuals:v1:{season}:{week}` when the v2 key is empty, so blobs posted
+before the rekey still grade Yahoo retro. A non-default league does not fall
+back, and must never be served Yahoo's blob. Live scores never belong in git.
+
+The tracker does not import Python; `ffb retro` consumes a local snapshot,
+`--fixture`, or `--from-matchups` (Sleeper only: the cached `/matchups`
+snapshot, no network). When none of those exist, the CLI pulls
+`GET /api/actuals` with the selected league, using `FFB_TRACKER_URL` and
+`FFB_TRACKER_API_KEY`, validates the blob, and snapshots it under
+`snapshots/actuals/` before the retro runs.
 
 | Method and route | Purpose |
 | --- | --- |
-| `POST /api/actuals` | Validate and store one week's scoreboard + player actuals |
-| `GET /api/actuals?season=&week=` | Read the stored actuals blob for that week |
+| `POST /api/actuals` | Validate and store one week's scoreboard + player actuals for the bundle's league |
+| `GET /api/actuals?season=&week=&league=` | Read that league's stored actuals. Absent `league` is Yahoo MCFFL |
 
 ## In-season command center
 
@@ -390,4 +403,6 @@ nothing, and must never be served Yahoo's documents. Week listings union both
 prefixes so the dashboard's week picker still shows pre-rekey weeks. Drop the
 fallback once nothing is left under the v1 keys.
 
-`actuals:v1:{season}:{week}` is not yet league-keyed.
+`actuals:v2:{season}:{league}:{week}` is the league-scoped actuals key. Reads of
+the default league still accept `actuals:v1:{season}:{week}` when the v2 key
+is empty. Drop that fallback once nothing is left under the v1 prefix.

@@ -45,7 +45,7 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
 | **ESPN news / RSS** | REST JSON (`site.web.api.espn.com`) + RSS (`espn.com`) | none | Headlines for the LLM digest (never numeric) | **Live** |
 | Yahoo league fixture | Local JSON (`LeagueBundle` v2) | none | League scoring, roster slots, teams, current-week rosters | **Implemented (fixture only)** |
 | **Sleeper league** | REST JSON (`api.sleeper.app`) | none (`FFB_SLEEPER_*`) | Second-league scoring, roster slots, user roster for sit/start | **CLI spike (no DuckDB/KV write)** |
-| Weekly actuals / scoreboard | HITL JSON (`WeeklyActualsBundle` v2) via `POST /api/actuals` or `ffb retro --fixture` | Tracker bearer | Matchup pairings + league-scored player points for Tuesday retro | **Implemented (fixture / Grok producer)** |
+| Weekly actuals / scoreboard | `WeeklyActualsBundle` v2 via `POST /api/actuals`, `ffb retro --fixture`, or Sleeper `/matchups` (`ffb retro --from-matchups`) | Tracker bearer for KV; none for Sleeper | Matchup pairings + league-scored player points for retro. KV is partitioned by league | **Implemented** |
 | Yahoo Fantasy | REST JSON (`fantasysports.yahooapis.com`, httpx) | OAuth2 | Live league scoring, roster slots, teams, current-week rosters | **Built (awaiting one-time OAuth authorization)** |
 | nflverse stats/depth | `nflreadpy` | none | Usage (snaps/targets), depth charts | Planned (in-season) |
 | Sleeper trending | REST JSON | none | Trending adds/drops | Planned (slice 11) |
@@ -516,8 +516,11 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   GET https://api.sleeper.app/v1/league/{league_id}/users
   GET https://api.sleeper.app/v1/state/nfl
   ```
-  Current-week matchups are unused: starters come from `/rosters`. Retro can
-  add matchups later.
+  `GET /league/{id}/matchups/{week}` is the historical-starter and weekly-points
+  source. `actuals_from_matchups` maps that payload to a `WeeklyActualsBundle`
+  (`source: "sleeper"`). `ffb retro --league sleeper --from-matchups` reads the
+  cached snapshot and does not fetch. A live pull of that week is
+  `ffb league sync SEASON --league sleeper --week N`.
 - **Snapshots** — `sleeper/league_{id}_league`, `_rosters`, `_users`, plus
   `sleeper/state_nfl`. These keys carry no week, so sit/start refetches on
   every run and the snapshots serve `--offline` replay and post-mortem, not
@@ -579,7 +582,9 @@ uv run ffb season sync 2026 --week 2          # weekly projections + injuries
 # Reuses snapshots/sleeper/players_nfl.json when present (from injuries sync)
 uv run ffb lineup 2026 --league sleeper       # always a live fetch
 uv run ffb lineup 2026 --league sleeper --offline   # replay the last snapshots
-# --publish and --force are rejected for --league sleeper
+uv run ffb league sync 2026 --league sleeper --week 2   # cache /matchups for that week
+uv run ffb retro 2026 --week 2 --league sleeper --from-matchups
+uv run ffb retro 2026 --week 2 --league sleeper --publish  # pulls GET /api/actuals?league=
 ```
 
 ## Source hygiene

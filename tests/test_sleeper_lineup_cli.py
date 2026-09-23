@@ -1,9 +1,4 @@
-"""Sleeper sit/start: ``league sync --league sleeper`` then ``lineup --league sleeper``.
-
-The Sleeper path is the Yahoo path with a different stored league, not a
-provider-specific command body. What stays Yahoo-only is the sit/start snapshot
-and tracker KV, which are not league-scoped yet.
-"""
+"""Sleeper sit/start and retro: ``--league sleeper`` is the Yahoo path on another league."""
 
 import json
 from pathlib import Path
@@ -14,7 +9,7 @@ import httpx
 from ffb import config
 from ffb.cli import app
 from ffb.league_context import load_league_context
-from ffb.retro import lineup_snapshot_key
+from ffb.retro import actuals_snapshot_key, lineup_snapshot_key
 from ffb.snapshot import SnapshotCache
 from ffb.sources.crosswalk import parse_crosswalk
 from ffb.store import Store
@@ -356,6 +351,124 @@ def test_backfilled_week_reads_matchup_starters_not_current_rosters(tmp_path):
     # Week 2 started Derrick Henry (3198); current /rosters starts Slow Back.
     assert "3198" in started
     assert "slow" not in started
+
+
+def test_sleeper_retro_builds_actuals_from_cached_matchups(tmp_path):
+    """``--from-matchups`` reads the cache league sync already wrote. It does not fetch."""
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    result = runner.invoke(
+        app, ["retro", "2026", "--league", "sleeper", "--from-matchups"], env=env
+    )
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.output.split())
+    assert "Derrick Henry" in output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    stored = cache.read_json(actuals_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+    assert stored["source"] == "sleeper"
+    henry = next(player for player in stored["players"] if player["native_id"] == "3198")
+    assert henry["points"] == 24.0
+    assert henry["selected_position"] == "RB"
+    assert not cache.has(actuals_snapshot_key(2026, 2))
+
+
+def test_sleeper_retro_publish_posts_to_its_own_slot(tmp_path, monkeypatch):
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    posted = []
+
+    def fake_post(self, url, **kwargs):
+        posted.append({"url": str(httpx.URL(url, params=kwargs.get("params") or {}))})
+
+        class _Response:
+            status_code = 200
+            reason_phrase = "OK"
+
+            @staticmethod
+            def json():
+                return {"kind": "retro", "season": 2026, "week": 2}
+
+        return _Response()
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    result = runner.invoke(
+        app,
+        ["retro", "2026", "--week", "2", "--league", "sleeper", "--from-matchups", "--publish"],
+        env={**env, "FFB_TRACKER_URL": "https://tracker.test", "FFB_TRACKER_API_KEY": "sekrit"},
+    )
+    assert result.exit_code == 0, result.output
+    assert "Published retro week 2" in result.output
+    assert posted[0]["url"].endswith(
+        f"/api/inseason/retro?league={quote(config.SLEEPER_LEAGUE_KEY, safe='')}"
+    )
+    assert "sekrit" not in result.output
+
+
+def test_sleeper_retro_pulls_its_league_from_the_tracker(tmp_path, monkeypatch):
+    """Without a local actuals snapshot, retro GETs the Sleeper partition, not Yahoo's."""
+    from ffb import cli
+    from ffb.sources.sleeper_league import actuals_from_matchups
+
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    bundle = actuals_from_matchups(
+        league=json.loads((FIXTURES / "league.json").read_text()),
+        matchups=json.loads((FIXTURES / "matchups_week2.json").read_text()),
+        week=2,
+        season=2026,
+        synced_at="2026-09-17T12:00:00Z",
+        players_by_id=json.loads((FIXTURES / "players.json").read_text()),
+    )
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("Authorization")
+        if f"league={quote(config.SLEEPER_LEAGUE_KEY, safe='')}" not in str(request.url):
+            return httpx.Response(404, json={"error": "not_found"})
+        return httpx.Response(200, json=bundle.data)
+
+    monkeypatch.setattr(
+        cli, "_tracker_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    result = runner.invoke(
+        app,
+        ["retro", "2026", "--week", "2", "--league", "sleeper"],
+        env={**env, "FFB_TRACKER_URL": "https://tracker.test", "FFB_TRACKER_API_KEY": "sekrit"},
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["auth"] == "Bearer sekrit"
+    assert "sekrit" not in result.output
+    assert "Derrick Henry" in result.output
+    cache = SnapshotCache(tmp_path / "snapshots")
+    assert cache.has(actuals_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+
+
+def test_sleeper_retro_refuses_matchups_without_points(tmp_path):
+    env = _synced(tmp_path)
+    assert runner.invoke(app, LINEUP, env=env).exit_code == 0
+    cache = SnapshotCache(tmp_path / "snapshots")
+    key = f"sleeper/league_{LEAGUE_ID}_matchups_week2"
+    matchups = cache.read_json(key)
+    for entry in matchups:
+        entry.pop("players_points", None)
+    cache.put_json(key, matchups)
+    result = runner.invoke(
+        app, ["retro", "2026", "--league", "sleeper", "--from-matchups"], env=env
+    )
+    assert result.exit_code == 1
+    assert "players_points" in result.output
+
+
+def test_from_matchups_cannot_combine_with_a_fixture(tmp_path):
+    env = _synced(tmp_path)
+    result = runner.invoke(
+        app,
+        ["retro", "2026", "--league", "sleeper", "--from-matchups", "--fixture", "unused.json"],
+        env=env,
+    )
+    assert result.exit_code == 2
+    assert "from-matchups" in result.output.lower()
 
 
 def test_league_sync_week_applies_only_to_a_live_sleeper_sync(tmp_path):

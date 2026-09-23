@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SELF, env } from "cloudflare:test";
-import { ACTUALS_KEY_PREFIX } from "../src/actuals";
+import { ACTUALS_KEY_PREFIX, ACTUALS_KEY_PREFIX_V2, actualsKey } from "../src/actuals";
 import { BOARD_KEY } from "../src/board";
 import {
   INSEASON_KEY_PREFIX,
@@ -51,8 +51,10 @@ async function clearInseason(): Promise<void> {
     const page = await env.BOARD.list({ prefix });
     await Promise.all(page.keys.map(({ name }) => env.BOARD.delete(name)));
   }
-  const actuals = await env.BOARD.list({ prefix: ACTUALS_KEY_PREFIX });
-  await Promise.all(actuals.keys.map(({ name }) => env.BOARD.delete(name)));
+  for (const prefix of [ACTUALS_KEY_PREFIX, ACTUALS_KEY_PREFIX_V2]) {
+    const actuals = await env.BOARD.list({ prefix });
+    await Promise.all(actuals.keys.map(({ name }) => env.BOARD.delete(name)));
+  }
   await env.BOARD.delete(LEAGUE_BUNDLE_KEY);
 }
 
@@ -433,6 +435,19 @@ describe("inseason KV rekey: per-league v2 keys with a v1 dual-read window", () 
     // The default league never wrote one, and must not borrow Sleeper's.
     const yahooView = await view(`?season=${season}&week=${week}`);
     expect(yahooView.body.cards.lineup.envelope).toBeNull();
+  });
+
+  it("does not treat the default league's actuals as another league's", async () => {
+    await env.BOARD.put(`${ACTUALS_KEY_PREFIX}2024:1`, "{}");
+    const sleeper = await view(`?season=2024&week=2&league=${encodeURIComponent(SLEEPER)}`);
+    expect(sleeper.body.actuals_available).toEqual({ "1": false });
+
+    await env.BOARD.put(actualsKey(2024, 1, SLEEPER), "{}");
+    const again = await view(`?season=2024&week=2&league=${encodeURIComponent(SLEEPER)}`);
+    expect(again.body.actuals_available).toEqual({ "1": true });
+
+    const yahoo = await view("?season=2024&week=2");
+    expect(yahoo.body.actuals_available).toEqual({ "1": true });
   });
 
   it("does not let a second league fall back to the v1 key", async () => {

@@ -185,7 +185,8 @@ Week resolution for requested week `W`:
 
 A card with no document returns `"envelope": null`. `league` comes from
 `league:bundle:current` and is `null` when absent. `actuals_available` reports
-whether `actuals:v1:{season}:{W-1}` exists. `weeks` lists weeks with at least
+whether that league's `actuals:v2:{season}:{league}:{W-1}` exists, falling back
+to `actuals:v1:{season}:{W-1}` only for the default league. `weeks` lists weeks with at least
 one `lineup` or `digest` document (KV prefix list). When `week` is omitted the
 Worker uses `league.current_week`, then the newest week in `weeks`.
 

@@ -49,7 +49,7 @@ from ffb.retro import (
 )
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import sleeper_league, yahoo
+from ffb.sources import sleeper_league, sleeper_players, yahoo
 from ffb.sources.sleeper_league import SleeperLeagueError
 from ffb.sources.tracker import (
     TrackerConfig,
@@ -653,6 +653,12 @@ def retro(
     fixture: Path | None = typer.Option(  # noqa: B008
         None, "--fixture", help="WeeklyActualsBundle JSON. Stored under snapshots/actuals/."
     ),
+    from_matchups: bool = typer.Option(
+        False,
+        "--from-matchups",
+        help="Sleeper only: build weekly actuals from the cached /matchups snapshot. "
+        "Does not fetch. `league sync --league sleeper --week N` writes that snapshot.",
+    ),
     force: bool = typer.Option(
         False, "--force", help="Replace already-locked weekly actuals with the fixture."
     ),
@@ -664,6 +670,8 @@ def retro(
     """Compare a snapshotted sit/start run to ingested weekly actuals."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
+    if from_matchups and fixture is not None:
+        raise typer.BadParameter("--from-matchups cannot be combined with --fixture")
     # One league for the whole command: the actuals snapshot, the sit/start
     # snapshot and the publish slot must all name the same one.
     store = _open_store()
@@ -688,19 +696,40 @@ def retro(
                 f"week {chosen_week}.[/red]"
             )
             raise typer.Exit(code=1)
-        key = actuals_snapshot_key(season, chosen_week, league_key)
-        if cache.has(key) and not force:
-            stored = cache.read_json(key)
-            if stored != bundle.data:
-                console.print(
-                    f"[red]Weekly actuals for {season} week {chosen_week} are already locked "
-                    f"and differ from the fixture.[/red] Re-run with --force to replace them."
-                )
-                raise typer.Exit(code=1)
-        else:
-            if cache.has(key):
-                console.print(f"[yellow]Replaced the week {chosen_week} actuals snapshot.[/yellow]")
-            cache.put_json(key, bundle.data, mode=0o600)
+        _lock_actuals_snapshot(
+            cache,
+            actuals_snapshot_key(season, chosen_week, league_key),
+            bundle,
+            force=force,
+            season=season,
+            week=chosen_week,
+            source_label="fixture",
+        )
+    elif from_matchups:
+        if league_key is None or not league_key.startswith("sleeper:"):
+            raise typer.BadParameter("--from-matchups applies only to a stored Sleeper league")
+        chosen_week = week if week is not None else stored_week
+        if chosen_week is None:
+            console.print(
+                f"[red]No week for {season}. Pass --week N after caching Sleeper matchups.[/red]"
+            )
+            raise typer.Exit(code=1)
+        try:
+            bundle = _actuals_from_cached_matchups(
+                cache, league_key=league_key, season=season, week=chosen_week
+            )
+        except (OSError, ValueError, FileNotFoundError) as exc:
+            console.print(f"[red]Sleeper weekly actuals unavailable:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        _lock_actuals_snapshot(
+            cache,
+            actuals_snapshot_key(season, chosen_week, league_key),
+            bundle,
+            force=force,
+            season=season,
+            week=chosen_week,
+            source_label="cached matchups",
+        )
     else:
         chosen_week = week
         if chosen_week is None:
@@ -803,6 +832,74 @@ def _publish_report(envelope: dict, league_key: str | None = None) -> None:
     console.print(f"[green]Published {kind} week {week} to the tracker.[/green]")
 
 
+def _lock_actuals_snapshot(
+    cache: SnapshotCache,
+    key: str,
+    bundle,
+    *,
+    force: bool,
+    season: int,
+    week: int,
+    source_label: str,
+) -> None:
+    """Write a validated bundle, refusing to replace a different locked snapshot."""
+    if cache.has(key) and not force:
+        stored = cache.read_json(key)
+        if stored != bundle.data:
+            console.print(
+                f"[red]Weekly actuals for {season} week {week} are already locked "
+                f"and differ from the {source_label}.[/red] Re-run with --force to replace them."
+            )
+            raise typer.Exit(code=1)
+        return
+    if cache.has(key):
+        console.print(f"[yellow]Replaced the week {week} actuals snapshot.[/yellow]")
+    cache.put_json(key, bundle.data, mode=0o600)
+
+
+def _actuals_from_cached_matchups(cache: SnapshotCache, *, league_key: str, season: int, week: int):
+    """Build a Sleeper actuals bundle from snapshots ``league sync --week`` already wrote.
+
+    Retro does not call Sleeper. A past week's matchups are cached because they
+    do not change; this only reads that cache plus the league and player maps.
+    """
+    league_id = league_key.split(":", 1)[1]
+    league_snap = sleeper_league.snapshot_key(league_id, "league")
+    matchups_snap = sleeper_league.matchups_snapshot_key(league_id, week)
+    missing = [key for key in (league_snap, matchups_snap) if not cache.has(key)]
+    if missing:
+        raise FileNotFoundError(
+            "missing Sleeper snapshot(s): "
+            + ", ".join(missing)
+            + f". Run: ffb league sync {season} --league sleeper --week {week}"
+        )
+    players = None
+    players_key = sleeper_players.snapshot_key()
+    if cache.has(players_key):
+        cached = cache.read_json(players_key)
+        players = cached if isinstance(cached, dict) else None
+    meta = cache.metadata(matchups_snap)
+    synced_at = (
+        meta.modified_at
+        if meta is not None
+        else datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    )
+    bundle = sleeper_league.actuals_from_matchups(
+        league=cache.read_json(league_snap),
+        matchups=cache.read_json(matchups_snap),
+        week=week,
+        season=season,
+        synced_at=synced_at,
+        players_by_id=players,
+    )
+    built = config.namespaced_league_key(bundle.data["source"], bundle.league["league_key"])
+    if built != league_key:
+        raise ValueError(
+            f"cached Sleeper league {built} does not match requested league {league_key}"
+        )
+    return bundle
+
+
 def _pull_actuals_from_tracker(
     cache: SnapshotCache, *, season: int, week: int, league_key: str | None = None
 ):
@@ -817,7 +914,7 @@ def _pull_actuals_from_tracker(
         raise typer.Exit(code=1) from exc
     try:
         with _tracker_client() as client:
-            payload = fetch_actuals(client, cfg, season, week)
+            payload = fetch_actuals(client, cfg, season, week, league_key)
     except httpx.HTTPError as exc:
         console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
         raise typer.Exit(code=1) from exc

@@ -75,8 +75,8 @@ def parse_actuals(payload: object, *, season: int) -> WeeklyActualsBundle:
         data = _upgrade_v1_players(data)
     if data["schema_version"] != 2:
         raise ValueError("bundle.schema_version must be 2")
-    if data["source"] not in ("fixture", "yahoo"):
-        raise ValueError("bundle.source must be fixture or yahoo")
+    if data["source"] not in ("fixture", "yahoo", "sleeper"):
+        raise ValueError("bundle.source must be fixture, yahoo, or sleeper")
     _utc_timestamp(data["synced_at"], "bundle.synced_at")
 
     league = _mapping(data["league"], "league")

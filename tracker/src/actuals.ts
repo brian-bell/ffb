@@ -1,10 +1,23 @@
 // Closed WeeklyActualsBundle v2. Sibling of the LeagueBundle ingest path —
 // extra keys fail, and live scores never belong in git.
 // v1 payloads (yahoo_player_id / yahoo_player_key) are upgraded on read; see
-// upgradeV1Players. The KV prefix stays actuals:v1: — it namespaces the key,
-// not the payload, and rekeying is ffb-ct7.5's job.
+// upgradeV1Players.
+//
+// KV keys gained a league segment the same way in-season reports did. Writes
+// go to `actuals:v2:{season}:{league}:{week}`. Reads of the default league
+// (Yahoo MCFFL) still accept the unpartitioned `actuals:v1:{season}:{week}`
+// key when the v2 key is empty. The v1 prefix namespaces that legacy key, not
+// the payload schema.
+
+import {
+  DEFAULT_LEAGUE_KEY,
+  isDefaultLeague,
+  leagueSlug,
+  namespacedLeagueKey,
+} from "./league-keys";
 
 export const ACTUALS_KEY_PREFIX = "actuals:v1:";
+export const ACTUALS_KEY_PREFIX_V2 = "actuals:v2:";
 export const ACTUALS_SCHEMA_VERSION = 2;
 
 export interface ActualsLeague {
@@ -38,7 +51,7 @@ export interface ActualsPlayer {
 
 export interface WeeklyActualsBundle {
   schema_version: number;
-  source: "fixture" | "yahoo";
+  source: "fixture" | "yahoo" | "sleeper";
   synced_at: string;
   league: ActualsLeague;
   matchups: ActualsMatchup[];
@@ -49,8 +62,37 @@ export type ParseActualsResult =
   | { ok: true; bundle: WeeklyActualsBundle }
   | { ok: false; message: string };
 
-export function actualsKey(season: number, week: number): string {
+/** Unpartitioned key. Holds Yahoo MCFFL actuals written before the rekey. */
+export function actualsKeyV1(season: number, week: number): string {
   return `${ACTUALS_KEY_PREFIX}${season}:${week}`;
+}
+
+/** League-scoped key. `league` is percent-encoded so its colon stays one segment. */
+export function actualsKey(
+  season: number,
+  week: number,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): string {
+  return `${ACTUALS_KEY_PREFIX_V2}${season}:${leagueSlug(leagueKey)}:${week}`;
+}
+
+/** The namespaced league a parsed bundle is stored under. */
+export function actualsLeagueKey(bundle: Pick<WeeklyActualsBundle, "source" | "league">): string {
+  return namespacedLeagueKey(bundle.source, bundle.league.league_key);
+}
+
+/**
+ * Keys to try, in order. The v2 key wins. The v1 key is a read fallback for
+ * the default league only — another league must never be served Yahoo's blob.
+ */
+export function actualsReadKeys(
+  season: number,
+  week: number,
+  leagueKey: string = DEFAULT_LEAGUE_KEY,
+): string[] {
+  const keys = [actualsKey(season, week, leagueKey)];
+  if (isDefaultLeague(leagueKey)) keys.push(actualsKeyV1(season, week));
+  return keys;
 }
 
 export function parseActuals(
@@ -76,8 +118,8 @@ function parseBundle(payload: unknown, season?: number): WeeklyActualsBundle {
   if (data.schema_version !== ACTUALS_SCHEMA_VERSION) {
     throw new Error("bundle.schema_version must be 2");
   }
-  if (data.source !== "fixture" && data.source !== "yahoo") {
-    throw new Error("bundle.source must be fixture or yahoo");
+  if (data.source !== "fixture" && data.source !== "yahoo" && data.source !== "sleeper") {
+    throw new Error("bundle.source must be fixture, yahoo, or sleeper");
   }
   utcTimestamp(data.synced_at, "bundle.synced_at");
 
