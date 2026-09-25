@@ -19,3 +19,6 @@ docs/plans/
 /exports/
 
 .lavish/
+
+# Local secrets (tracker, Anthropic, Cloudflare keys)
+.env
