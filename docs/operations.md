@@ -84,6 +84,13 @@ the CLI from the repository root with `FFB_TRACKER_URL` and
 never runs `season sync` against Yahoo; the free sources are fetched by the
 CLI. Scheduling itself lives outside this repository (`ffb-8yi`).
 
+`make refresh` runs the CLI half of every run below for both leagues after the
+Yahoo scrapes are posted. It loads `.env` when present, reads the week from
+Sleeper, reports whether each tracker LeagueBundle is from today, runs the
+syncs and `--publish` commands, and prints each card's `generated_at`. Pass
+`ARGS="--week-roll"` on Wednesday, `ARGS="--sunday"` before kickoff, or
+`ARGS="--dry-run"` to preview. Full output lands in `data/refresh-logs/`.
+
 **Wednesday 10:00 ET, week roll.** Mid-morning gives Yahoo slack to roll the
 week and apply Monday's stat corrections.
 
