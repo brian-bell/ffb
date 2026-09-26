@@ -109,6 +109,12 @@ def scoring_settings(rows: list[list[str]]) -> tuple[list[dict], list[dict]]:
                 f"unknown scoring row {section!r} / {label!r} = {value!r}: add it to "
                 "STAT_MAP or UNMAPPED with its Yahoo stat id (never guess the id)"
             )
+    missing = (STAT_MAP.keys() | UNMAPPED.keys()) - {(section, label) for section, label, _ in rows}
+    if missing:
+        raise CaptureError(
+            f"scoring categories missing from the capture: {sorted(missing)}; the Settings "
+            "markup may have changed (remove a category only if the league dropped it)"
+        )
     for field in ("stat_key", "provider_stat_id"):
         dupes = [k for k, n in Counter(r[field] for r in rules).items() if n > 1]
         if dupes:
@@ -170,6 +176,12 @@ def build(capture: dict[str, Any], *, season: int, user_team: str, expect_teams:
     if set(capture["rosters"]) != {t["team_id"] for t in teams}:
         raise CaptureError("roster team ids do not match the teams page")
     rules, unmapped = scoring_settings(capture["scoring"])
+    slots = roster_slots(capture["roster_positions"])
+    capacity = sum(s["count"] for s in slots)
+    for team_id, name, _ in capture["teams"]:
+        size = len(capture["rosters"][team_id])
+        if not 0 < size <= capacity:
+            raise CaptureError(f"{name}: captured {size} players for {capacity} roster slots")
     bundle = {
         "schema_version": 2,
         "source": "yahoo",
@@ -183,7 +195,7 @@ def build(capture: dict[str, Any], *, season: int, user_team: str, expect_teams:
             "num_teams": len(teams),
         },
         "settings": {
-            "roster_slots": roster_slots(capture["roster_positions"]),
+            "roster_slots": slots,
             "scoring_rules": rules,
             "unmapped_scoring_rules": unmapped,
             "provider_settings": {"scoring_type": "head"},

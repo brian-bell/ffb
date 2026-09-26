@@ -18,6 +18,8 @@
   }
 
   const cellText = (el) => el.innerText.replace(/\s+/g, " ").trim();
+  const SLOTS = new Set(["QB", "WR", "RB", "TE", "W/T", "W/R/T", "DEF", "BN", "IR", "IL"]);
+  const PLAYER_ID = /pid=\d+|playerid="\d+"/;
 
   // League name from the league home page title ("MCFFL | Fantasy Football | ...").
   const home = await page(`/f1/${LEAGUE_ID}`);
@@ -68,14 +70,18 @@
   for (const [id] of teams) {
     const { doc } = await page(`/f1/${LEAGUE_ID}/${id}/team${week ? `?week=${week}` : ""}`);
     if (!week) week = Number((doc.body.innerText.match(/Week (\d+)/) || [])[1]);
+    // A roster row is any row whose first cell is a slot label or that carries a
+    // player id; one that is too short to parse fails instead of being dropped.
     rosters[id] = [...doc.querySelectorAll("table tbody tr")]
-      .filter((tr) => tr.querySelectorAll("td").length >= 6 && !/\(Empty\)/.test(tr.innerText))
-      .map((tr) => {
-        const slot = cellText(tr.querySelector("td"));
+      .map((tr) => ({ tr, tds: tr.querySelectorAll("td") }))
+      .filter(({ tr, tds }) => tds.length >= 6 || (tds[0] && SLOTS.has(cellText(tds[0]))) || PLAYER_ID.test(tr.innerHTML))
+      .filter(({ tr }) => !/\(Empty\)/.test(tr.innerText))
+      .map(({ tr, tds }) => {
+        const slot = tds[0] ? cellText(tds[0]) : "?";
         const ids = [...new Set([...tr.innerHTML.matchAll(/pid=(\d+)|playerid="(\d+)"/g)].map((m) => m[1] || m[2]))];
         const name = tr.querySelector("a.name")?.innerText.trim();
         const teamPos = tr.innerText.match(/\n\s*([A-Za-z]{2,3}) - ([A-Z,/]+)\s*\n/);
-        if (ids.length !== 1 || !name || !teamPos) {
+        if (tds.length < 6 || ids.length !== 1 || !name || !teamPos) {
           throw new Error(`team ${id}: unparsed roster row in slot ${slot} (${ids.length} ids, name=${name})`);
         }
         return [slot, ids[0], teamPos[1], teamPos[2], name].join("|");

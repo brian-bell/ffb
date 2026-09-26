@@ -74,14 +74,16 @@ and the sourced `.env` in every call that uses them.
 
    It maps the Settings scoring rows through the stat map, derives roster
    slots from "Roster Positions", builds player keys as `470.p.<id>`, checks
-   team count, one user team, roster/team key parity, and unique player ids,
-   then runs `ffb.league.parse_bundle`. It prints a one-line summary and the
-   roster changes versus the previous bundle.
+   that every known scoring category was captured, team count, one user team,
+   roster/team key parity, nonempty rosters no larger than the slot count, and
+   unique player ids, then runs `ffb.league.parse_bundle`. It prints a one-line
+   summary and the roster changes versus the previous bundle.
 
 5. **POST, then read back.**
 
    ```bash
    set -a && . ./.env && set +a
+   UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36'
    H=(-H "Authorization: Bearer $FFB_TRACKER_API_KEY" -A "$UA"
       -H "Origin: $FFB_TRACKER_URL" -H "Referer: $FFB_TRACKER_URL/command")
    URL="$FFB_TRACKER_URL/api/league/bundle?league=yahoo:470.l.928421"
@@ -105,6 +107,7 @@ and the sourced `.env` in every call that uses them.
 
 - Roster pages list every player as a `table tbody tr` with at least six
   cells. The slot is the first cell (`QB`, `W/T`, `W/R/T`, `BN`, `DEF`, `IR`).
+  A row with a slot label or player id but fewer cells stops the capture.
   The player id is in `pid=`/`playerid="…"` attributes, the name is `a.name`,
   and `"<Tm> - <POS[,POS]>"` gives team and positions. Brian's own team page
   adds a slot-eligibility cell, which is why the script does not index cells.
@@ -119,7 +122,9 @@ and the sourced `.env` in every call that uses them.
   section disambiguates labels like "Interception" and "Touchdown". An
   unknown row stops the builder. Add it to `STAT_MAP` or `UNMAPPED` in
   `build_bundle.py` with the real Yahoo stat id; never guess an id. "Extra
-  Point Returned" (id 82) has no projection line and stays unmapped.
+  Point Returned" (id 82) has no projection line and stays unmapped. A known
+  category missing from the capture also stops the builder; suspect changed
+  Settings markup, and drop it from the maps only if the league removed it.
 - The same player on two rosters means a transaction is in flight: stop and
   retry later rather than choosing one.
 
