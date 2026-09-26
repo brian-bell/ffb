@@ -178,10 +178,25 @@ def build(capture: dict[str, Any], *, season: int, user_team: str, expect_teams:
     rules, unmapped = scoring_settings(capture["scoring"])
     slots = roster_slots(capture["roster_positions"])
     capacity = sum(s["count"] for s in slots)
+    expected = Counter({s["position"]: s["count"] for s in slots})
+    if "slots" not in capture:
+        raise CaptureError("capture has no rendered roster slots; re-run the current capture.js")
     for team_id, name, _ in capture["teams"]:
         size = len(capture["rosters"][team_id])
         if not 0 < size <= capacity:
             raise CaptureError(f"{name}: captured {size} players for {capacity} roster slots")
+        # Every Roster Positions slot renders as a row, filled or "(Empty)", so a
+        # short multiset means the roster table was cut off partway.
+        rendered = Counter(capture["slots"].get(team_id, []))
+        if rendered != expected:
+            missing, extra = expected - rendered, rendered - expected
+            raise CaptureError(
+                f"{name}: rendered roster slots do not match Roster Positions "
+                f"(missing {dict(missing)}, extra {dict(extra)})"
+            )
+        unrendered = Counter(row.split("|", 1)[0] for row in capture["rosters"][team_id]) - rendered
+        if unrendered:
+            raise CaptureError(f"{name}: players in unrendered slots {dict(unrendered)}")
     bundle = {
         "schema_version": 2,
         "source": "yahoo",

@@ -19,7 +19,6 @@
 
   const cellText = (el) => el.innerText.replace(/\s+/g, " ").trim();
   const SLOTS = new Set(["QB", "WR", "RB", "TE", "W/T", "W/R/T", "DEF", "BN", "IR", "IL"]);
-  const PLAYER_ID = /pid=\d+|playerid="\d+"/;
 
   // League name from the league home page title ("MCFFL | Fantasy Football | ...").
   const home = await page(`/f1/${LEAGUE_ID}`);
@@ -64,28 +63,33 @@
     .filter(Boolean)
     .sort((a, b) => Number(a[0]) - Number(b[0]));
 
-  // Rosters: one "slot|player_id|team|positions|name" line per rostered player.
+  // Rosters: one "slot|player_id|team|positions|name" line per rostered player,
+  // and the slot label of every rendered roster row, filled or "(Empty)", so the
+  // builder can match the rendered slots against Roster Positions and catch a
+  // table cut off partway. Only the statTable* roster tables are read; the
+  // position legend on the same page also starts rows with slot labels.
   const rosters = {};
+  const slots = {};
   let week = WEEK;
   for (const [id] of teams) {
     const { doc } = await page(`/f1/${LEAGUE_ID}/${id}/team${week ? `?week=${week}` : ""}`);
     if (!week) week = Number((doc.body.innerText.match(/Week (\d+)/) || [])[1]);
-    // A roster row is any row whose first cell is a slot label or that carries a
-    // player id; one that is too short to parse fails instead of being dropped.
-    rosters[id] = [...doc.querySelectorAll("table tbody tr")]
-      .map((tr) => ({ tr, tds: tr.querySelectorAll("td") }))
-      .filter(({ tr, tds }) => tds.length >= 6 || (tds[0] && SLOTS.has(cellText(tds[0]))) || PLAYER_ID.test(tr.innerHTML))
-      .filter(({ tr }) => !/\(Empty\)/.test(tr.innerText))
-      .map(({ tr, tds }) => {
-        const slot = tds[0] ? cellText(tds[0]) : "?";
-        const ids = [...new Set([...tr.innerHTML.matchAll(/pid=(\d+)|playerid="(\d+)"/g)].map((m) => m[1] || m[2]))];
-        const name = tr.querySelector("a.name")?.innerText.trim();
-        const teamPos = tr.innerText.match(/\n\s*([A-Za-z]{2,3}) - ([A-Z,/]+)\s*\n/);
-        if (tds.length < 6 || ids.length !== 1 || !name || !teamPos) {
-          throw new Error(`team ${id}: unparsed roster row in slot ${slot} (${ids.length} ids, name=${name})`);
-        }
-        return [slot, ids[0], teamPos[1], teamPos[2], name].join("|");
-      });
+    rosters[id] = [];
+    slots[id] = [];
+    for (const tr of doc.querySelectorAll('table[id^="statTable"] tbody tr')) {
+      const tds = tr.querySelectorAll("td");
+      const slot = tds[0] ? cellText(tds[0]) : "";
+      if (!SLOTS.has(slot)) throw new Error(`team ${id}: roster row without a slot label (${slot || "no cells"})`);
+      slots[id].push(slot);
+      if (/\(Empty\)/.test(tr.innerText)) continue;
+      const ids = [...new Set([...tr.innerHTML.matchAll(/pid=(\d+)|playerid="(\d+)"/g)].map((m) => m[1] || m[2]))];
+      const name = tr.querySelector("a.name")?.innerText.trim();
+      const teamPos = tr.innerText.match(/\n\s*([A-Za-z]{2,3}) - ([A-Z,/]+)\s*\n/);
+      if (tds.length < 6 || ids.length !== 1 || !name || !teamPos) {
+        throw new Error(`team ${id}: unparsed roster row in slot ${slot} (${ids.length} ids, name=${name})`);
+      }
+      rosters[id].push([slot, ids[0], teamPos[1], teamPos[2], name].join("|"));
+    }
   }
 
   window.__ffbCapture = {
@@ -97,6 +101,7 @@
     scoring,
     teams,
     rosters,
+    slots,
   };
   const text = JSON.stringify(window.__ffbCapture);
   ({
@@ -105,6 +110,7 @@
     week,
     teams: teams.length,
     players: Object.values(rosters).reduce((n, r) => n + r.length, 0),
+    slots: Object.values(slots).reduce((n, r) => n + r.length, 0),
     scoring_rows: scoring.length,
     chars: text.length,
     chunks: Math.ceil(text.length / 1000),
