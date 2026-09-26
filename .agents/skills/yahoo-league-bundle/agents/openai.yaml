@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yahoo league bundle"
+  short_description: "Capture MCFFL from the Yahoo UI and ingest it into the tracker"
+  default_prompt: "Use $yahoo-league-bundle to capture the current Yahoo league bundle and POST it to the tracker."
