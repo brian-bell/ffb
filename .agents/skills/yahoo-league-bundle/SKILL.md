@@ -45,8 +45,9 @@ and the sourced `.env` in every call that uses them.
    contents of [scripts/capture.js](scripts/capture.js). It reads the league
    home, Settings, Teams, and all ten roster pages and returns a summary.
    Expect `game_keys: ["470"]`, `league_name: "MCFFL"`, the current `week`,
-   `teams: 10`, and 15 players per team. A thrown error names the roster row
-   it could not parse; stop and report it rather than patching data by hand.
+   `teams: 10`, `slots: 150`, and up to 15 players per team. A thrown error
+   names the roster row it could not parse; stop and report it rather than
+   patching data by hand.
 
 3. **Export.** Browser tool output truncates long results. Run
    [scripts/export-chunk.js](scripts/export-chunk.js) once per chunk
@@ -75,8 +76,10 @@ and the sourced `.env` in every call that uses them.
    It maps the Settings scoring rows through the stat map, derives roster
    slots from "Roster Positions", builds player keys as `470.p.<id>`, checks
    that every known scoring category was captured, team count, one user team,
-   roster/team key parity, nonempty rosters no larger than the slot count, and
-   unique player ids, then runs `ffb.league.parse_bundle`. It prints a one-line
+   roster/team key parity, nonempty rosters, that each team's rendered slot
+   labels match Roster Positions exactly (so a table cut off partway fails),
+   that every player sits in a rendered slot, and unique player ids, then runs
+   `ffb.league.parse_bundle`. It prints a one-line
    summary and the roster changes versus the previous bundle.
 
 5. **POST, then read back.**
@@ -105,12 +108,27 @@ and the sourced `.env` in every call that uses them.
 
 ## What the page gives you (verified 2026-09-26)
 
-- Roster pages list every player as a `table tbody tr` with at least six
-  cells. The slot is the first cell (`QB`, `W/T`, `W/R/T`, `BN`, `DEF`, `IR`).
-  A row with a slot label or player id but fewer cells stops the capture.
-  The player id is in `pid=`/`playerid="…"` attributes, the name is `a.name`,
-  and `"<Tm> - <POS[,POS]>"` gives team and positions. Brian's own team page
-  adds a slot-eligibility cell, which is why the script does not index cells.
+- The roster is the `tbody tr` rows of `table#statTable0` (offense: QB, RB,
+  WR, TE, W/T, W/R/T ×2, then 6 BN) and `table#statTable1` (DEF, 1 BN). Each
+  Roster Positions slot renders as one row whose first cell is the slot label,
+  in page order rather than Settings order. All ten teams matched Roster
+  Positions exactly in weeks 1–4 of 2026. The same page also has a position
+  legend and notes table whose rows begin with `QB`, `BN`, `IR`, and so on, so
+  the capture reads only `statTable*` rows. A roster row without a slot label,
+  or a filled row it cannot parse, stops the capture.
+- The capture records every row's slot label under `slots`, filled or not, and
+  the builder requires that multiset to equal Roster Positions. Rows whose text
+  contains `(Empty)` count as slots but not players. No MCFFL team had an empty
+  slot in weeks 1–4 of 2026, so the empty-row markup is unverified. The
+  capture expects the slot label to stay in the first cell. If Yahoo instead
+  drops the row or blanks that label, the team fails closed ("roster row
+  without a slot label" or "missing" slots). Check the page before relaxing
+  either check. MCFFL has no IR/IL slots.
+- Filled rows have at least six cells. The player id is in
+  `pid=`/`playerid="…"` attributes, the name is `a.name`, and
+  `"<Tm> - <POS[,POS]>"` gives team and positions. Brian's own (editable) team
+  page has one fewer cell per row than other teams' pages, which is why the
+  script does not index cells.
 - Yahoo never renders player keys; `470.l.928421` on the Settings page
   confirms the game key, so keys are `<game>.p.<id>`.
 - Team defenses have ids `1000NN` and positions `DEF`. Their display names are
