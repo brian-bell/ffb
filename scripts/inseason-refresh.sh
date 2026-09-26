@@ -71,10 +71,10 @@ leagues=$(api /api/leagues) || { echo "error: tracker GET /api/leagues failed" >
 LEAGUES_JSON="$leagues" python3 - "$W" <<'EOF'
 import datetime as dt, json, os, sys
 week = int(sys.argv[1])
-today = dt.datetime.now(dt.timezone.utc).date()
+today = dt.date.today()  # local date: runs are scheduled in local (ET) time
 for league in json.loads(os.environ["LEAGUES_JSON"])["leagues"]:
     synced = dt.datetime.fromisoformat(league["synced_at"].replace("Z", "+00:00"))
-    fresh = synced.date() == today and league["current_week"] == week
+    fresh = synced.astimezone().date() == today and league["current_week"] == week
     print(f"bundle {league['league_key']}: week {league['current_week']} "
           f"synced {league['synced_at']} -> {'fresh' if fresh else 'STALE'}")
 EOF
