@@ -492,3 +492,46 @@ test("the picker survives the narrow viewport without overflowing", async ({ pag
   await expect(page.locator("[data-leaguepick]")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
+
+test("the phone header gives the league and week pickers their own usable row", async ({ page }) => {
+  await open(page, baseView(), { width: 390, directory: TWO_LEAGUES });
+  const layout = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    return {
+      brand: box(".brand"),
+      select: box("[data-league-select]"),
+      weekpick: box(".weekpick"),
+      prev: box("[data-week-prev]"),
+      next: box("[data-week-next]"),
+      link: box(".links a"),
+      gear: box("[data-gear]"),
+      selectFont: parseFloat(getComputedStyle(document.querySelector("[data-league-select]")!).fontSize),
+      overflow: document.documentElement.scrollWidth > innerWidth,
+    };
+  });
+  expect(layout.overflow).toBe(false);
+  // The pickers share a row below the brand and never overlap each other.
+  expect(layout.select.top).toBeGreaterThanOrEqual(layout.brand.bottom);
+  expect(Math.abs(layout.select.top - layout.weekpick.top)).toBeLessThan(6);
+  expect(layout.select.right).toBeLessThanOrEqual(layout.prev.left);
+  // The select has room to show a league name, not a clipped first letter.
+  expect(layout.select.width).toBeGreaterThan(150);
+  // Touch-sized controls; 16px select text keeps iOS from zooming on focus.
+  for (const control of [layout.select, layout.prev, layout.next, layout.gear, layout.link]) {
+    expect(control.height).toBeGreaterThanOrEqual(40);
+  }
+  expect(layout.selectFont).toBeGreaterThanOrEqual(16);
+  // "Draft room" stays on one line beside the brand.
+  expect(layout.link.height).toBeLessThan(48);
+  expect(Math.abs(layout.link.top - layout.gear.top)).toBeLessThan(6);
+  await page.screenshot({ path: "/tmp/ffb-command-390.png" });
+});
+
+test("with one league the phone week stepper spans the row", async ({ page }) => {
+  await open(page, baseView(), { width: 390 });
+  const { weekpick, brand } = await page.evaluate(() => ({
+    weekpick: document.querySelector(".weekpick")!.getBoundingClientRect().width,
+    brand: document.querySelector(".topbar-in")!.getBoundingClientRect().width,
+  }));
+  expect(weekpick).toBeGreaterThan(brand - 2);
+});

@@ -55,7 +55,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   max-width: 220px; height: 30px; padding: 0 26px 0 9px; border: 1px solid var(--line); border-radius: 7px;
   background: #131a24 no-repeat right 8px center / 9px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%237c8798' stroke-width='1.6'/%3E%3C/svg%3E");
-  color: var(--ink); font: 650 13px/1 inherit; text-overflow: ellipsis; appearance: none; cursor: pointer;
+  color: var(--ink); font: 650 13px/1 var(--sans); text-overflow: ellipsis; appearance: none; cursor: pointer;
 }
 .leaguepick select:disabled { opacity: 0.5; cursor: progress; }
 .leaguepick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -201,10 +201,33 @@ td.warn { color: var(--accent); }
 @media (max-width: 760px) {
   .grid { grid-template-columns: 1fr; grid-template-areas: "lineup" "news" "retro" "ros"; }
   .oldest, .team { display: none; }
-  /* The picker stays — it is the only way to reach another league — but the
-     label goes, and the select shrinks to share the row with the week picker. */
+  /* Two rows on a phone: brand and links on top, then the league select and
+     week stepper sharing a full-width row. One flex row crushed the select to
+     a sliver under the week buttons and wrapped "Draft room". */
+  .topbar-in {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "brand links" "league week";
+    gap: 8px; min-height: 0; padding: 8px 0 10px;
+  }
+  .brand { grid-area: brand; font-size: 17px; }
+  .links { grid-area: links; gap: 8px; }
+  .leaguepick { grid-area: league; }
+  .weekpick { grid-area: week; }
+  /* A single league hides the picker; the stepper then spans the row. */
+  .leaguepick[hidden] + .weekpick { grid-column: 1 / -1; justify-content: space-between; }
+  /* The label goes; the select fills its cell. 16px text keeps iOS from
+     zooming the page when the select takes focus. */
   .leaguepick label { display: none; }
-  .leaguepick select { max-width: 124px; }
-  .topbar-in { gap: 10px; }
-  .links { margin-left: auto; }
+  .leaguepick select { width: 100%; max-width: none; height: 40px; padding: 0 30px 0 12px; border-radius: 10px; background-position: right 12px center; font-size: 16px; }
+  /* Touch-sized controls: 40px squares on a 10px radius. */
+  .weekpick { gap: 6px; font-size: 14px; }
+  .weekpick span { min-width: 70px; }
+  .weekpick button, .gear { width: 40px; height: 40px; border-radius: 10px; }
+  .links a {
+    display: inline-flex; align-items: center; height: 40px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: #131a24;
+    color: var(--ink); font-size: 12px; white-space: nowrap;
+    transition-property: scale; transition-duration: 150ms; transition-timing-function: ease-out;
+  }
+  .links a:active { scale: 0.96; }
 }
