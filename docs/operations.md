@@ -54,6 +54,15 @@ local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
 accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be
 combined with `--fixture` or `--refresh`.
 
+`league sync S --league sleeper --push` runs the live Sleeper sync, then POSTs
+the bundle it just imported to `/api/league/bundle?league=sleeper:<id>`. It
+needs `FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY` before it fetches, and it
+rejects `--offline`, `--week`, `--fixture`, and `--from-tracker` because a
+replayed or backfilled bundle must not replace the current one. A 409
+`stale_bundle` means the Worker already holds a newer bundle; the command
+prints `Not published` and exits 0. Any other rejection exits 1 after the
+local import.
+
 Every selected source is attempted and recorded independently. Validation keeps
 an invalid or empty response from replacing a known-good snapshot or persisted
 slice. `--verbose` logs cache decisions, safe request summaries, and processing
@@ -87,7 +96,10 @@ CLI. Scheduling itself lives outside this repository (`ffb-8yi`).
 `make refresh` runs the CLI half of every run below for both leagues after the
 Yahoo scrapes are posted. It loads `.env` when present, reads the week from
 Sleeper, reports whether each tracker LeagueBundle is from today, runs the
-syncs and `--publish` commands, and prints each card's `generated_at`. Pass
+syncs and `--publish` commands, and prints each card's `generated_at`. When
+the Sleeper bundle is `STALE` or missing, its league sync adds `--push`, so
+`/api/leagues` shows today's Sleeper `synced_at` without a manual step. A
+stale Yahoo bundle still needs the Yahoo scrape. Pass
 `ARGS="--week-roll"` on Wednesday, `ARGS="--sunday"` before kickoff, or
 `ARGS="--dry-run"` to preview. Full output lands in `data/refresh-logs/`.
 

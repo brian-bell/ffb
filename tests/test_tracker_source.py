@@ -13,6 +13,7 @@ from ffb.sources.tracker import (
     fetch_actuals,
     fetch_league_bundle,
     publish_inseason,
+    publish_league_bundle,
 )
 
 
@@ -143,3 +144,68 @@ def test_publish_inseason_raises_structured_error_without_the_key():
     ):
         publish_inseason(c, _cfg(), envelope)
     assert exc.value.error == "http_error"
+
+
+_BUNDLE = {"schema_version": 2, "source": "sleeper", "synced_at": "2026-09-27T11:00:00Z"}
+
+
+def test_publish_league_bundle_posts_to_the_league_slot_with_a_browser_agent(caplog):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("Authorization")
+        seen["agent"] = request.headers.get("User-Agent")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"ok": True, "current_week": 4, "synced_at": "x"})
+
+    with caplog.at_level(logging.INFO), httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        result = publish_league_bundle(c, _cfg(), _BUNDLE, "sleeper:1395854363380965376")
+    assert result == {"ok": True, "current_week": 4, "synced_at": "x"}
+    assert seen["url"] == (
+        "https://tracker.test/api/league/bundle?league=sleeper%3A1395854363380965376"
+    )
+    assert seen["auth"] == "Bearer sekrit"
+    # Cloudflare answers bare script agents with error 1010.
+    assert seen["agent"].startswith("Mozilla/5.0")
+    assert seen["body"] == _BUNDLE
+    assert "sekrit" not in caplog.text
+
+
+def test_publish_league_bundle_returns_stale_bundle_instead_of_raising(caplog):
+    body = {"error": "stale_bundle", "message": "bundle.synced_at x is older than stored y"}
+
+    with (
+        caplog.at_level(logging.INFO),
+        httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(409, json=body))) as c,
+    ):
+        assert publish_league_bundle(c, _cfg(), _BUNDLE, "sleeper:1") == body
+    assert "sekrit" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "error"),
+    [
+        (
+            409,
+            {"error": "season_mismatch", "message": "bundle season 2026 vs 2025"},
+            "season_mismatch",
+        ),
+        (401, {"error": "unauthorized"}, "unauthorized"),
+        (502, None, "http_error"),
+    ],
+)
+def test_publish_league_bundle_raises_other_rejections_without_the_key(status, body, error):
+    def handler(_request):
+        if body is None:
+            return httpx.Response(status, text="bad gateway")
+        return httpx.Response(status, json=body)
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as c,
+        pytest.raises(TrackerPublishError) as exc,
+    ):
+        publish_league_bundle(c, _cfg(), _BUNDLE, "sleeper:1")
+    assert exc.value.status == status
+    assert exc.value.error == error
+    assert "sekrit" not in str(exc.value)

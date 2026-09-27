@@ -303,6 +303,12 @@ Run this after the Yahoo commands. Do not scrape Yahoo for it.
    to the Sleeper command-center slot. It does not call Sleeper again, and it
    does not POST the actuals bundle.
 
+If `GET /api/leagues` shows the `sleeper:…` bundle with a `synced_at`
+before today, run `uv run ffb league sync S --league sleeper --push`. It pulls
+Sleeper live and POSTs the bundle to the Sleeper slot. `Not published` (409
+`stale_bundle`) is not an error. `make refresh` does this for you when the
+Sleeper bundle is `STALE`.
+
 `--publish` without `--from-matchups` pulls `GET /api/actuals?league=sleeper:…`
 instead. Use that only after something has POSTed a `source: "sleeper"`
 bundle. If retro exits 1 because there is no sit/start snapshot for week
@@ -334,8 +340,9 @@ advice that was actionable before kickoff. This is the only time you pass
 
 ### Rules for every run
 
-- Never run `ffb league sync` with `--refresh` or without `--from-tracker`.
-  The Worker is the only source of league state for you.
+- Never run `ffb league sync` with `--refresh` or without `--from-tracker`,
+  except the Sleeper commands above. The Worker is the only source of Yahoo
+  league state for you.
 - Never pass `-p` / `--position` to `ffb ros --publish`; it is rejected.
 - A `--publish` that fails prints the Worker's error and exits 1. Report the
   error text; do not retry more than once.

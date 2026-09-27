@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # In-season refresh: the CLI half of the scheduled runs in docs/operations.md.
 # Yahoo scrapes and their POSTs (LeagueBundle, WeeklyActualsBundle) happen
-# outside this script; it syncs free sources and both leagues, publishes the
-# command-center cards for Yahoo and Sleeper, and prints card freshness.
+# outside this script; it syncs free sources and both leagues, re-posts the
+# Sleeper LeagueBundle when the tracker's copy is stale or missing, publishes
+# the command-center cards for Yahoo and Sleeper, and prints card freshness.
 #
 # Usage: scripts/inseason-refresh.sh [--dry-run] [--week-roll] [--sunday]
 #                                    [--skip-sync] [--week N]
@@ -68,7 +69,7 @@ PREV=$((W - 1))
 echo "season $S week $W  (log: $LOG)"
 
 leagues=$(api /api/leagues) || { echo "error: tracker GET /api/leagues failed" >&2; exit 1; }
-LEAGUES_JSON="$leagues" python3 - "$W" <<'EOF'
+freshness=$(LEAGUES_JSON="$leagues" python3 - "$W" <<'EOF'
 import datetime as dt, json, os, sys
 week = int(sys.argv[1])
 today = dt.date.today()  # local date: runs are scheduled in local (ET) time
@@ -78,6 +79,12 @@ for league in json.loads(os.environ["LEAGUES_JSON"])["leagues"]:
     print(f"bundle {league['league_key']}: week {league['current_week']} "
           f"synced {league['synced_at']} -> {'fresh' if fresh else 'STALE'}")
 EOF
+)
+printf '%s\n' "$freshness"
+# The live Sleeper sync re-posts its bundle unless the tracker's copy is
+# already today's; a missing bundle counts as stale.
+sleeper_push=(--push)
+if grep -q "^bundle $SLEEPER_KEY: .* -> fresh\$" <<<"$freshness"; then sleeper_push=(); fi
 
 # run LABEL ffb-args...: full output to the log, summary lines to stdout.
 run() {
@@ -93,7 +100,7 @@ run() {
   fi
   printf '%s\n' "$out" >>"$LOG"
   printf '%s\n' "$out" \
-    | grep -E '^(ready|Synced|Published|Start |Sit |Close |Current |Stored lineup|⚠)|unmatched' \
+    | grep -E '^(ready|Synced|Published|Not published|Start |Sit |Close |Current |Stored lineup|⚠)|unmatched' \
     | cut -c1-220 | sed "s/^/  [$label] /" || true
 }
 
@@ -105,7 +112,7 @@ if ! $skip_sync; then
   fi
 fi
 run yahoo-league league sync "$S" --from-tracker
-run sleeper-league league sync "$S" --league sleeper
+run sleeper-league league sync "$S" --league sleeper ${sleeper_push[@]+"${sleeper_push[@]}"}
 
 if $week_roll; then
   run sleeper-backfill league sync "$S" --league sleeper --week "$PREV"

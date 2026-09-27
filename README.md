@@ -93,7 +93,9 @@ short Tuesday-brief paragraph.
 `ffb lineup`, `ffb digest`, `ffb retro`, and `ffb ros` accept `--publish` to
 POST the report they just printed to the tracker, where the read-only
 `/command` dashboard shows all four with per-card freshness. `ffb league sync
---from-tracker` imports the league bundle the tracker last accepted. Both need
+--from-tracker` imports the league bundle the tracker last accepted, and
+`ffb league sync --league sleeper --push` posts a live Sleeper bundle to it.
+All of these need
 `FFB_TRACKER_URL` and `FFB_TRACKER_API_KEY`; see
 [docs/operations.md](docs/operations.md) for the twice-weekly runbook.
 

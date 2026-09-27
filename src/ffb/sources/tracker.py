@@ -2,8 +2,8 @@
 
 ``GET /api/actuals?season=&week=&league=`` returns the ``WeeklyActualsBundle``
 posted for that league (absent ``league`` is Yahoo MCFFL); ``GET /api/league/bundle`` returns
-the last accepted ``LeagueBundle``; ``POST /api/inseason/{kind}`` stores one
-in-season report envelope. Validation lives beside each contract
+the last accepted ``LeagueBundle`` and ``POST`` replaces it; ``POST /api/inseason/{kind}``
+stores one in-season report envelope. Validation lives beside each contract
 (``ffb.actuals``, ``ffb.league``, ``ffb.inseason``); this module only moves
 bytes. The bearer key is read from the environment and must never reach logs,
 errors, or snapshots.
@@ -22,6 +22,10 @@ import httpx
 log = logging.getLogger(__name__)
 
 USER_AGENT = "ffb/0.1 (personal use)"
+#: Cloudflare refuses a LeagueBundle POST from a bare script agent (error 1010).
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
+)
 URL_ENV = "FFB_TRACKER_URL"
 KEY_ENV = "FFB_TRACKER_API_KEY"
 
@@ -58,12 +62,26 @@ class TrackerPublishError(RuntimeError):
         self.message = message
 
 
-def _headers(cfg: TrackerConfig) -> dict[str, str]:
+def _headers(cfg: TrackerConfig, user_agent: str = USER_AGENT) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {cfg.api_key}",
-        "User-Agent": USER_AGENT,
+        "User-Agent": user_agent,
         "Accept": "application/json",
     }
+
+
+def _publish_error(response: httpx.Response, fallback: str) -> TrackerPublishError:
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    return TrackerPublishError(
+        response.status_code,
+        str(body.get("error") or "http_error"),
+        str(body.get("message") or response.reason_phrase or fallback),
+    )
 
 
 def fetch_actuals(
@@ -136,15 +154,39 @@ def publish_inseason(
     response = client.post(url, json=envelope, params=params, headers=_headers(cfg), timeout=60.0)
     log.info("api response provider=tracker status=%s", response.status_code)
     if response.status_code >= 400:
-        try:
-            body = response.json()
-        except ValueError:
-            body = {}
-        if not isinstance(body, dict):
-            body = {}
-        raise TrackerPublishError(
-            response.status_code,
-            str(body.get("error") or "http_error"),
-            str(body.get("message") or response.reason_phrase or "publish rejected"),
-        )
+        raise _publish_error(response, "publish rejected")
+    return response.json()
+
+
+def publish_league_bundle(
+    client: httpx.Client, cfg: TrackerConfig, bundle: dict[str, Any], league_key: str
+) -> Any:
+    """POST one LeagueBundle to its league's slot; return the Worker's summary.
+
+    A 409 ``stale_bundle`` means the Worker already holds a newer bundle for this
+    league, which is not a failure: its body is returned (``error`` set) instead
+    of raised. Every other rejection raises TrackerPublishError.
+    """
+    url = f"{cfg.base_url}/api/league/bundle"
+    league = bundle.get("league") if isinstance(bundle.get("league"), dict) else {}
+    log.info(
+        "api request provider=tracker method=POST url=%s league=%s week=%s synced_at=%s",
+        url,
+        league_key,
+        league.get("current_week"),
+        bundle.get("synced_at"),
+    )
+    response = client.post(
+        url,
+        json=bundle,
+        params={"league": league_key},
+        headers=_headers(cfg, BROWSER_USER_AGENT),
+        timeout=60.0,
+    )
+    log.info("api response provider=tracker status=%s", response.status_code)
+    if response.status_code >= 400:
+        error = _publish_error(response, "bundle rejected")
+        if error.status == 409 and error.error == "stale_bundle":
+            return {"error": error.error, "message": error.message}
+        raise error
     return response.json()
