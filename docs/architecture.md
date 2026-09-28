@@ -171,11 +171,14 @@ storage model without network access.
 (`sleeper:1395854363380965376`). It maps raw Sleeper responses into the same
 provider-neutral `LeagueBundle` Yahoo produces, validated by `parse_bundle`
 (`source: "sleeper"`), so the later multi-league cutover widens one contract
-rather than two. `ffb lineup --league sleeper` fetches or
-replays namespaced snapshots and scores sit/start in memory. It does not call
-`replace_league_state`, does not POST `/api/league/bundle` or `--publish`, and
-does not occupy `league:bundle:current`. DuckDB `league_*` and Worker KV stay
-Yahoo until a later worker-first multi-league cutover.
+rather than two. `ffb league sync --league sleeper` fetches or replays
+namespaced snapshots and stores the bundle through `replace_league_state`
+under its own league key, beside Yahoo. With `--push`, a live current-week
+sync also POSTs that bundle to `/api/league/bundle?league=sleeper:<id>`, which
+the Worker stores under `league:bundle:{league}:current`; it never writes the
+Yahoo slot or the legacy `league:bundle:current` key. `--offline` and `--week`
+bundles are never pushed, so a replay or backfill cannot replace the current
+one.
 
 ## Board contract
 

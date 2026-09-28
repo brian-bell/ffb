@@ -58,6 +58,7 @@ from ffb.sources.tracker import (
     fetch_actuals,
     fetch_league_bundle,
     publish_inseason,
+    publish_league_bundle,
 )
 from ffb.store import SchemaMismatchError, Store
 from ffb.yahoo_auth import YahooAuthError
@@ -120,6 +121,12 @@ def league_sync(  # noqa: B008
         "--week",
         help="Sleeper only: backfill a past week's starters from /matchups.",
     ),
+    push: bool = typer.Option(
+        False,
+        "--push",
+        help="Live Sleeper only: POST the imported bundle to the tracker "
+        "(POST /api/league/bundle).",
+    ),
 ) -> None:
     """Validate and atomically import live, tracker, or fixture-backed league state."""
     if from_tracker and (fixture is not None or refresh):
@@ -138,6 +145,19 @@ def league_sync(  # noqa: B008
                 "only to a live --league sleeper sync"
             )
     sleeper_live = provider == "sleeper" and fixture is None and not from_tracker
+    tracker_cfg: TrackerConfig | None = None
+    if push:
+        if not sleeper_live or offline or week is not None:
+            raise typer.BadParameter(
+                "--push posts the bundle a live current-week sync just pulled; it applies "
+                "only to --league sleeper without --fixture, --from-tracker, --offline, or --week"
+            )
+        # Fail before the live pull, not after a local import it cannot publish.
+        try:
+            tracker_cfg = TrackerConfig.from_env()
+        except TrackerConfigError as exc:
+            console.print(f"[red]Bundle push unavailable:[/red] {exc}")
+            raise typer.Exit(code=2) from exc
     if fixture is not None:
         source: object = FixtureLeagueSource(fixture)
     elif from_tracker:
@@ -215,6 +235,41 @@ def league_sync(  # noqa: B008
             f"[dim]Backfilled week {week} starters from /matchups; the league's "
             f"current week is unchanged.[/dim]"
         )
+    if tracker_cfg is not None:
+        _push_league_bundle(tracker_cfg, bundle)
+
+
+def _push_league_bundle(cfg: TrackerConfig, bundle) -> None:
+    """POST the bundle just imported to its league's tracker slot; failures exit 1.
+
+    A 409 ``stale_bundle`` means the Worker already holds a newer bundle for
+    this league, so there is nothing to publish; that is reported, not failed.
+    """
+    league_key = config.namespaced_league_key(bundle.data["source"], bundle.league["league_key"])
+    try:
+        with _tracker_client() as client:
+            summary = publish_league_bundle(client, cfg, bundle.data, league_key)
+    except TrackerPublishError as exc:
+        console.print(
+            f"[red]Tracker rejected the {league_key} bundle:[/red] {exc.error} — {exc.message}. "
+            "Local league state was already imported."
+        )
+        raise typer.Exit(code=1) from exc
+    except httpx.HTTPError as exc:
+        # Never echo the exception body: the request carried the bearer key.
+        console.print(f"[red]Tracker bundle push failed:[/red] {type(exc).__name__}")
+        raise typer.Exit(code=1) from exc
+    if isinstance(summary, dict) and summary.get("error") == "stale_bundle":
+        console.print(
+            f"[yellow]Not published: the tracker already holds a newer {league_key} "
+            f"bundle.[/yellow] {summary.get('message', '')}"
+        )
+        return
+    synced_at = summary.get("synced_at") if isinstance(summary, dict) else None
+    console.print(
+        f"[green]Published league bundle {league_key} week {bundle.league['current_week']} "
+        f"to the tracker[/green] (synced_at {synced_at or bundle.data['synced_at']})."
+    )
 
 
 @league_app.command("show")
