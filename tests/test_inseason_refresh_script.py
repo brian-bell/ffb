@@ -9,22 +9,26 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "inseason-refresh.sh"
+REPO = Path(__file__).resolve().parents[1]
+SCRIPT = REPO / "scripts" / "inseason-refresh.sh"
 SLEEPER_KEY = "sleeper:42"
 YAHOO_KEY = "yahoo:470.l.928421"
 STALE_EXIT = 3
 
 
-def _refresh(tmp_path: Path, leagues: list[dict], *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a copy of the script with fake curl (Sleeper state, tracker) and uv.
+def _refresh(
+    tmp_path: Path, leagues: list[dict], *args: str, via_make: bool = False, uv_exit: int = 0
+) -> subprocess.CompletedProcess[str]:
+    """Run a copy of the script (or ``make refresh``) with fake curl and uv.
 
-    The fake uv appends each ffb command line to ``uv.log`` and succeeds.
+    The fake uv appends each ffb command line to ``uv.log`` and exits ``uv_exit``.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (tmp_path / "scripts").mkdir()
     script = tmp_path / "scripts" / SCRIPT.name
     shutil.copy(SCRIPT, script)
+    shutil.copy(REPO / "Makefile", tmp_path / "Makefile")
     (tmp_path / "state.json").write_text(json.dumps({"season": "2026", "week": 4}))
     (tmp_path / "leagues.json").write_text(json.dumps({"leagues": leagues}))
     curl = bin_dir / "curl"
@@ -39,7 +43,9 @@ def _refresh(tmp_path: Path, leagues: list[dict], *args: str) -> subprocess.Comp
         "esac\n"
     )
     uv = bin_dir / "uv"
-    uv.write_text(f'#!/usr/bin/env bash\nshift 3\necho "$*" >>"{tmp_path}/uv.log"\n')
+    uv.write_text(
+        f'#!/usr/bin/env bash\nshift 3\necho "$*" >>"{tmp_path}/uv.log"\nexit {uv_exit}\n'
+    )
     for fake in (curl, uv):
         fake.chmod(0o755)
     env = {
@@ -52,8 +58,12 @@ def _refresh(tmp_path: Path, leagues: list[dict], *args: str) -> subprocess.Comp
         "FFB_SLEEPER_USER_ID": "7",
         "ANTHROPIC_API_KEY": "x",
     }
+    if via_make:
+        command = ["make", "-s", "refresh", f"ARGS={' '.join(args)}"]
+    else:
+        command = ["bash", str(script), *args]
     return subprocess.run(
-        ["bash", str(script), *args], env=env, capture_output=True, text=True, check=False
+        command, cwd=tmp_path, env=env, capture_output=True, text=True, check=False
     )
 
 
@@ -140,6 +150,22 @@ def test_a_stale_yahoo_bundle_publishes_no_yahoo_cards(tmp_path, stale):
     assert "season sync 2026 --week 4 --refresh" in ran
     assert "digest 2026 --league sleeper --publish" in ran
     assert result.stdout.rstrip().endswith(RERUN)
+
+
+def test_make_refresh_reports_a_stale_yahoo_bundle_as_handled(tmp_path):
+    # make cannot forward exit 3, so the target treats it as success and the
+    # trailing next: line is the signal.
+    result = _refresh(tmp_path, [_fresh(SLEEPER_KEY)], via_make=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.rstrip().endswith(RERUN)
+    assert not set(YAHOO_COMMANDS) & set(_ran(tmp_path))
+
+
+def test_make_refresh_still_fails_on_a_failed_command(tmp_path):
+    leagues = [_fresh(YAHOO_KEY), _fresh(SLEEPER_KEY)]
+    result = _refresh(tmp_path, leagues, via_make=True, uv_exit=1)
+    assert result.returncode != 0
+    assert "FAIL sync" in result.stdout
 
 
 def test_a_fresh_yahoo_bundle_publishes_yahoo_cards(tmp_path):

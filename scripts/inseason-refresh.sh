@@ -25,7 +25,8 @@
 # and ANTHROPIC_API_KEY or FFB_ANTHROPIC_API_KEY for the digest narrative.
 # Full CLI output goes to data/refresh-logs/<timestamp>.log; stdout carries
 # only summary lines. Exits non-zero on the first failed command, and 3 when
-# Yahoo steps were skipped for a stale bundle.
+# Yahoo steps were skipped for a stale bundle (make refresh reports that as
+# success; the trailing next: line is the signal).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
     --yahoo-only) yahoo_only=true ;;
     --allow-stale) allow_stale=true ;;
     --week) W="${2:?--week needs a value}"; shift ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift

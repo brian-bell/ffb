@@ -26,8 +26,10 @@ test-backend-e2e:
 	./tests/e2e/run_backend_e2e.sh
 
 # In-season CLI refresh; see scripts/inseason-refresh.sh --help for ARGS.
+# make cannot forward the script's exit 3 (Yahoo steps skipped for a stale
+# bundle), so it counts as success; the trailing `next:` line is the signal.
 refresh:
-	./scripts/inseason-refresh.sh $(ARGS)
+	./scripts/inseason-refresh.sh $(ARGS) || [ $$? -eq 3 ]
 
 export-board:
 	uv run ffb board export $(SEASON) --output-dir exports
