@@ -286,7 +286,8 @@ def headline_owners(
 
     Keyed by ``(source, native_id)``. Players come from ESPN athlete mentions,
     then from league-rostered names found in the text. A resolved mention that
-    no league team rosters is a free agent. Without league rosters, or when
+    no league team rosters is a free agent only when every roster row is
+    resolved; otherwise absence is unproven. Without league rosters, or when
     two teams roster players who share a name, the owner is unknown, never
     guessed.
     """
@@ -294,7 +295,9 @@ def headline_owners(
     by_name = _owners_by_name(owners)
     # Only unresolved roster rows fall back to name for a resolved mention.
     unkeyed = _owners_by_name([row for row in owners if not row.get("player_key")])
-    unrostered = FREE_AGENT if owners else UNKNOWN_OWNER
+    # An unresolved roster row could be this player under another name.
+    fully_resolved = bool(owners) and all(row.get("player_key") for row in owners)
+    unrostered = FREE_AGENT if fully_resolved else UNKNOWN_OWNER
     by_headline: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
     for mention in mentions:
         identity = (mention.get("source"), mention.get("headline_id"))

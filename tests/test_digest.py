@@ -278,14 +278,14 @@ def _week3_report():
     league_rows = [
         _roster_row("t.1", "Rico Dowdle", "RB", "dowdle"),
         _roster_row("t.1", "Kyle Monangai", "RB", "monangai"),
-        _roster_row("t.5", "Puka Nacua", "WR"),
+        _roster_row("t.5", "Puka Nacua", "WR", "nacua"),
         _roster_row("t.7", "Caleb Williams", "QB", "cw"),
     ]
     report = build_digest(
         roster=roster,
         headlines=headlines,
         mentions=mentions,
-        league_keys={"dowdle", "monangai", "cw"},
+        league_keys={"dowdle", "monangai", "nacua", "cw"},
         week=3,
         team_name="Turkey Supreme",
     )
@@ -344,6 +344,11 @@ def test_headline_owners_never_guesses():
     report, mentions, owners = _week3_report()
     # No league rosters: a resolved mention is not provably a free agent.
     assert headline_owners(report, mentions, [])[("espn", "4")] == [
+        {"full_name": "Rookie Wideout", "position": "WR", "owner": "owner unknown"}
+    ]
+    # An unresolved roster row might be this player under another name.
+    partial = owners + league_owners([_roster_row("t.5", "R. Wideout", "WR")], TEAMS)
+    assert headline_owners(report, mentions, partial)[("espn", "4")] == [
         {"full_name": "Rookie Wideout", "position": "WR", "owner": "owner unknown"}
     ]
     # Two teams roster a same-named player: the text hit stays unattributed.

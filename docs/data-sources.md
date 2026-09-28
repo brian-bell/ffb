@@ -384,7 +384,8 @@ consensus, VORP, sit/start, or ROS math.
   `FFB_ANTHROPIC_API_KEY`. Each headline in the prompt lists the players it
   names (athlete mentions, then league-rostered names in the text) with an
   owner label: `mine`, `rostered by <team>`, `free agent`, or `owner unknown`
-  when there are no league rosters or two teams roster the same name.
+  when there are no league rosters, any roster row is unresolved (so absence
+  from the league is unproven), or two teams roster the same name.
 - **Snapshot keys** — `espn/news_nfl` and `espn/news_nfl_rss`.
 - **Gotchas**
   - The two feeds are independent. An empty, malformed, or blocked ESPN JSON
