@@ -89,7 +89,8 @@ def read_capture(path: Path, *, sha256: str, size: int) -> dict[str, Any]:
                 raise CaptureError("export parts must be JSON arrays of strings")
             parts += part
             pos = re.compile(r"\s*").match(text, pos).end()
-        text = "".join(parts)
+        # Re-pair any surrogate halves a piece boundary split apart.
+        text = "".join(parts).encode("utf-16", "surrogatepass").decode("utf-16")
     # capture.js reports a 16-character prefix: the browser extension blocks
     # longer hex runs as encoded data.
     if not re.fullmatch(r"[0-9a-f]{16,64}", sha256.lower()):
