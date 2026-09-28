@@ -1,6 +1,8 @@
-"""The yahoo-league-bundle skill's builder rejects partial roster captures."""
+"""The yahoo-league-bundle skill's builder rejects partial or misassembled captures."""
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -113,3 +115,99 @@ def test_partial_or_inconsistent_captures_are_rejected(mutate, message):
     mutate(capture)
     with pytest.raises(bb.CaptureError, match=message):
         _build(capture)
+
+
+def _export(capture, tmp_path, *, calls=2, piece=900, tamper=None):
+    """Write a parts file the way the JavaScript tool prints export-chunk.js."""
+    text = json.dumps(capture, separators=(",", ":"), ensure_ascii=False)
+    data = text.encode()
+    pieces = [text[i : i + piece] for i in range(0, len(text), piece)]
+    if tamper:
+        pieces = tamper(pieces)
+    per_call = -(-len(pieces) // calls)
+    path = tmp_path / "capture.parts"
+    path.write_text(
+        "\n".join(
+            json.dumps(pieces[i : i + per_call], indent=2, ensure_ascii=False)
+            for i in range(0, len(pieces), per_call)
+        )
+        + "\n"
+    )
+    # capture.js reports a 16-character prefix of the SHA-256.
+    return path, hashlib.sha256(data).hexdigest()[:16], len(data)
+
+
+def _main(path, sha256, size, tmp_path):
+    out = tmp_path / "bundle.json"
+    code = bb.main(
+        [
+            str(path),
+            "--season=2026",
+            f"--out={out}",
+            f"--expect-sha256={sha256}",
+            f"--expect-bytes={size}",
+        ]
+    )
+    return code, out
+
+
+def test_reassembled_export_that_matches_capture_builds(tmp_path):
+    capture = _capture()
+    capture["teams"][0][1] = 'Zoë "Q" Team \\ 1'
+    path, sha256, size = _export(capture, tmp_path)
+    code, out = _main(path, sha256, size, tmp_path)
+    assert code == 0
+    assert json.loads(out.read_text())["teams"][0]["name"] == 'Zoë "Q" Team \\ 1'
+
+
+def test_plain_capture_file_is_hash_checked_too(tmp_path):
+    text = json.dumps(_capture())
+    path = tmp_path / "capture.json"
+    path.write_text(text + "\n")
+    data = text.encode()
+    sha256 = hashlib.sha256(data).hexdigest()[:16]
+    assert _main(path, sha256, len(data), tmp_path)[0] == 0
+    assert _main(path, sha256, len(data) + 1, tmp_path)[0] == 1
+
+
+def _drop_char(pieces):
+    pieces[3] = pieces[3][:100] + pieces[3][101:]
+    return pieces
+
+
+def _double_char(pieces):
+    pieces[3] = pieces[3][:100] + pieces[3][100] + pieces[3][100:]
+    return pieces
+
+
+def _swap_pieces(pieces):
+    pieces[2], pieces[3] = pieces[3], pieces[2]
+    return pieces
+
+
+@pytest.mark.parametrize(
+    "tamper", [_drop_char, _double_char, _swap_pieces], ids=["dropped", "doubled", "swapped"]
+)
+def test_bad_reassembly_is_rejected(tmp_path, capsys, tamper):
+    path, sha256, size = _export(_capture(), tmp_path, tamper=tamper)
+    code, out = _main(path, sha256, size, tmp_path)
+    assert code == 1
+    assert "does not match what capture.js reported" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_full_digest_is_accepted_but_a_short_prefix_is_not(tmp_path, capsys):
+    capture = _capture()
+    path, _, size = _export(capture, tmp_path)
+    digest = hashlib.sha256(
+        json.dumps(capture, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    assert _main(path, digest, size, tmp_path)[0] == 0
+    assert _main(path, digest[:12], size, tmp_path)[0] == 1
+    assert "16-64 hex characters" in capsys.readouterr().err
+
+
+def test_hash_and_length_are_required(tmp_path):
+    path, _, _ = _export(_capture(), tmp_path)
+    with pytest.raises(SystemExit):
+        bb.main([str(path), "--season=2026", f"--out={tmp_path / 'b.json'}"])

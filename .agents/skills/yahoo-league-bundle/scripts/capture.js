@@ -4,6 +4,7 @@
 // football.fantasysports.yahoo.com page. It only issues same-origin GETs for
 // the settings, teams, and roster pages and never clicks or submits anything.
 // The result is stored on window.__ffbCapture; export it with export-chunk.js.
+// The summary's bytes and sha256 go to build_bundle.py to check the export.
 // Emails, cookies, URLs, and raw HTML are never copied into the capture.
 // The block scope lets the script run again in the same tab.
 {
@@ -103,7 +104,13 @@
     rosters,
     slots,
   };
+  // The builder refuses an export whose reassembled UTF-8 bytes do not match
+  // this hash and length, so a dropped or doubled character fails closed. The
+  // extension blocks hex runs of 20+ characters as encoded data, so report a
+  // 16-character SHA-256 prefix; that is ample for catching transcription slips.
   const text = JSON.stringify(window.__ffbCapture);
+  const bytes = new TextEncoder().encode(text);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   ({
     league_name: leagueName,
     game_keys: gameKeys,
@@ -112,7 +119,8 @@
     players: Object.values(rosters).reduce((n, r) => n + r.length, 0),
     slots: Object.values(slots).reduce((n, r) => n + r.length, 0),
     scoring_rows: scoring.length,
-    chars: text.length,
-    chunks: Math.ceil(text.length / 1000),
+    bytes: bytes.length,
+    sha256: [...digest.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join(""),
+    parts: Math.ceil(text.length / 18000), // export-chunk.js calls
   });
 }

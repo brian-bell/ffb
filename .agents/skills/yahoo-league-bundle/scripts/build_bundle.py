@@ -3,17 +3,23 @@
 Usage (from the repo root):
 
     uv run python .agents/skills/yahoo-league-bundle/scripts/build_bundle.py \
-        CAPTURE.json --season 2026 --out BUNDLE.json [--previous OLD_BUNDLE.json]
+        CAPTURE.parts --season 2026 --out BUNDLE.json \
+        --expect-sha256 HEX --expect-bytes N [--previous OLD_BUNDLE.json]
 
-The capture is the JSON object capture.js leaves on ``window.__ffbCapture``.
-The bundle is checked here and then by ``ffb.league.parse_bundle`` (the same
-closed-schema contract the Worker enforces) before it is written. Nothing is
-posted; delivery is a separate, explicit step.
+The capture is the JSON object capture.js leaves on ``window.__ffbCapture``,
+either as the export-chunk.js arrays pasted one after another or as the plain
+object. Its reassembled UTF-8 text must match the byte count and sha256
+prefix capture.js reported, so a dropped, doubled, or reordered character in
+the export stops here instead of producing a wrong roster. The bundle is checked
+here and then by ``ffb.league.parse_bundle`` (the same closed-schema contract
+the Worker enforces) before it is written. Nothing is posted; delivery is a
+separate, explicit step.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -69,6 +75,33 @@ RESERVE = {"BN", "IR", "IL"}
 
 class CaptureError(ValueError):
     pass
+
+
+def read_capture(path: Path, *, sha256: str, size: int) -> dict[str, Any]:
+    """Reassemble an export and check it against what capture.js reported."""
+    text = path.read_text(encoding="utf-8").strip()
+    if text.startswith("["):
+        # export-chunk.js output: one JSON array of strings per call, in order.
+        decoder, parts, pos = json.JSONDecoder(), [], 0
+        while pos < len(text):
+            part, pos = decoder.raw_decode(text, pos)
+            if not isinstance(part, list) or not all(isinstance(p, str) for p in part):
+                raise CaptureError("export parts must be JSON arrays of strings")
+            parts += part
+            pos = re.compile(r"\s*").match(text, pos).end()
+        text = "".join(parts)
+    # capture.js reports a 16-character prefix: the browser extension blocks
+    # longer hex runs as encoded data.
+    if not re.fullmatch(r"[0-9a-f]{16,64}", sha256.lower()):
+        raise CaptureError(f"--expect-sha256 must be 16-64 hex characters, got {sha256!r}")
+    data = text.encode("utf-8")
+    digest = hashlib.sha256(data).hexdigest()[: len(sha256)]
+    if len(data) != size or digest != sha256.lower():
+        raise CaptureError(
+            f"reassembled export ({len(data)} bytes, sha256 {digest}) does not match what "
+            f"capture.js reported ({size} bytes, sha256 {sha256}); export it again"
+        )
+    return json.loads(text)
 
 
 def parse_points(value: str) -> float | int:
@@ -272,10 +305,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--user-team", default="Turkey Supreme")
     parser.add_argument("--expect-teams", type=int, default=10)
     parser.add_argument("--previous", type=Path, help="stored bundle to diff rosters against")
+    parser.add_argument("--expect-sha256", required=True, help="sha256 from the capture.js summary")
+    parser.add_argument(
+        "--expect-bytes", type=int, required=True, help="bytes from the capture.js summary"
+    )
     args = parser.parse_args(argv)
     try:
         bundle = build(
-            json.loads(args.capture.read_text()),
+            read_capture(args.capture, sha256=args.expect_sha256, size=args.expect_bytes),
             season=args.season,
             user_team=args.user_team,
             expect_teams=args.expect_teams,
