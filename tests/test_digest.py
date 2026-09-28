@@ -4,6 +4,8 @@ from ffb.digest import (
     apply_flags,
     attach_headlines,
     build_digest,
+    headline_owners,
+    league_owners,
     name_mentioned,
     parse_haiku_flags,
     parse_sonnet_narrative,
@@ -212,3 +214,140 @@ def test_build_digest_groups_roster_watch_and_other():
     assert report["other_headlines"][0]["headline"] == "Week 1 schedule notes"
     assert "points" not in report["roster"][0]
     assert report["narrative"] is None
+
+
+TEAMS = [
+    {"team_key": "t.1", "name": "Turkey Supreme", "is_user_team": True},
+    {"team_key": "t.5", "name": "WM Diners", "is_user_team": False},
+    {"team_key": "t.7", "name": "Wigwams", "is_user_team": False},
+]
+
+
+def _roster_row(team_key, name, position, player_key=None):
+    return {
+        "team_key": team_key,
+        "full_name": name,
+        "primary_position": position,
+        "player_key": player_key,
+        "matched": player_key is not None,
+    }
+
+
+def _week3_report():
+    """The 2026-09-27 week-3 shape: rival players in the user's news."""
+    roster = [
+        _player(player_key="dowdle", full_name="Rico Dowdle", position="RB", team="CAR"),
+        _player(player_key="monangai", full_name="Kyle Monangai", position="RB", team="CHI"),
+    ]
+    headlines = [
+        _headline(
+            native_id="1",
+            headline="Rico Dowdle remains out",
+            summary="Carolina ruled Rico Dowdle out again.",
+        ),
+        _headline(
+            native_id="2",
+            headline="Kyle Monangai gets more work",
+            summary="Caleb Williams leaned on Kyle Monangai in the red zone.",
+        ),
+        _headline(
+            native_id="US-EN-3",
+            source="espn_rss",
+            headline="Puka Nacua trending toward Week 4 return",
+            summary="The Rams expect Puka Nacua back.",
+        ),
+        _headline(
+            native_id="4",
+            headline="Rookie Wideout drawing waiver buzz",
+            summary="Most-added name.",
+        ),
+        _headline(native_id="5", headline="Unknown Specialist signs", summary="Practice squad."),
+    ]
+    mentions = [
+        _mention(headline_id="1", full_name="Rico Dowdle", player_key="dowdle"),
+        _mention(headline_id="2", full_name="Caleb Williams", player_key="cw", position="QB"),
+        _mention(headline_id="4", full_name="Rookie Wideout", player_key="16000", position="WR"),
+        _mention(
+            headline_id="5",
+            full_name="Unknown Specialist",
+            player_key="espn:5",
+            matched=False,
+            position=None,
+        ),
+    ]
+    league_rows = [
+        _roster_row("t.1", "Rico Dowdle", "RB", "dowdle"),
+        _roster_row("t.1", "Kyle Monangai", "RB", "monangai"),
+        _roster_row("t.5", "Puka Nacua", "WR"),
+        _roster_row("t.7", "Caleb Williams", "QB", "cw"),
+    ]
+    report = build_digest(
+        roster=roster,
+        headlines=headlines,
+        mentions=mentions,
+        league_keys={"dowdle", "monangai", "cw"},
+        week=3,
+        team_name="Turkey Supreme",
+    )
+    return report, mentions, league_owners(league_rows, TEAMS)
+
+
+def test_league_owners_labels_mine_and_each_rival_team():
+    owners = league_owners(
+        [
+            _roster_row("t.1", "Rico Dowdle", "RB", "dowdle"),
+            _roster_row("t.5", "Puka Nacua", "WR"),
+            _roster_row("t.9", "Mystery Man", "TE", "mm"),
+        ],
+        TEAMS,
+    )
+    assert owners == [
+        {"player_key": "dowdle", "full_name": "Rico Dowdle", "position": "RB", "owner": "mine"},
+        {
+            "player_key": None,
+            "full_name": "Puka Nacua",
+            "position": "WR",
+            "owner": "rostered by WM Diners",
+        },
+        {
+            "player_key": "mm",
+            "full_name": "Mystery Man",
+            "position": "TE",
+            "owner": "rostered by another team",
+        },
+    ]
+
+
+def test_headline_owners_labels_every_named_player():
+    report, mentions, owners = _week3_report()
+    tagged = headline_owners(report, mentions, owners)
+    assert tagged[("espn", "1")] == [
+        {"full_name": "Rico Dowdle", "position": "RB", "owner": "mine"}
+    ]
+    assert tagged[("espn", "2")] == [
+        {"full_name": "Caleb Williams", "position": "QB", "owner": "rostered by Wigwams"},
+        {"full_name": "Kyle Monangai", "position": "RB", "owner": "mine"},
+    ]
+    # RSS carries no athlete tags; the rostered name in the text still resolves.
+    assert tagged[("espn_rss", "US-EN-3")] == [
+        {"full_name": "Puka Nacua", "position": "WR", "owner": "rostered by WM Diners"}
+    ]
+    assert tagged[("espn", "4")] == [
+        {"full_name": "Rookie Wideout", "position": "WR", "owner": "free agent"}
+    ]
+    assert tagged[("espn", "5")] == [
+        {"full_name": "Unknown Specialist", "position": None, "owner": "owner unknown"}
+    ]
+
+
+def test_headline_owners_never_guesses():
+    report, mentions, owners = _week3_report()
+    # No league rosters: a resolved mention is not provably a free agent.
+    assert headline_owners(report, mentions, [])[("espn", "4")] == [
+        {"full_name": "Rookie Wideout", "position": "WR", "owner": "owner unknown"}
+    ]
+    # Two teams roster a same-named player: the text hit stays unattributed.
+    shared = owners + league_owners([_roster_row("t.7", "Puka Nacua", "WR")], TEAMS)
+    assert headline_owners(report, mentions, shared)[("espn_rss", "US-EN-3")] == [
+        {"full_name": "Puka Nacua", "position": "WR", "owner": "owner unknown"}
+    ]

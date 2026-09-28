@@ -88,7 +88,9 @@ back to Yahoo.
 unrostered players mentioned in ESPN/RSS news. It never changes rankings or
 sit/start numbers. Without `ANTHROPIC_API_KEY` it still prints headlines and
 injury labels; with a key, Haiku adds per-player flags and Sonnet writes a
-short Tuesday-brief paragraph.
+short weekly brief. Every player a headline names is labelled for the LLM as
+mine, rostered by another team, a free agent, or unknown, so the brief never
+files a rival's player under your team.
 
 `ffb lineup`, `ffb digest`, `ffb retro`, and `ffb ros` accept `--publish` to
 POST the report they just printed to the tracker, where the read-only

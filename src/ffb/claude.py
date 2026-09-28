@@ -99,30 +99,61 @@ def complete_claude(
     return "".join(parts)
 
 
+_ATTRIBUTION = (
+    "Each headline lists the players it names and who rosters them. Only "
+    "players marked mine are on the user's team; never describe any other "
+    "player as part of the user's team, roster, backfield, or depth chart."
+)
+
+HeadlineOwners = dict[tuple[str | None, str | None], list[dict[str, Any]]]
+
+
 def haiku_system_prompt() -> str:
     return (
         "You flag fantasy-football news. Use only the provided headlines and "
         "injury labels. Return a JSON array of objects with keys player_key, "
         "flag, and note. Flags are short tokens such as Q, OUT, IR, or WATCH. "
         "Never invent statistics, projections, rankings, or point totals. "
-        "Never tell the user who to start based on numbers."
+        "Never tell the user who to start based on numbers. " + _ATTRIBUTION
     )
 
 
 def sonnet_system_prompt() -> str:
     return (
-        "Write a short Tuesday-brief narrative from the provided roster and "
+        "Write a short weekly-brief narrative from the provided roster and "
         "watch-list headlines. News informs; numbers decide. Do not invent "
         "statistics, projections, rankings, or point totals. Do not change "
-        "any numeric recommendation. Two or three sentences."
+        "any numeric recommendation. " + _ATTRIBUTION + " Mention another "
+        "manager's player only as league context, naming that manager's team. "
+        "Two or three sentences."
     )
 
 
-def haiku_user_prompt(report: dict[str, Any]) -> str:
-    """Serialize players and headlines for Haiku flagging."""
+def _names(headline: dict[str, Any], owners: HeadlineOwners) -> str:
+    """`` [names: Player (POS, owner); ...]`` for a headline, or ``""``."""
+    named = owners.get((headline.get("source"), headline.get("native_id"))) or []
+    if not named:
+        return ""
+    labels = "; ".join(
+        f"{row['full_name']} ({row['position']}, {row['owner']})"
+        if row.get("position")
+        else f"{row['full_name']} ({row['owner']})"
+        for row in named
+    )
+    return f" [names: {labels}]"
+
+
+def _section(section: str, team_name: str | None) -> str:
+    if section == "roster":
+        return f"[roster: mine, on {team_name}]" if team_name else "[roster: mine]"
+    return "[watch: not on the user's team]"
+
+
+def haiku_user_prompt(report: dict[str, Any], owners: HeadlineOwners) -> str:
+    """Serialize players and ownership-tagged headlines for Haiku flagging."""
     lines = ["Players and headlines:"]
     for section in ("roster", "watch"):
-        lines.append(f"[{section}]")
+        lines.append(_section(section, report.get("team_name")))
         for player in report.get(section) or []:
             injury = player.get("injury") or {}
             status = injury.get("status") if isinstance(injury, dict) else None
@@ -131,24 +162,27 @@ def haiku_user_prompt(report: dict[str, Any]) -> str:
                 f"{player.get('position')} | injury={status or 'none'}"
             )
             for headline in player.get("headlines") or []:
-                lines.append(f"  * {headline.get('headline')}: {headline.get('summary')}")
+                lines.append(
+                    f"  * {headline.get('headline')}: {headline.get('summary')}"
+                    + _names(headline, owners)
+                )
     return "\n".join(lines)
 
 
-def sonnet_user_prompt(report: dict[str, Any]) -> str:
-    """Serialize flagged players for the Sonnet narrative."""
+def sonnet_user_prompt(report: dict[str, Any], owners: HeadlineOwners) -> str:
+    """Serialize flagged players and ownership-tagged headlines for Sonnet."""
     lines = [f"Week {report.get('week')} digest for {report.get('team_name') or 'the user'}."]
     for section in ("roster", "watch"):
-        lines.append(f"[{section}]")
+        lines.append(_section(section, report.get("team_name")))
         for player in report.get(section) or []:
             lines.append(
                 f"- {player.get('full_name')} ({player.get('position')}) "
                 f"flag={player.get('flag') or 'none'} note={player.get('note') or ''}"
             )
             for headline in player.get("headlines") or []:
-                lines.append(f"  * {headline.get('headline')}")
+                lines.append(f"  * {headline.get('headline')}" + _names(headline, owners))
     if report.get("other_headlines"):
-        lines.append("[other]")
+        lines.append("[other: league news, not about the user's team unless a name says mine]")
         for headline in report["other_headlines"]:
-            lines.append(f"- {headline.get('headline')}")
+            lines.append(f"- {headline.get('headline')}" + _names(headline, owners))
     return "\n".join(lines)
