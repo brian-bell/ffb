@@ -160,6 +160,27 @@ def test_reassembled_export_that_matches_capture_builds(tmp_path):
     assert json.loads(out.read_text())["teams"][0]["name"] == 'Zoë "Q" Team \\ 1'
 
 
+def test_surrogate_pair_split_across_pieces_is_rejoined(tmp_path):
+    # JavaScript slices UTF-16 code units, so a piece boundary can fall inside
+    # an emoji; JSON then carries each half as a lone "\ud83e"-style escape.
+    capture = _capture()
+    capture["teams"][0][1] = "Team 🦃"
+    text = json.dumps(capture, separators=(",", ":"), ensure_ascii=False)
+    data = text.encode()
+    utf16 = text.encode("utf-16-le", "surrogatepass")
+    units = [utf16[i : i + 2] for i in range(0, len(utf16), 2)]
+    cut = next(i for i, u in enumerate(units) if 0xD800 <= int.from_bytes(u, "little") < 0xDC00)
+    pieces = [
+        b"".join(units[: cut + 1]).decode("utf-16-le", "surrogatepass"),
+        b"".join(units[cut + 1 :]).decode("utf-16-le", "surrogatepass"),
+    ]
+    path = tmp_path / "capture.parts"
+    path.write_text(json.dumps(pieces, indent=2))
+    code, out = _main(path, hashlib.sha256(data).hexdigest()[:16], len(data), tmp_path)
+    assert code == 0
+    assert json.loads(out.read_text())["teams"][0]["name"] == "Team 🦃"
+
+
 def test_plain_capture_file_is_hash_checked_too(tmp_path):
     text = json.dumps(_capture())
     path = tmp_path / "capture.json"

@@ -111,6 +111,16 @@
   const text = JSON.stringify(window.__ffbCapture);
   const bytes = new TextEncoder().encode(text);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  // Pieces of at most 900 UTF-16 code units for export-chunk.js. A piece never
+  // ends on a high surrogate, so an emoji is never split into lone halves.
+  const pieces = [];
+  for (let at = 0; at < text.length; ) {
+    let end = Math.min(at + 900, text.length);
+    if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end -= 1;
+    pieces.push(text.slice(at, end));
+    at = end;
+  }
+  window.__ffbExport = pieces;
   ({
     league_name: leagueName,
     game_keys: gameKeys,
@@ -121,6 +131,6 @@
     scoring_rows: scoring.length,
     bytes: bytes.length,
     sha256: [...digest.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join(""),
-    parts: Math.ceil(text.length / 18000), // export-chunk.js calls
+    parts: Math.ceil(pieces.length / 20), // export-chunk.js calls
   });
 }
