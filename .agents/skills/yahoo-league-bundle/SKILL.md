@@ -47,29 +47,35 @@ and the sourced `.env` in every call that uses them.
    Expect `game_keys: ["470"]`, `league_name: "MCFFL"`, the current `week`,
    `teams: 10`, `slots: 150`, and up to 15 players per team. A thrown error
    names the roster row it could not parse; stop and report it rather than
-   patching data by hand.
+   patching data by hand. Note the summary's `bytes`, `sha256`, and `parts`;
+   step 4 needs the first two. `sha256` is a 16-character prefix because the
+   extension blocks longer hex runs as encoded data.
 
-3. **Export.** Browser tool output truncates long results. Run
-   [scripts/export-chunk.js](scripts/export-chunk.js) once per chunk
-   (`CHUNK = 0 … chunks-1`) and concatenate the slices verbatim, in order:
+3. **Export.** The JavaScript tool cuts any single string longer than 1000
+   characters but returns an array of shorter strings whole, as JSON. Run
+   [scripts/export-chunk.js](scripts/export-chunk.js) once per part
+   (`CHUNK = 0 … parts-1`; a week's capture is one part) and paste each
+   returned array verbatim, in order, into one file:
 
    ```bash
-   cat <<'EOF' | tr -d '\n' > "$SCRATCH/capture.json"
-   <chunk 0>
-   <chunk 1>
-   …
+   cat <<'EOF' > "$SCRATCH/capture.parts"
+   <array from CHUNK 0>
+   <array from CHUNK 1, if any>
    EOF
    ```
 
-   Each chunk goes on its own line; `tr` removes the joins. If the extension
-   blocks an output as sensitive, narrow what you return; do not encode
-   around the filter.
+   Keep the JSON escapes (`\"`, `\\`) exactly as printed; the builder parses
+   the arrays and joins their strings. If the extension blocks an output as
+   sensitive, narrow what you return; do not encode around the filter.
 
-4. **Build and validate.**
+4. **Build and validate.** Pass the `sha256` and `bytes` from the capture
+   summary. The builder refuses an export whose reassembled text does not
+   match them; run step 3 again rather than editing the file.
 
    ```bash
    uv run python .agents/skills/yahoo-league-bundle/scripts/build_bundle.py \
-     "$SCRATCH/capture.json" --season 2026 --out "$SCRATCH/bundle.json" \
+     "$SCRATCH/capture.parts" --season 2026 --out "$SCRATCH/bundle.json" \
+     --expect-sha256 <sha256> --expect-bytes <bytes> \
      --previous "$SCRATCH/previous.json"
    ```
 

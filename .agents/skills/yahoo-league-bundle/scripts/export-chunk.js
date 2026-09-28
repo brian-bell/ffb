@@ -1,5 +1,12 @@
-// Return one 1000-character slice of window.__ffbCapture (set by capture.js).
-// Browser tool output truncates long results, so export chunk 0..N-1 and
-// concatenate them verbatim, in order, into capture.json.
-const CHUNK = 0;
-JSON.stringify(window.__ffbCapture).slice(CHUNK * 1000, (CHUNK + 1) * 1000);
+// Return part CHUNK of the capture as an array of up to 20 strings of at most
+// 900 characters each (window.__ffbExport, split by capture.js without breaking
+// surrogate pairs). The browser JavaScript tool cuts any single string longer
+// than 1000 characters but returns an array of shorter strings whole, as JSON
+// (a 21,000-character array came back intact on 2026-09-27). One part covers
+// about 18,000 characters, so a week's capture (about 7,300) is one call.
+// Paste each returned array verbatim, in order, into the parts file.
+// The block scope lets the script run again in the same tab.
+{
+  const CHUNK = 0;
+  window.__ffbExport.slice(CHUNK * 20, (CHUNK + 1) * 20);
+}
