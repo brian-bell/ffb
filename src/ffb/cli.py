@@ -22,6 +22,7 @@ from ffb.actuals import parse_actuals
 from ffb.claude import (
     HAIKU_MODEL,
     SONNET_MODEL,
+    HeadlineOwners,
     api_key_from_env,
     complete_claude,
     haiku_system_prompt,
@@ -1103,6 +1104,7 @@ def digest(
     team_name = None
     roster_rows: list[dict] = []
     league_keys: set[str] = set()
+    owners: list[dict] = []
     if context is not None:
         chosen_week = context["current_week"] if week is None else week
         store.refresh_league_roster_identities(season, chosen_week, selected)
@@ -1110,6 +1112,7 @@ def digest(
         user_teams = [team for team in teams if team["is_user_team"]]
         all_roster = store.league_roster_rows(season, week=chosen_week, league_key=selected)
         league_keys = {row["player_key"] for row in all_roster if row.get("matched")}
+        owners = digest_mod.league_owners(all_roster, teams)
         if len(user_teams) == 1:
             team_name = user_teams[0]["name"]
             roster_rows = [
@@ -1138,7 +1141,7 @@ def digest(
         team_name=team_name,
     )
     report["watch"] = attach_injuries(report["watch"], injuries)
-    _apply_digest_llm(report)
+    _apply_digest_llm(report, digest_mod.headline_owners(report, mentions, owners))
     _render_digest(report)
     if publish:
         assert chosen_week is not None
@@ -1471,8 +1474,12 @@ def _digest_player(row: dict) -> dict:
     }
 
 
-def _apply_digest_llm(report: dict) -> None:
-    """Fill Haiku flags and Sonnet narrative when an API key is present."""
+def _apply_digest_llm(report: dict, owners: HeadlineOwners) -> None:
+    """Fill Haiku flags and Sonnet narrative when an API key is present.
+
+    ``owners`` labels every player a headline names with who rosters them, so
+    the narrative never files a rival's player under the user's team.
+    """
     key = api_key_from_env()
     if key is None:
         report["llm"]["error"] = "LLM skipped (no ANTHROPIC_API_KEY / FFB_ANTHROPIC_API_KEY)."
@@ -1482,7 +1489,7 @@ def _apply_digest_llm(report: dict) -> None:
             complete_claude(
                 model=HAIKU_MODEL,
                 system=haiku_system_prompt(),
-                user=haiku_user_prompt(report),
+                user=haiku_user_prompt(report, owners),
                 api_key=key,
             )
         )
@@ -1493,7 +1500,7 @@ def _apply_digest_llm(report: dict) -> None:
             complete_claude(
                 model=SONNET_MODEL,
                 system=sonnet_system_prompt(),
-                user=sonnet_user_prompt(report),
+                user=sonnet_user_prompt(report, owners),
                 api_key=key,
             )
         )
@@ -1552,7 +1559,8 @@ def _render_digest(report: dict) -> None:
         for headline in report["other_headlines"]:
             console.print(f"  - {headline['headline']}")
     if report.get("narrative"):
-        console.print("[bold]Tuesday brief[/bold]")
+        label = f"Week {week} brief" if week is not None else "Brief"
+        console.print(f"[bold]{label}[/bold]")
         console.print(report["narrative"])
 
 

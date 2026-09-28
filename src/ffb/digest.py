@@ -217,3 +217,118 @@ def build_digest(
 def digest_players(report: dict[str, Any]) -> list[dict[str, Any]]:
     """Roster + watch rows in display order."""
     return list(report.get("roster") or []) + list(report.get("watch") or [])
+
+
+MINE = "mine"
+FREE_AGENT = "free agent"
+UNKNOWN_OWNER = "owner unknown"
+
+
+def league_owners(
+    roster_rows: list[dict[str, Any]],
+    teams: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Who rosters each league player: ``mine`` or ``rostered by <team>``.
+
+    Unmatched rows stay in so a name-only headline (RSS) about a rival player
+    is still attributed to that rival.
+    """
+    names = {team["team_key"]: team.get("name") for team in teams}
+    user_keys = {team["team_key"] for team in teams if team.get("is_user_team")}
+    owners: list[dict[str, Any]] = []
+    for row in roster_rows:
+        full_name = row.get("full_name") or row.get("name")
+        if not full_name:
+            continue
+        team_key = row.get("team_key")
+        owner = (
+            MINE
+            if team_key in user_keys
+            else f"rostered by {names.get(team_key) or 'another team'}"
+        )
+        owners.append(
+            {
+                "player_key": row.get("player_key") if row.get("matched") else None,
+                "full_name": full_name,
+                "position": row.get("position") or row.get("primary_position"),
+                "owner": owner,
+            }
+        )
+    return owners
+
+
+def _report_headlines(report: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [
+        headline for player in digest_players(report) for headline in player.get("headlines") or []
+    ]
+    return rows + list(report.get("other_headlines") or [])
+
+
+def _owners_by_name(owners: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Normalized name -> owner row; a name two owners share maps to unknown."""
+    by_name: dict[str, dict[str, Any]] = {}
+    for row in owners:
+        name = normalize_name(row["full_name"])
+        seen = by_name.get(name)
+        if seen is None:
+            by_name[name] = row
+        elif seen["owner"] != row["owner"]:
+            by_name[name] = {**seen, "owner": UNKNOWN_OWNER}
+    return by_name
+
+
+def headline_owners(
+    report: dict[str, Any],
+    mentions: list[dict[str, Any]],
+    owners: list[dict[str, Any]],
+) -> dict[tuple[str | None, str | None], list[dict[str, Any]]]:
+    """Every player each digest headline names, labelled with who rosters them.
+
+    Keyed by ``(source, native_id)``. Players come from ESPN athlete mentions,
+    then from league-rostered names found in the text. A resolved mention that
+    no league team rosters is a free agent only when every roster row is
+    resolved; otherwise absence is unproven. Without league rosters, or when
+    two teams roster players who share a name, the owner is unknown, never
+    guessed.
+    """
+    by_key = {row["player_key"]: row for row in owners if row.get("player_key")}
+    by_name = _owners_by_name(owners)
+    # Only unresolved roster rows fall back to name for a resolved mention.
+    unkeyed = _owners_by_name([row for row in owners if not row.get("player_key")])
+    # An unresolved roster row could be this player under another name.
+    fully_resolved = bool(owners) and all(row.get("player_key") for row in owners)
+    unrostered = FREE_AGENT if fully_resolved else UNKNOWN_OWNER
+    by_headline: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
+    for mention in mentions:
+        identity = (mention.get("source"), mention.get("headline_id"))
+        by_headline.setdefault(identity, []).append(mention)
+
+    tagged: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
+    for headline in _report_headlines(report):
+        identity = (headline.get("source"), headline.get("native_id"))
+        if identity in tagged:
+            continue
+        named: dict[str, dict[str, Any]] = {}
+        for mention in by_headline.get(identity, ()):
+            name = mention.get("full_name")
+            if not name:
+                continue
+            key = mention.get("player_key") if mention.get("matched") else None
+            known = by_key.get(key) if key else None
+            known = known or unkeyed.get(normalize_name(name))
+            if known is None:
+                known = {
+                    "full_name": name,
+                    "position": mention.get("position"),
+                    "owner": unrostered if key else UNKNOWN_OWNER,
+                }
+            named.setdefault(normalize_name(known["full_name"]), known)
+        text = _headline_text(headline)
+        for name, row in by_name.items():
+            if name not in named and name_mentioned(row["full_name"], text):
+                named[name] = row
+        tagged[identity] = [
+            {"full_name": row["full_name"], "position": row.get("position"), "owner": row["owner"]}
+            for row in sorted(named.values(), key=lambda row: row["full_name"])
+        ]
+    return tagged

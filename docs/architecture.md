@@ -87,8 +87,8 @@ optimum from the snapshotted roster vs the started players on that roster,
 ranked on unrounded actual points rather than display tenths. `ffb digest` is a
 read-time headline report: stored ESPN/RSS articles
 plus Sleeper injury labels for the user roster and unrostered mentions.
-Haiku/Sonnet add flags and Tuesday-brief prose when an Anthropic key is
-present; headlines never enter scoring, consensus, VORP, or sit/start math.
+Haiku/Sonnet add flags and weekly-brief prose when an Anthropic key is
+present, with every named player in the prompt labelled by who rosters them; headlines never enter scoring, consensus, VORP, or sit/start math.
 Each of these four report commands accepts `--publish`, which wraps the exact
 dict it rendered in the closed envelope from `inseason.py` and POSTs it to the
 tracker; the Worker stores and serves reports but never computes them.

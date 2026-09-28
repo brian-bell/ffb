@@ -96,6 +96,55 @@ def test_digest_shows_roster_injury_watch_and_other(tmp_path, monkeypatch):
     assert "18.4" not in result.output
 
 
+def test_digest_prompts_label_a_rival_rostered_player(tmp_path, monkeypatch):
+    env = _seed(tmp_path)
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+    news = json.loads(NEWS.read_text())
+    news["articles"].append(
+        {
+            "id": 49800116,
+            "headline": "Rival Receiver trending toward Week 2 return",
+            "description": "Dallas expects Rival Receiver back after the bye.",
+            "published": "2026-09-11T22:00:00Z",
+            "type": "Story",
+            "categories": [],
+        }
+    )
+    from ffb.ingest import ensure_news_ingested
+    from ffb.snapshot import SnapshotCache
+
+    store = Store(env["FFB_DB_PATH"])
+    ensure_news_ingested(
+        store,
+        SnapshotCache(tmp_path / "snapshots"),
+        2024,
+        fetch=lambda: news,
+        fetch_rss=lambda: json.loads(RSS.read_text()),
+        fetched_at="2026-09-12T12:00:00Z",
+    )
+    store.close()
+    prompts = {}
+
+    def fake_complete(*, model, system, user, api_key):
+        prompts[model] = user
+        return "[]" if "haiku" in model else "Henry is a game-time call."
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr("ffb.cli.complete_claude", fake_complete)
+
+    result = runner.invoke(app, ["digest", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+    sonnet = next(user for model, user in prompts.items() if "sonnet" in model)
+    rival = next(line for line in sonnet.splitlines() if "Rival Receiver trending" in line)
+    assert rival.endswith("[names: Rival Receiver (WR, rostered by Other Team)]")
+    henry = next(line for line in sonnet.splitlines() if "Henry questionable" in line)
+    assert henry.endswith("[names: Derrick Henry (RB, mine)]")
+    assert "[roster: mine, on Brian's Team]" in sonnet
+    assert "Week 1 brief" in result.output
+    assert "Tuesday" not in result.output
+
+
 def test_digest_skips_llm_without_a_key(tmp_path):
     env = _seed(tmp_path)
     _sync_league_and_news(tmp_path, env)

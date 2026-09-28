@@ -379,9 +379,13 @@ consensus, VORP, sit/start, or ROS math.
   in the headline text.
 - **Storage** — `headlines` and `headline_mentions`. Atomic per-feed replace.
   `ffb digest` left-joins them onto the user roster and unrostered mentions
-  (a watch list, not a waiver ranking). Haiku flags and a Sonnet Tuesday-brief
+  (a watch list, not a waiver ranking). Haiku flags and a Sonnet weekly-brief
   paragraph are optional and require `ANTHROPIC_API_KEY` or
-  `FFB_ANTHROPIC_API_KEY`.
+  `FFB_ANTHROPIC_API_KEY`. Each headline in the prompt lists the players it
+  names (athlete mentions, then league-rostered names in the text) with an
+  owner label: `mine`, `rostered by <team>`, `free agent`, or `owner unknown`
+  when there are no league rosters, any roster row is unresolved (so absence
+  from the league is unproven), or two teams roster the same name.
 - **Snapshot keys** — `espn/news_nfl` and `espn/news_nfl_rss`.
 - **Gotchas**
   - The two feeds are independent. An empty, malformed, or blocked ESPN JSON
