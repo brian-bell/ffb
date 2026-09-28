@@ -99,9 +99,15 @@ Sleeper, reports whether each tracker LeagueBundle is from today, runs the
 syncs and `--publish` commands, and prints each card's `generated_at`. When
 the Sleeper bundle is `STALE` or missing, its league sync adds `--push`, so
 `/api/leagues` shows today's Sleeper `synced_at` without a manual step. A
-stale Yahoo bundle still needs the Yahoo scrape. Pass
-`ARGS="--week-roll"` on Wednesday, `ARGS="--sunday"` before kickoff, or
-`ARGS="--dry-run"` to preview. Full output lands in `data/refresh-logs/`.
+stale or missing Yahoo bundle still needs the Yahoo scrape: the run finishes
+the season sync and every Sleeper step, skips the Yahoo league sync and Yahoo
+cards, prints `next:` with the exact rerun, and exits 3. After the
+`yahoo-league-bundle` skill posts the bundle, that rerun
+(`make refresh ARGS="--skip-sync --yahoo-only --week W"`) publishes only the
+three Yahoo cards. `--allow-stale` publishes Yahoo cards from the stale bundle
+instead. Pass `ARGS="--week-roll"` on Wednesday, `ARGS="--sunday"` before
+kickoff, or `ARGS="--dry-run"` to preview; a dry run lists skipped steps as
+`would skip:`. Full output lands in `data/refresh-logs/`.
 
 **Wednesday 10:00 ET, week roll.** Mid-morning gives Yahoo slack to roll the
 week and apply Monday's stat corrections.

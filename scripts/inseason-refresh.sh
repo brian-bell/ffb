@@ -4,36 +4,45 @@
 # outside this script; it syncs free sources and both leagues, re-posts the
 # Sleeper LeagueBundle when the tracker's copy is stale or missing, publishes
 # the command-center cards for Yahoo and Sleeper, and prints card freshness.
+# A stale or missing Yahoo bundle skips the Yahoo league sync and cards, then
+# exits 3 after printing the Yahoo-only rerun to run once the bundle is posted.
 #
 # Usage: scripts/inseason-refresh.sh [--dry-run] [--week-roll] [--sunday]
-#                                    [--skip-sync] [--week N]
-#   --dry-run    read-only: show week, bundle freshness, and the commands
-#   --week-roll  Wednesday: add the Sleeper W-1 backfill and retro, and the
-#                Yahoo retro when the Worker already holds W-1 Yahoo actuals
-#   --sunday     sync projections/injuries/news only (pre-kickoff)
-#   --skip-sync  skip season sync
-#   --week N     override the week (default: Sleeper /state/nfl)
+#                                    [--skip-sync] [--yahoo-only]
+#                                    [--allow-stale] [--week N]
+#   --dry-run      read-only: show week, bundle freshness, and the commands
+#   --week-roll    Wednesday: add the Sleeper W-1 backfill and retro, and the
+#                  Yahoo retro when the Worker already holds W-1 Yahoo actuals
+#   --sunday       sync projections/injuries/news only (pre-kickoff)
+#   --skip-sync    skip season sync
+#   --yahoo-only   skip every Sleeper step
+#   --allow-stale  publish Yahoo cards even from a stale Yahoo bundle
+#   --week N       override the week (default: Sleeper /state/nfl)
 #
 # Configuration comes from the environment, loaded from .env (or
 # $FFB_ENV_FILE) when present: FFB_TRACKER_URL, FFB_TRACKER_API_KEY,
 # FFB_SLEEPER_LEAGUE_ID, FFB_SLEEPER_USER_ID, optional FFB_YAHOO_LEAGUE_KEY,
 # and ANTHROPIC_API_KEY or FFB_ANTHROPIC_API_KEY for the digest narrative.
 # Full CLI output goes to data/refresh-logs/<timestamp>.log; stdout carries
-# only summary lines. Exits non-zero on the first failed command.
+# only summary lines. Exits non-zero on the first failed command, and 3 when
+# Yahoo steps were skipped for a stale bundle.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36'
 
-dry=false week_roll=false sunday=false skip_sync=false W=''
+dry=false week_roll=false sunday=false skip_sync=false yahoo_only=false
+allow_stale=false W=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) dry=true ;;
     --week-roll) week_roll=true ;;
     --sunday) sunday=true ;;
     --skip-sync) skip_sync=true ;;
+    --yahoo-only) yahoo_only=true ;;
+    --allow-stale) allow_stale=true ;;
     --week) W="${2:?--week needs a value}"; shift ;;
-    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -85,6 +94,15 @@ printf '%s\n' "$freshness"
 # already today's; a missing bundle counts as stale.
 sleeper_push=(--push)
 if grep -q "^bundle $SLEEPER_KEY: .* -> fresh\$" <<<"$freshness"; then sleeper_push=(); fi
+# Yahoo cards read the tracker's Yahoo bundle, so a stale one skips them
+# unless --allow-stale; the rerun after a fresh post needs no season sync.
+yahoo_stale=false
+if ! $allow_stale && ! grep -q "^bundle $YAHOO_KEY: .* -> fresh\$" <<<"$freshness"; then
+  yahoo_stale=true
+fi
+RERUN="make refresh ARGS=\"--skip-sync --yahoo-only --week $W\""
+leagues_run=(yahoo)
+$yahoo_only || leagues_run+=(sleeper)
 
 # run LABEL ffb-args...: full output to the log, summary lines to stdout.
 run() {
@@ -104,6 +122,16 @@ run() {
     | cut -c1-220 | sed "s/^/  [$label] /" || true
 }
 
+# yahoo_step LABEL ffb-args...: run a step that reads the tracker's Yahoo bundle.
+yahoo_step() {
+  local label="$1"
+  shift
+  if ! $yahoo_stale; then run "$label" "$@"
+  elif $dry; then echo "would skip: ffb $*"
+  else echo "  [$label] skipped: $YAHOO_KEY bundle is STALE"
+  fi
+}
+
 if ! $skip_sync; then
   if $sunday; then
     run sync season sync "$S" --week "$W" --source projections --source injuries --source news --refresh
@@ -111,12 +139,14 @@ if ! $skip_sync; then
     run sync season sync "$S" --week "$W" --refresh
   fi
 fi
-run yahoo-league league sync "$S" --from-tracker
-run sleeper-league league sync "$S" --league sleeper ${sleeper_push[@]+"${sleeper_push[@]}"}
+yahoo_step yahoo-league league sync "$S" --from-tracker
+$yahoo_only || run sleeper-league league sync "$S" --league sleeper ${sleeper_push[@]+"${sleeper_push[@]}"}
 
 if $week_roll; then
-  run sleeper-backfill league sync "$S" --league sleeper --week "$PREV"
-  run sleeper-retro retro "$S" --week "$PREV" --league sleeper --from-matchups --publish
+  if ! $yahoo_only; then
+    run sleeper-backfill league sync "$S" --league sleeper --week "$PREV"
+    run sleeper-retro retro "$S" --week "$PREV" --league sleeper --from-matchups --publish
+  fi
   if api "/api/actuals?season=$S&week=$PREV&league=$YAHOO_KEY" >/dev/null 2>&1; then
     run yahoo-retro retro "$S" --week "$PREV" --league yahoo --publish
   else
@@ -124,13 +154,18 @@ if $week_roll; then
   fi
 fi
 
-for league in yahoo sleeper; do
-  run "$league-ros" ros "$S" --league "$league" --publish
-  run "$league-lineup" lineup "$S" --week "$W" --league "$league" --force --publish
-  run "$league-digest" digest "$S" --league "$league" --publish
+for league in "${leagues_run[@]}"; do
+  step=run
+  [ "$league" = yahoo ] && step=yahoo_step
+  $step "$league-ros" ros "$S" --league "$league" --publish
+  $step "$league-lineup" lineup "$S" --week "$W" --league "$league" --force --publish
+  $step "$league-digest" digest "$S" --league "$league" --publish
 done
 
-for key in "$YAHOO_KEY" "$SLEEPER_KEY"; do
+dashboards=()
+$yahoo_stale || dashboards+=("$YAHOO_KEY")
+$yahoo_only || dashboards+=("$SLEEPER_KEY")
+for key in ${dashboards[@]+"${dashboards[@]}"}; do
   view=$(api "/api/inseason?season=$S&week=$W&league=$key") || { echo "error: GET /api/inseason for $key failed" >&2; exit 1; }
   VIEW_JSON="$view" python3 - "$key" <<'EOF'
 import json, os, sys
@@ -141,3 +176,8 @@ for kind, card in sorted((view.get("cards") or {}).items()):
     print(f"  {kind:7} week {envelope.get('week')}  generated {envelope.get('generated_at')}")
 EOF
 done
+
+if $yahoo_stale; then
+  echo "next: $YAHOO_KEY bundle is STALE; run the yahoo-league-bundle skill, then: $RERUN"
+  $dry || exit 3
+fi

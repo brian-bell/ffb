@@ -102,9 +102,10 @@ and the sourced `.env` in every call that uses them.
    `docs/grok-bot-prompt.md`.
 
 6. **Report** season, week, teams, players, `synced_at`, and the roster
-   changes the builder printed. Notify Brian if he is away. Offer
-   `make refresh ARGS="--skip-sync"` if the command-center cards should pick
-   up the new rosters.
+   changes the builder printed. Notify Brian if he is away. If `make refresh`
+   exited 3 for the stale bundle, run the `next:` command it printed
+   (`make refresh ARGS="--skip-sync --yahoo-only --week W"`); otherwise offer
+   it if the Yahoo command-center cards should pick up the new rosters.
 
 ## What the page gives you (verified 2026-09-26)
 
