@@ -155,4 +155,6 @@ without live data sources.
   ranks players by opportunity cost
 - [Operations](docs/operations.md) — rebuilds, environment overrides, testing,
   publishing, and deployment
+- [Refresh job](docs/refresh-job.md) — how to run the Wed–Sun morning refresh
+  for both leagues
 - [Design](DESIGN.md) — product direction and deferred weekly-management scope

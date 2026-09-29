@@ -109,6 +109,9 @@ publishes only the three Yahoo cards. `--allow-stale` publishes Yahoo cards
 from the stale bundle instead. Pass `ARGS="--week-roll"` on Wednesday, `ARGS="--sunday"` before
 kickoff, or `ARGS="--dry-run"` to preview; a dry run lists skipped steps as
 `would skip:`. Full output lands in `data/refresh-logs/`.
+The daily Wed–Sun job that drives `make refresh`, including the Yahoo actuals
+scrape and stale-bundle handling, is documented step by step in
+[refresh-job.md](refresh-job.md).
 
 **Wednesday 10:00 ET, week roll.** Mid-morning gives Yahoo slack to roll the
 week and apply Monday's stat corrections.
