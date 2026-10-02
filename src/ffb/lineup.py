@@ -267,6 +267,13 @@ def _assign_optimal(
     return _rows_in_slot_order(assigned, roster_slots)
 
 
+def optimal_starters(
+    players: list[dict[str, Any]], roster_slots: dict[str, int]
+) -> list[dict[str, Any]]:
+    """Greedy starters on unrounded ``points``; unprojected and unavailable players sit."""
+    return _assign_optimal(players, roster_slots, use_display_points=False)
+
+
 def _rows_in_slot_order(
     assigned: list[tuple[str, dict[str, Any]]], roster_slots: dict[str, int]
 ) -> list[dict[str, Any]]:

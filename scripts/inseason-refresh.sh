@@ -3,7 +3,8 @@
 # Yahoo scrapes and their POSTs (LeagueBundle, WeeklyActualsBundle) happen
 # outside this script; it syncs free sources and both leagues, re-posts the
 # Sleeper LeagueBundle when the tracker's copy is stale or missing, publishes
-# the command-center cards for Yahoo and Sleeper, and prints card freshness.
+# the command-center cards for Yahoo and Sleeper (waiver targets are
+# Sleeper-only), and prints card freshness.
 # A stale or missing Yahoo bundle skips the Yahoo league sync and cards, then
 # exits 3 after printing the Yahoo-only rerun to run once the bundle is posted.
 #
@@ -43,7 +44,7 @@ while [ $# -gt 0 ]; do
     --yahoo-only) yahoo_only=true ;;
     --allow-stale) allow_stale=true ;;
     --week) W="${2:?--week needs a value}"; shift ;;
-    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -162,6 +163,9 @@ for league in "${leagues_run[@]}"; do
   $step "$league-lineup" lineup "$S" --week "$W" --league "$league" --force --publish
   $step "$league-digest" digest "$S" --league "$league" --publish
 done
+# Waiver targets need the full free-agent pool, which only Sleeper exposes
+# until Yahoo live authorization (ffb-1ct.2) lands.
+$yahoo_only || run sleeper-waivers waivers "$S" --league sleeper --publish
 
 dashboards=()
 $yahoo_stale || dashboards+=("$YAHOO_KEY")
