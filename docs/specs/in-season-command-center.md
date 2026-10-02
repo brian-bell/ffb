@@ -203,8 +203,13 @@ human reason. The page never infers freshness any other way.
 | `degraded` | amber chip | Published, but part of the report is missing. |
 | `waiting` | blue dashed card | Upstream data does not exist yet. |
 | `missing` | neutral dashed card | Nothing published; shows the command to run. |
+| `archived` | neutral chip | Published for a week before `league.current_week`; it can no longer go stale. |
 
-Rules, first match wins:
+Rules, first match wins. When the requested week is before `league.current_week`
+(a past week), every `stale` rule is skipped and the final `fresh` becomes
+`archived` — "Week W is over"; `missing`, `waiting`, and `degraded` still apply.
+The header's oldest-source dot turns neutral for a past week.
+
 
 | Card | Rule | State and reason |
 | --- | --- | --- |
@@ -222,7 +227,7 @@ Rules, first match wins:
 | Retro | `report.missing_actuals` non-empty | `degraded` — "N players have no actuals" |
 | Rest of season | no envelope | `missing` |
 | Rest of season | age > 8 days | `stale` — "Built more than 8 days ago" |
-| Any | otherwise | `fresh` |
+| Any | otherwise | `fresh` (`archived` for a past week) |
 
 Age thresholds follow the twice-weekly refresh cadence in the runbook
 (Wednesday and Sunday): 5 days covers the Wednesday-to-Sunday gap with slack,
@@ -415,7 +420,7 @@ TDD per slice, smallest tests first.
   `season_mismatch`, size cap, KV key and week resolution, and a table test for
   every `cardFreshness` rule row.
 - Tracker browser: `/command` at desktop-standard and desktop-minimum viewports
-  with fixture KV covering fresh, stale, degraded, waiting, and missing; panel
+  with fixture KV covering fresh, stale, degraded, waiting, missing, and archived; panel
   open and close by keyboard.
 - `make test-backend-e2e`: extend the offline journey to publish all four
   reports from fixtures and read `GET /api/inseason`.
@@ -456,22 +461,24 @@ Settled on 2026-09-13 (kept for the record):
 - **Cadence.** Two runs per week, Wednesday 10:00 ET and Sunday 07:00 ET. No
   daily news run and no short-slate runs.
 
+Settled on 2026-10-02:
+
+- **Past weeks.** A week before `league.current_week` shows `archived` instead
+  of `stale` (see [Freshness](#freshness)); `degraded`, `missing`, and
+  `waiting` still show.
+- **Equal timestamps on republish.** An equal `generated_at` is accepted and
+  overwrites the stored document, so a re-POST after a network error succeeds;
+  only a strictly older one is rejected with `stale_report`.
+
 Still open:
 
 1. **Retention.** KV keeps every week forever by default. Acceptable for one
    season (~18 weeks × 4 documents), or add a TTL?
-2. **Past weeks.** The age-based stale rules assume the current week. When the
-   requested week is before `league.current_week`, should cards show an
-   `archived` state instead of `stale`?
-3. **Partial-run recovery.** The Wednesday run is six commands. If `season
+2. **Partial-run recovery.** The Wednesday run is six commands. If `season
    sync` fails after retro published, lineup and digest are skipped and the
    cards show `missing` until Sunday. Should the cron retry the tail on its
    own, or is a `missing` badge until Sunday acceptable?
-4. **Equal timestamps on republish.** `stale_report` rejects a document whose
-   `generated_at` is older than the stored one. Confirm that an equal
-   `generated_at` is accepted (idempotent re-POST after a network error) rather
-   than rejected.
-5. **Week `W` for `ros`.** The envelope `week` for `ros` is the stored
+3. **Week `W` for `ros`.** The envelope `week` for `ros` is the stored
    `current_week` at generation. On Wednesday that value comes from the bundle
    Grok just posted; if Grok's scrape runs before Yahoo rolls the week, the
    `ros` document lands under `W-1` and the fallback ("newest `ros` with week

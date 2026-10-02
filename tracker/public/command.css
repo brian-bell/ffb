@@ -68,7 +68,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .oldest { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font: 650 11px/1 var(--mono); }
 .oldest i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .oldest.ok i { background: var(--good); }
-.oldest.none i { background: var(--faint); }
+.oldest.none i, .oldest.archived i { background: var(--faint); }
 .links { display: flex; align-items: center; gap: 10px; }
 .links a { color: var(--muted); font: 650 11px/1 var(--mono); text-decoration: none; }
 .links a:hover { color: var(--ink); }
@@ -91,6 +91,7 @@ main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60
 .card.waiting, .card.missing { border-style: dashed; background: transparent; cursor: default; }
 .card.waiting { border-color: #2b5a85; }
 .card.missing { border-color: #33404f; }
+.card.archived { border-color: #33404f; }
 .chead { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; }
 .chead h2 { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .chead .horizon { color: var(--faint); font: 650 10px/1 var(--mono); }
@@ -101,6 +102,7 @@ main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60
 .badge.degraded { color: var(--accent); background: var(--accent-bg); border-color: #5a4212; }
 .badge.waiting { color: var(--blue); background: var(--blue-bg); }
 .badge.missing { color: var(--muted); background: #151c25; }
+.badge.archived { color: var(--muted); background: #151c25; }
 .reason { padding: 0 16px 8px; color: var(--muted); font-size: 11.5px; }
 .reason.warn { color: #f0c674; }
 .head { display: flex; align-items: baseline; gap: 10px; padding: 2px 16px 10px; }

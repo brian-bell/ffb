@@ -183,6 +183,18 @@ test("minimum desktop widths collapse to two columns without horizontal overflow
   }
 });
 
+test("a past week shows archived cards instead of stale ones", async ({ page }) => {
+  const past = baseView();
+  past.league = { synced_at: "2026-10-10T12:00:00Z", current_week: 4 };
+  await open(page, past, { now: new Date(Date.parse(NOW) + 30 * DAY_MS).toISOString() });
+  for (const kind of ["lineup", "digest", "retro", "ros"]) {
+    expect(await state(page, kind)).toBe("archived");
+    await expect(page.locator(`.card.${kind} [data-reason]`)).toHaveText("Week 2 is over");
+  }
+  await expect(page.locator(".card.lineup .badge")).toContainText("archived ·");
+  await expect(page.locator("[data-oldest]")).toHaveClass(/archived/);
+});
+
 test("stale, degraded, waiting, and missing states render with their reasons", async ({ page }) => {
   const rosterChanged = baseView();
   rosterChanged.league = { synced_at: "2026-09-20T15:10:00Z", current_week: 2 };
