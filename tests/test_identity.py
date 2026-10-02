@@ -100,3 +100,22 @@ def test_noisy_yahoo_defense_id_resolves_when_the_position_does_not():
         "def:BAL",
         "BAL",
     )
+
+
+def test_noisy_yahoo_defense_id_never_overrides_a_conflicting_team_name():
+    """A skill-shaped row whose name names another team stays unmatched."""
+    assert resolve_roster_defense("WR", "100008", None, "Baltimore", provider="yahoo") is None
+    assert resolve_roster_defense("WR", "100014", "BAL", "Rams", provider="yahoo") is None
+    assert resolve_roster_defense("WR", "100008", None, "Detroit", provider="yahoo") == (
+        "def:DET",
+        "DET",
+    )
+
+
+def test_yahoo_defense_ids_are_their_own_table():
+    """Yahoo D/ST ids come from config.YAHOO_DEFENSE_PLAYER_IDS, all 32 teams."""
+    from ffb import config
+
+    assert sorted(config.YAHOO_DEFENSE_PLAYER_IDS.values()) == sorted(config.NFL_TEAM_CODES)
+    for native_id, team in config.YAHOO_DEFENSE_PLAYER_IDS.items():
+        assert yahoo_defense_identity(str(native_id)) == (f"def:{team}", team)

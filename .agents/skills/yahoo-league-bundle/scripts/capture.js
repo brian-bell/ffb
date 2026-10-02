@@ -20,8 +20,8 @@
 
   const cellText = (el) => el.innerText.replace(/\s+/g, " ").trim();
   const SLOTS = new Set(["QB", "WR", "RB", "TE", "W/T", "W/R/T", "DEF", "BN", "IR", "IL"]);
-  // Yahoo D/ST player ids are 100000 + the ESPN pro team id
-  // (ffb.config.ESPN_PRO_TEAM_MAP). 100014 Rams, 100024 Chargers, 100033 Ravens.
+  // Yahoo D/ST player ids (ffb.config.YAHOO_DEFENSE_PLAYER_IDS): 100000 + Yahoo's
+  // NFL team id. 100014 Rams, 100024 Chargers, 100033 Ravens.
   // 31 and 32 are not teams. A noisy row for one of these ids is still a defense.
   const YAHOO_DEFENSE_OFFSETS = new Set([
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
