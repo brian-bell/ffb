@@ -7,6 +7,8 @@ from ffb.identity import (
     canonical_team,
     defense_identity,
     is_defense_position,
+    resolve_roster_defense,
+    yahoo_defense_identity,
 )
 
 
@@ -67,3 +69,34 @@ def test_defense_identity_prefers_team_code_then_name():
     assert defense_identity("RB", "Rams") is None
     assert is_defense_position("D/ST") is True
     assert is_defense_position("WR") is False
+
+
+def test_yahoo_defense_ids_follow_espn_pro_team_numbers():
+    """Yahoo D/ST ids are 100000 + the ESPN pro team id, not crosswalk rows."""
+    assert yahoo_defense_identity("100014") == ("def:LAR", "LAR")
+    assert yahoo_defense_identity("100024") == ("def:LAC", "LAC")
+    assert yahoo_defense_identity("100033") == ("def:BAL", "BAL")
+    assert yahoo_defense_identity("100008") == ("def:DET", "DET")
+    assert yahoo_defense_identity("100031") is None
+    assert yahoo_defense_identity("29279") is None
+    assert yahoo_defense_identity(None) is None
+
+
+def test_noisy_yahoo_defense_id_resolves_when_the_position_does_not():
+    """A WR-shaped Rams row still matches; Los Angeles is never guessed."""
+    assert resolve_roster_defense("WR", "100014", None, "Rams", provider="yahoo") == (
+        "def:LAR",
+        "LAR",
+    )
+    assert resolve_roster_defense("WR", "100024", None, "Los Angeles", provider="yahoo") == (
+        "def:LAC",
+        "LAC",
+    )
+    assert resolve_roster_defense("WR", "42424", None, "Los Angeles", provider="yahoo") is None
+    assert resolve_roster_defense("WR", "100014", None, "Rams", provider="sleeper") is None
+    # A row that already parsed as a defense keeps that team. 100008 is the
+    # Lions' id, but this Baltimore row resolved before the id is consulted.
+    assert resolve_roster_defense("DEF", "100008", "Bal", "Baltimore", provider="yahoo") == (
+        "def:BAL",
+        "BAL",
+    )

@@ -948,15 +948,17 @@ class Store:
         for roster in bundle.rosters:
             for player in roster["players"]:
                 # A team defense has a canonical identity of its own, so it never
-                # needs the crosswalk: no provider lists a D/ST under a player id.
-                # Without this it stores unmatched, and the reader then warns that
-                # it "did not match the crosswalk and scores zero" when in fact
-                # lineup.projection_key resolves it to def:<team> and it scores.
-                defense = identity.defense_identity(
+                # needs the crosswalk. Position and display name resolve first; a
+                # Yahoo D/ST id still resolves when the scrape labeled the row as
+                # a skill position (100014 Rams, 100024 Chargers). Without this
+                # it stores unmatched, and the reader warns that it scores zero.
+                defense = identity.resolve_roster_defense(
                     player["primary_position"],
+                    player.get("native_id"),
                     player.get("nfl_team"),
                     player.get("name"),
                     player.get("full_name"),
+                    provider=provider,
                 )
                 if defense is not None:
                     defense_key, defense_team = defense
@@ -1171,17 +1173,20 @@ class Store:
         self.conn.execute("BEGIN TRANSACTION")
         try:
             for row in rows:
-                defense = identity.defense_identity(
+                defense = identity.resolve_roster_defense(
                     row.get("primary_position"),
+                    row.get("native_id"),
                     row.get("nfl_team"),
                     row.get("full_name"),
                     row.get("name"),
+                    provider=provider,
                 )
                 if defense is not None:
                     player_key, nfl_team = defense
                     matched = True
                     full_name = row["full_name"]
                     position = "DEF"
+                    eligible = ["DEF"]
                 else:
                     match = resolved.get(row["native_id"])
                     if match:
@@ -1196,14 +1201,25 @@ class Store:
                         full_name = row["full_name"]
                         nfl_team = row["nfl_team"]
                         position = row["primary_position"]
-                if row["player_key"] == player_key and bool(row["matched"]) is matched:
+                    eligible = row["eligible_positions"]
+                same_identity = row["player_key"] == player_key and bool(row["matched"]) is matched
+                # Skill-player refreshes keep the old key/matched check. A defense
+                # also rewrites a noisy position, team, and eligibility so a
+                # WR-shaped Rams row can fill DEF and join def:<team> projections.
+                if defense is not None:
+                    same_identity = same_identity and (
+                        row["primary_position"] == position
+                        and row["nfl_team"] == nfl_team
+                        and row["eligible_positions"] == eligible
+                    )
+                if same_identity:
                     continue
                 changed += 1
                 self.conn.execute(
                     """
                     UPDATE league_rosters
                     SET player_key = ?, matched = ?, full_name = ?,
-                        nfl_team = ?, primary_position = ?
+                        nfl_team = ?, primary_position = ?, eligible_positions_json = ?
                     WHERE season = ? AND league_key = ? AND week = ? AND team_key = ?
                           AND native_id = ?
                     """,
@@ -1213,6 +1229,7 @@ class Store:
                         full_name,
                         nfl_team,
                         position,
+                        json.dumps(eligible),
                         row["season"],
                         row["league_key"],
                         row["week"],

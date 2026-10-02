@@ -62,6 +62,47 @@ def defense_identity(position: str | None, *candidates: object) -> tuple[str, st
     return None
 
 
+def yahoo_defense_identity(native_id: object) -> tuple[str, str] | None:
+    """Return ``(player_key, team)`` for a Yahoo NFL team-defense player id.
+
+    Those ids are ``100000`` plus the ESPN pro team id in
+    ``config.ESPN_PRO_TEAM_MAP`` (100014 Rams, 100024 Chargers, 100033 Ravens).
+    They are not in the nflverse crosswalk. Anything else, including the gaps
+    at 100031 and 100032, is not a defense.
+    """
+    if isinstance(native_id, bool) or not isinstance(native_id, (str, int)):
+        return None
+    text = str(native_id).strip()
+    if not text.isdigit():
+        return None
+    team = config.ESPN_PRO_TEAM_MAP.get(int(text) - 100000)
+    if team is None:
+        return None
+    return f"def:{team}", team
+
+
+def resolve_roster_defense(
+    position: str | None,
+    native_id: object = None,
+    *candidates: object,
+    provider: str | None = None,
+) -> tuple[str, str] | None:
+    """Defense key for a roster row.
+
+    A row that already says DEF/DST keeps the first team code or display name
+    that canonicalizes. When that fails, a Yahoo team-defense id still
+    resolves, so a scrape that labels the Rams as a WR with a null team matches
+    ``def:LAR``. ``Los Angeles`` alone stays ambiguous; Chargers resolve only
+    through id 100024. Other providers never consult Yahoo ids.
+    """
+    defense = defense_identity(position, *candidates)
+    if defense is not None:
+        return defense
+    if provider != "yahoo":
+        return None
+    return yahoo_defense_identity(native_id)
+
+
 #: Slots a fantasy position can fill, beyond its own dedicated slot.
 _FLEX_POSITIONS = {"RB", "WR", "TE"}
 

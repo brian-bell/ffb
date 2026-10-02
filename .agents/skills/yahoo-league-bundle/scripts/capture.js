@@ -20,6 +20,21 @@
 
   const cellText = (el) => el.innerText.replace(/\s+/g, " ").trim();
   const SLOTS = new Set(["QB", "WR", "RB", "TE", "W/T", "W/R/T", "DEF", "BN", "IR", "IL"]);
+  // Yahoo D/ST player ids are 100000 + the ESPN pro team id
+  // (ffb.config.ESPN_PRO_TEAM_MAP). 100014 Rams, 100024 Chargers, 100033 Ravens.
+  // 31 and 32 are not teams. A noisy row for one of these ids is still a defense.
+  const YAHOO_DEFENSE_OFFSETS = new Set([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 33, 34,
+  ]);
+  const isYahooDefenseId = (playerId) => {
+    const n = Number(playerId);
+    return Number.isInteger(n) && YAHOO_DEFENSE_OFFSETS.has(n - 100000);
+  };
+  const teamPosition = (text) => {
+    const matches = [...text.matchAll(/\b([A-Za-z]{2,3})\s*-\s*([A-Za-z/]+)/g)];
+    return matches.find((m) => /^(DEF|DST)$/i.test(m[2])) || matches[0] || null;
+  };
 
   // League name from the league home page title ("MCFFL | Fantasy Football | ...").
   const home = await page(`/f1/${LEAGUE_ID}`);
@@ -83,10 +98,29 @@
       if (!SLOTS.has(slot)) throw new Error(`team ${id}: roster row without a slot label (${slot || "no cells"})`);
       slots[id].push(slot);
       if (/\(Empty\)/.test(tr.innerText)) continue;
-      const ids = [...new Set([...tr.innerHTML.matchAll(/pid=(\d+)|playerid="(\d+)"/g)].map((m) => m[1] || m[2]))];
-      const name = tr.querySelector("a.name")?.innerText.trim();
-      const teamPos = tr.innerText.match(/\n\s*([A-Za-z]{2,3}) - ([A-Z,/]+)\s*\n/);
-      if (tds.length < 6 || ids.length !== 1 || !name || !teamPos) {
+      // The rostered player is the name link. Notes and tooltips in the same
+      // row mention other pids; counting those made a defense row fail closed.
+      const nameEl = tr.querySelector("a.name");
+      const name = nameEl ? nameEl.innerText.trim() : "";
+      const hrefPid = ((nameEl && nameEl.getAttribute("href")) || "").match(/[?&]pid=(\d+)/);
+      const namedId = (nameEl && nameEl.getAttribute("data-ys-playerid")) || (hrefPid && hrefPid[1]);
+      const ids = namedId
+        ? [namedId]
+        : [...new Set([...tr.innerHTML.matchAll(/pid=(\d+)|playerid="(\d+)"/g)].map((m) => m[1] || m[2]))];
+      const nameBlock = tr.querySelector(".ysf-player-name");
+      const teamPos = teamPosition(nameBlock ? nameBlock.innerText : tr.innerText);
+      if (ids.length !== 1 || !name) {
+        throw new Error(`team ${id}: unparsed roster row in slot ${slot} (${ids.length} ids, name=${name})`);
+      }
+      if (isYahooDefenseId(ids[0])) {
+        // Keep a real "LAR - DEF" team. A skill-shaped or missing line leaves
+        // the team blank so the builder resolves the id (Rams, not a false WR).
+        const pos = teamPos ? teamPos[2].toUpperCase() : "";
+        const team = pos === "DEF" || pos === "DST" ? teamPos[1] : "";
+        rosters[id].push([slot, ids[0], team, "DEF", name].join("|"));
+        continue;
+      }
+      if (tds.length < 6 || !teamPos) {
         throw new Error(`team ${id}: unparsed roster row in slot ${slot} (${ids.length} ids, name=${name})`);
       }
       rosters[id].push([slot, ids[0], teamPos[1], teamPos[2], name].join("|"));
