@@ -12,6 +12,8 @@ export interface InseasonCard {
 export interface InseasonView {
   season: number;
   week: number;
+  /** The league this view answers for; decides provider-only cards such as waivers. */
+  league_key?: string;
   server_now: string;
   league: { synced_at: string; current_week: number } | null;
   actuals_available: Record<string, boolean>;
@@ -30,12 +32,14 @@ export const DAY_MS = 86_400_000;
 export const LINEUP_MAX_AGE_MS = 5 * DAY_MS;
 export const DIGEST_MAX_AGE_MS = 5 * DAY_MS;
 export const ROS_MAX_AGE_MS = 8 * DAY_MS;
+export const WAIVERS_MAX_AGE_MS = 5 * DAY_MS;
 
 export const KIND_LABEL: Record<InseasonKind, string> = {
   lineup: "Lineup",
   digest: "News",
   retro: "Retro",
   ros: "Rest of season",
+  waivers: "Waivers",
 };
 
 export function millis(iso: string | null | undefined): number | null {
@@ -101,6 +105,26 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
     }
     const missing = envelope.report.missing_actuals.length;
     if (missing > 0) return { state: "degraded", reason: `${plural(missing, "player has", "players have")} no actuals` };
+    return FRESH;
+  }
+
+  if (kind === "waivers") {
+    if (!envelope || envelope.kind !== "waivers") {
+      // Only Sleeper exposes the full free-agent pool until Yahoo live
+      // authorization (ffb-1ct.2) lands, so another league's card waits on it.
+      if (view.league_key !== undefined && !view.league_key.startsWith("sleeper:")) {
+        return { state: "waiting", reason: "Yahoo free agents need live authorization" };
+      }
+      return { state: "missing", reason: `Not published for week ${week}` };
+    }
+    if (view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {
+      return { state: "stale", reason: "Rosters changed after these targets were built" };
+    }
+    if (age !== null && age > WAIVERS_MAX_AGE_MS) return { state: "stale", reason: "Built more than 5 days ago" };
+    const unmatched = envelope.report.unmatched_rostered.length;
+    if (unmatched > 0) {
+      return { state: "degraded", reason: `${plural(unmatched, "rostered player is", "rostered players are")} unmatched` };
+    }
     return FRESH;
   }
 

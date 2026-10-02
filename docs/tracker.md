@@ -184,9 +184,9 @@ snapshot, no network). When none of those exist, the CLI pulls
 
 ## In-season command center
 
-`GET /command` is a read-only desktop dashboard for the four in-season CLI
+`GET /command` is a read-only desktop dashboard for the five in-season CLI
 reports. The Python CLI stays the only place a report is computed: `ffb lineup`,
-`ffb digest`, `ffb retro`, and `ffb ros` each accept `--publish`, which POSTs
+`ffb digest`, `ffb retro`, `ffb ros`, and `ffb waivers` each accept `--publish`, which POSTs
 the exact dict the command just rendered inside a closed, versioned envelope
 (`src/ffb/inseason.py`). The Worker validates the envelope plus the minimal
 report shape the page renders (`src/inseason.ts`), stores the body verbatim in
@@ -196,7 +196,7 @@ work happens in the Worker. The design record is
 
 | Method and route | Purpose |
 | --- | --- |
-| `POST /api/inseason/{kind}` | Validate and store one envelope (`lineup`, `digest`, `retro`, `ros`) |
+| `POST /api/inseason/{kind}` | Validate and store one envelope (`lineup`, `digest`, `retro`, `ros`, `waivers`) |
 | `GET /api/inseason?season=&week=` | Compose the dashboard view for one week |
 | `GET /api/leagues` | List the leagues a bundle is stored for, for the header picker |
 
@@ -207,11 +207,11 @@ report shape failure or a kind that does not match the route, 409
 (an equal timestamp is an idempotent re-POST), 409 `season_mismatch` against
 the published board, and 413 `payload_too_large` over the 10 MiB cap. The
 `week` field is the report week for `lineup` and `digest`, the scored week for
-`retro`, and the stored `current_week` at generation for `ros`.
+`retro`, and the stored `current_week` at generation for `ros` and `waivers`.
 
-The GET view resolves requested week `W` as lineup and digest at `W`, retro at
-`W-1` (absent for week 1), and the newest `ros` document with week `≤ W`. It
-also carries `league` (`synced_at` and `current_week` from
+The GET view resolves requested week `W` as lineup, digest, and waivers at `W`,
+retro at `W-1` (absent for week 1), and the newest `ros` document with week
+`≤ W`. It also carries `league_key` (the league the view answers for), `league` (`synced_at` and `current_week` from
 `league:bundle:current`, or `null`), `actuals_available` for week `W-1`,
 `weeks` with at least one lineup or digest document, and `server_now`. When
 `week` is omitted the Worker uses the league's current week, then the newest
@@ -222,8 +222,10 @@ Freshness is decided only by `cardFreshness(kind, view, now)` in
 `src/inseason-view.ts`, a pure function of that view and the client clock.
 States are `fresh`, `stale` (roster changed after the lineup was built, a
 newer injury report in the digest, or aged past 5 days for lineup and news or
-8 days for rest of season), `degraded` (missing projections, LLM skipped, or
-missing actuals), `waiting` (no prior week, or actuals not posted yet), and
+8 days for rest of season; waivers go stale like lineup), `degraded` (missing
+projections, LLM skipped, missing actuals, or unmatched rostered players on the
+waiver card), `waiting` (no prior week, actuals not posted yet, or waivers for
+a non-Sleeper league until Yahoo live authorization), and
 `missing` (nothing published; the card shows the command to run). Retro never
 ages out. The header strip shows the week, team, and the oldest source on
 screen; clicking a published card opens a right-side panel with the full

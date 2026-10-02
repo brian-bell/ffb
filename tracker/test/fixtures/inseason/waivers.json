@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "waivers",
+  "season": 2024,
+  "week": 1,
+  "generated_at": "2026-09-16T11:08:00Z",
+  "team_name": "Brian's Team",
+  "context": {
+    "league_synced_at": "2026-09-16T10:40:00Z",
+    "projection_sources": [
+      "sleeper",
+      "espn"
+    ]
+  },
+  "report": {
+    "candidates": [
+      {
+        "player_key": "def:SFO",
+        "name": "San Francisco 49ers",
+        "position": "DEF",
+        "team": "SFO",
+        "ros": 112.0,
+        "n": 2,
+        "injury": null,
+        "replaces": null,
+        "replaces_slot": "DEF",
+        "replaces_ros": null,
+        "gain": 112.0,
+        "rank": 1
+      },
+      {
+        "player_key": "16001",
+        "name": "Tank Bigsby",
+        "position": "RB",
+        "team": "JAX",
+        "ros": 131.4,
+        "n": 2,
+        "injury": null,
+        "replaces": "Zack Moss",
+        "replaces_slot": "W/R/T",
+        "replaces_ros": 92.6,
+        "gain": 38.8,
+        "rank": 2
+      },
+      {
+        "player_key": "15710",
+        "name": "Jalen McMillan",
+        "position": "WR",
+        "team": "TBB",
+        "ros": 104.2,
+        "n": 1,
+        "injury": "QUESTIONABLE",
+        "replaces": "Zack Moss",
+        "replaces_slot": "W/R/T",
+        "replaces_ros": 92.6,
+        "gain": 11.6,
+        "rank": 3
+      },
+      {
+        "player_key": "14012",
+        "name": "Cade Otton",
+        "position": "TE",
+        "team": "TBB",
+        "ros": 97.0,
+        "n": 2,
+        "injury": null,
+        "replaces": "Zack Moss",
+        "replaces_slot": "W/R/T",
+        "replaces_ros": 92.6,
+        "gain": 4.4,
+        "rank": 4
+      }
+    ],
+    "starters": [
+      { "slot": "DEF", "name": null, "position": null, "ros": null },
+      { "slot": "K", "name": "Jake Bates", "position": "K", "ros": 88.0 },
+      { "slot": "W/R/T", "name": "Zack Moss", "position": "RB", "ros": 92.6 },
+      { "slot": "TE", "name": "Dalton Kincaid", "position": "TE", "ros": 120.5 },
+      { "slot": "QB", "name": "Joe Burrow", "position": "QB", "ros": 260.1 }
+    ],
+    "free_agents": 214,
+    "unmatched_rostered": [],
+    "trending_available": false
+  }
+}

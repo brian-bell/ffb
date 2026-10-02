@@ -3,6 +3,7 @@ import digestFixture from "../fixtures/inseason/digest.json" with { type: "json"
 import lineupFixture from "../fixtures/inseason/lineup.json" with { type: "json" };
 import retroFixture from "../fixtures/inseason/retro.json" with { type: "json" };
 import rosFixture from "../fixtures/inseason/ros.json" with { type: "json" };
+import waiversFixture from "../fixtures/inseason/waivers.json" with { type: "json" };
 
 // Sunday 11:40 ET pre-kickoff; the fixtures were "published" earlier that day
 // (lineup, digest) and the previous Wednesday (retro, ros).
@@ -15,7 +16,8 @@ type View = Record<string, unknown> & {
   server_now: string;
   league: { synced_at: string; current_week: number } | null;
   actuals_available: Record<string, boolean>;
-  cards: Record<"lineup" | "digest" | "retro" | "ros", { envelope: Record<string, unknown> | null }>;
+  league_key?: string;
+  cards: Record<"lineup" | "digest" | "retro" | "ros" | "waivers", { envelope: Record<string, unknown> | null }>;
 };
 
 function clone<T>(value: T): T {
@@ -27,6 +29,7 @@ function baseView(): View {
   const digest = clone(digestFixture) as Record<string, unknown>;
   const retro = clone(retroFixture) as Record<string, unknown>;
   const ros = clone(rosFixture) as Record<string, unknown>;
+  const waivers = clone(waiversFixture) as Record<string, unknown>;
   lineup.week = 2;
   (lineup.context as Record<string, unknown>).league_synced_at = "2026-09-20T12:22:00Z";
   (lineup.report as Record<string, unknown>).missing_projections = [];
@@ -37,6 +40,9 @@ function baseView(): View {
   (digest.report as Record<string, unknown>).narrative =
     "Derrick Henry practiced in full and is a clear start. <b>Not markup.</b> Flex Filler stays a bench option.";
   ros.week = 2;
+  waivers.week = 2;
+  waivers.generated_at = "2026-09-20T14:07:00Z";
+  (waivers.context as Record<string, unknown>).league_synced_at = "2026-09-20T12:22:00Z";
   return {
     season: 2024,
     week: 2,
@@ -49,6 +55,7 @@ function baseView(): View {
       digest: { envelope: digest },
       retro: { envelope: retro },
       ros: { envelope: ros },
+      waivers: { envelope: waivers },
     },
   };
 }
@@ -89,19 +96,19 @@ async function open(
   await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
   await serve(page, view, options.requests, options.directory);
   await page.goto(options.path ?? "/command");
-  await expect(page.locator("[data-grid] .card")).toHaveCount(4);
+  await expect(page.locator("[data-grid] .card")).toHaveCount(5);
 }
 
 function state(page: Page, kind: string) {
   return page.locator(`[data-grid] .card.${kind}`).getAttribute("data-state");
 }
 
-test("desktop grid shows four fresh cards with the week, team, and oldest source", async ({ page }) => {
+test("desktop grid shows five fresh cards with the week, team, and oldest source", async ({ page }) => {
   await open(page, baseView());
   await expect(page.locator("[data-week]")).toHaveText("Week 2");
   await expect(page.locator("[data-team]")).toHaveText("Brian's Team");
   await expect(page.locator("[data-oldest-text]")).toHaveText("Oldest source: Retro, 4d");
-  for (const kind of ["lineup", "digest", "retro", "ros"]) {
+  for (const kind of ["lineup", "digest", "retro", "ros", "waivers"]) {
     expect(await state(page, kind)).toBe("fresh");
     await expect(page.locator(`[data-grid] .card.${kind} .badge`)).toContainText("fresh ·");
   }
@@ -119,6 +126,11 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
   await expect(page.locator(".card.retro")).toContainText("Rico Dowdle");
   await expect(page.locator(".card.ros [data-headline]")).toHaveText("15·16·17");
   await expect(page.locator(".card.ros")).toContainText("bye 5");
+  await expect(page.locator(".card.waivers [data-headline]")).toHaveText("+112.0");
+  await expect(page.locator(".card.waivers")).toContainText("Tank Bigsby");
+  await expect(page.locator(".card.waivers")).toContainText("for Zack Moss (W/R/T)");
+  await expect(page.locator(".card.waivers")).toContainText("Jalen McMillan · QUESTIONABLE");
+  await expect(page.locator(".card.waivers")).toContainText("214 free agents scored");
 
   const boxes = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
@@ -127,6 +139,7 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
       news: box(".card.digest"),
       retro: box(".card.retro"),
       ros: box(".card.ros"),
+      waivers: box(".card.waivers"),
       overflow: document.documentElement.scrollWidth > innerWidth,
     };
   });
@@ -136,6 +149,9 @@ test("desktop grid shows four fresh cards with the week, team, and oldest source
   expect(boxes.retro.top).toBeGreaterThanOrEqual(boxes.lineup.bottom);
   expect(boxes.ros.left).toBeGreaterThan(boxes.retro.right - 1);
   expect(Math.abs(boxes.ros.top - boxes.retro.top)).toBeLessThan(2);
+  expect(boxes.waivers.top).toBeGreaterThanOrEqual(boxes.ros.bottom);
+  expect(boxes.waivers.width).toBeGreaterThan(boxes.ros.width * 1.8);
+  expect(boxes.news.left).toBeGreaterThan(boxes.waivers.right - 1);
   await page.screenshot({ path: "/tmp/ffb-command-1440.png", fullPage: true });
 });
 
@@ -172,13 +188,14 @@ test("minimum desktop widths collapse to two columns without horizontal overflow
     await page.setViewportSize({ width, height: 900 });
     const boxes = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-      return { lineup: box(".card.lineup"), news: box(".card.digest"), retro: box(".card.retro"), ros: box(".card.ros"), overflow: document.documentElement.scrollWidth > innerWidth };
+      return { lineup: box(".card.lineup"), news: box(".card.digest"), retro: box(".card.retro"), ros: box(".card.ros"), waivers: box(".card.waivers"), overflow: document.documentElement.scrollWidth > innerWidth };
     });
     expect(boxes.overflow).toBe(false);
     expect(boxes.news.top).toBeGreaterThanOrEqual(boxes.lineup.bottom);
     expect(Math.abs(boxes.news.top - boxes.retro.top)).toBeLessThan(2);
     expect(boxes.ros.top).toBeGreaterThanOrEqual(boxes.retro.bottom);
     expect(boxes.ros.width).toBeGreaterThan(boxes.retro.width * 1.8);
+    expect(boxes.waivers.top).toBeGreaterThanOrEqual(boxes.ros.bottom);
     await page.screenshot({ path: `/tmp/ffb-command-${width}.png`, fullPage: true });
   }
 });
@@ -263,6 +280,24 @@ test("stale, degraded, waiting, and missing states render with their reasons", a
   await expect(page.locator(".card.retro code")).toHaveText("ffb retro 2024 --week 2 --publish");
 });
 
+test("waivers wait on Yahoo live authorization and ask a Sleeper league to publish", async ({ page }) => {
+  const yahoo = baseView();
+  yahoo.league_key = YAHOO;
+  yahoo.cards.waivers.envelope = null;
+  await open(page, yahoo);
+  expect(await state(page, "waivers")).toBe("waiting");
+  await expect(page.locator(".card.waivers [data-reason]")).toHaveText("Yahoo free agents need live authorization");
+  await expect(page.locator(".card.waivers code")).toHaveCount(0);
+
+  const sleeper = baseView();
+  sleeper.league_key = SLEEPER;
+  sleeper.cards.waivers.envelope = null;
+  await serve(page, sleeper);
+  await page.reload();
+  expect(await state(page, "waivers")).toBe("missing");
+  await expect(page.locator(".card.waivers code")).toHaveText("ffb waivers 2024 --league sleeper --publish");
+});
+
 test("the detail panel opens and closes from the keyboard and renders report text safely", async ({ page }) => {
   await open(page, baseView());
   const lineup = page.locator(".card.lineup");
@@ -298,6 +333,14 @@ test("the detail panel opens and closes from the keyboard and renders report tex
   await ros.getByRole("button", { name: "WR", exact: true }).click();
   await expect(ros.locator("table").first()).toContainText("Ja'Marr Chase");
   await expect(ros.locator("table").first()).not.toContainText("Derrick Henry");
+  await page.keyboard.press("Escape");
+
+  await page.locator(".card.waivers").click();
+  const waivers = page.getByRole("dialog", { name: "Waivers · week 2" });
+  await expect(waivers).toContainText("Starters, weakest first");
+  await expect(waivers.locator("table").first().locator("tbody tr")).toHaveCount(4);
+  await expect(waivers.locator("table").first()).toContainText("empty (DEF, —)");
+  await expect(waivers).toContainText("Sleeper trending adds are not ingested");
   await page.keyboard.press("Escape");
 
   await page.locator(".card.retro").click();
@@ -357,7 +400,7 @@ test("the week picker requests the neighbouring week and the API key gate works"
   await page.getByRole("textbox", { name: "API key" }).fill("test-secret-key");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Unlock the command center" })).toBeHidden();
-  await expect(page.locator("[data-grid] .card")).toHaveCount(4);
+  await expect(page.locator("[data-grid] .card")).toHaveCount(5);
   expect(await page.evaluate(() => localStorage.getItem("ffb.trackerKey"))).toBe("test-secret-key");
 });
 
@@ -428,7 +471,7 @@ test("keeps a league the directory does not list rather than swapping it", async
 
 test("names the team from the league bundle when nothing is published", async ({ page }) => {
   const empty = baseView();
-  for (const kind of ["lineup", "digest", "retro", "ros"] as const) empty.cards[kind] = { envelope: null };
+  for (const kind of ["lineup", "digest", "retro", "ros", "waivers"] as const) empty.cards[kind] = { envelope: null };
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.clock.setFixedTime(new Date(NOW));
   await page.addInitScript(() => localStorage.setItem("ffb.trackerKey", "test-secret-key"));
@@ -472,7 +515,7 @@ test("a league switch supersedes a week request still in flight", async ({ page 
     return route.fulfill({ json: slow });
   });
   await page.goto("/command");
-  await expect(page.locator("[data-grid] .card")).toHaveCount(4);
+  await expect(page.locator("[data-grid] .card")).toHaveCount(5);
   await expect(page.locator("[data-league-select]")).toHaveValue(YAHOO);
 
   await page.locator("[data-week-next]").click();
