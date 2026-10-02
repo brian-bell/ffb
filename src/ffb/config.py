@@ -160,6 +160,46 @@ ESPN_PRO_TEAM_MAP = {
     34: "HOU",
 }
 
+# Yahoo NFL team-defense player ids (``nfl.p.1000NN``), keyed by Yahoo's own id.
+# Yahoo numbers its D/ST players by its NFL team id, which happens to follow
+# the same historical order as ESPN's pro team ids, but this table is Yahoo's
+# contract and is kept separate. Confirmed live: 100014 Rams (Brian's week 2-4
+# bundles). Ids outside this table, including 100031/100032, are not defenses.
+YAHOO_DEFENSE_PLAYER_IDS = {
+    100001: "ATL",
+    100002: "BUF",
+    100003: "CHI",
+    100004: "CIN",
+    100005: "CLE",
+    100006: "DAL",
+    100007: "DEN",
+    100008: "DET",
+    100009: "GBP",
+    100010: "TEN",
+    100011: "IND",
+    100012: "KCC",
+    100013: "LVR",
+    100014: "LAR",
+    100015: "MIA",
+    100016: "MIN",
+    100017: "NEP",
+    100018: "NOS",
+    100019: "NYG",
+    100020: "NYJ",
+    100021: "PHI",
+    100022: "ARI",
+    100023: "PIT",
+    100024: "LAC",
+    100025: "SFO",
+    100026: "SEA",
+    100027: "TBB",
+    100028: "WAS",
+    100029: "CAR",
+    100030: "JAC",
+    100033: "BAL",
+    100034: "HOU",
+}
+
 # --- Yahoo league adapter (task 2b) -----------------------------------------
 # OAuth pieces that must match the registered Yahoo developer app exactly. The
 # redirect URI is part of the token-grant contract, so it lives in config (with

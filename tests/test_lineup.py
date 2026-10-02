@@ -75,6 +75,78 @@ def test_projection_key_does_not_guess_unmatched_skill_players():
     assert projection_key(_roster(full_name="Kyle Monangai", native_id="42025")) is None
 
 
+def test_projection_key_joins_a_noisy_yahoo_rams_defense():
+    """Week-4 scrape labeled Rams D/ST as a WR with a null team."""
+    row = _roster(
+        native_id="100014",
+        native_player_key="470.p.100014",
+        full_name="Rams",
+        nfl_team=None,
+        primary_position="WR",
+        eligible_positions=["WR"],
+        selected_position="BN",
+        player_key="yahoo:100014",
+        matched=False,
+    )
+    assert projection_key(row) == "def:LAR"
+    chargers = _roster(
+        native_id="100024",
+        native_player_key="470.p.100024",
+        full_name="Los Angeles",
+        nfl_team=None,
+        primary_position="WR",
+        eligible_positions=["WR"],
+        selected_position="BN",
+        player_key="yahoo:100024",
+        matched=False,
+    )
+    assert projection_key(chargers) == "def:LAC"
+    city = _roster(
+        native_id="42424",
+        native_player_key="470.p.42424",
+        full_name="Los Angeles",
+        nfl_team=None,
+        primary_position="WR",
+        eligible_positions=["WR"],
+        player_key="yahoo:42424",
+        matched=False,
+    )
+    assert projection_key(city) is None
+    sleeper = _roster(
+        native_id="100014",
+        native_player_key="sleeper:100014",
+        full_name="Not A Defense",
+        nfl_team="LAR",
+        primary_position="WR",
+        player_key="sleeper:100014",
+        matched=False,
+    )
+    assert projection_key(sleeper) is None
+
+
+def test_noisy_yahoo_rams_defense_scores_its_weekly_projection():
+    players = attach_weekly_points(
+        [
+            _roster(
+                native_id="100014",
+                native_player_key="470.p.100014",
+                full_name="Rams",
+                nfl_team=None,
+                primary_position="WR",
+                eligible_positions=["WR"],
+                selected_position="BN",
+                player_key="yahoo:100014",
+                matched=False,
+            )
+        ],
+        [_consensus("def:LAR", 7.04)],
+    )
+    assert players[0]["projection_key"] == "def:LAR"
+    assert players[0]["points"] == 7.04
+    report = compare_lineup(players, {"DEF": 1, "BN": 1})
+    assert report["missing_projections"] == []
+
+
 def test_optimal_starts_higher_weekly_rb_over_current_starter():
     players = attach_weekly_points(
         [

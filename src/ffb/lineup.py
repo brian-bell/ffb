@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ffb.identity import defense_identity
+from ffb.identity import resolve_roster_defense
 from ffb.vorp import BENCH_SLOT, FLEX_SLOTS
 
 NON_STARTING_SLOTS = frozenset({BENCH_SLOT, "IR", "IL"})
@@ -29,13 +29,27 @@ INJURY_BADGES = {
 _DEDICATED_ORDER = ("QB", "RB", "WR", "TE", "K", "DEF")
 
 
+def _yahoo_roster_row(row: dict[str, Any]) -> bool:
+    """True when the stored row came from a Yahoo id, not a Sleeper one."""
+    player_key = str(row.get("player_key") or "")
+    native_key = str(row.get("native_player_key") or "")
+    return player_key.startswith("yahoo:") or ".p." in native_key
+
+
 def projection_key(row: dict[str, Any]) -> str | None:
     """Return the weekly-consensus join key for a stored roster row."""
     if row.get("matched") and row.get("player_key"):
         return str(row["player_key"])
     position = row.get("primary_position") or row.get("position")
     team = row.get("nfl_team") if "nfl_team" in row else row.get("team")
-    defense = defense_identity(position, team, row.get("full_name"), row.get("name"))
+    defense = resolve_roster_defense(
+        position,
+        row.get("native_id"),
+        team,
+        row.get("full_name"),
+        row.get("name"),
+        provider="yahoo" if _yahoo_roster_row(row) else None,
+    )
     if defense is not None:
         return defense[0]
     return None

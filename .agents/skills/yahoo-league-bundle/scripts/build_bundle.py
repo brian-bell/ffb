@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ffb.identity import canonical_team, resolve_roster_defense
 from ffb.league import parse_bundle
 
 OFFENSE = "Offense"
@@ -173,12 +174,25 @@ def player(row: str, game_key: str) -> dict[str, Any]:
         raise CaptureError(f"unknown slot {slot!r} for {name}")
     if not player_id.isdigit():
         raise CaptureError(f"non-numeric player id {player_id!r} for {name}")
-    eligible = ["DEF" if p == "DST" else p for p in positions.split(",")]
+    eligible = ["DEF" if p == "DST" else p for p in positions.split(",") if p]
+    if not eligible:
+        raise CaptureError(f"player {name} has no positions")
+    # Known Yahoo D/ST ids stay defenses when the roster line is a skill-shaped
+    # miss (empty team, WR, or an ambiguous city). A line that already
+    # canonicalizes as DEF keeps that team, so a real abbreviation is not
+    # replaced by the id table.
+    defense = resolve_roster_defense(eligible[0], player_id, nfl_team, name, provider="yahoo")
+    if defense is not None and (
+        eligible[0] not in {"DEF", "DST"} or canonical_team(nfl_team) is None
+    ):
+        _key, team = defense
+        nfl_team = team
+        eligible = ["DEF"]
     return {
         "native_id": player_id,
         "native_player_key": f"{game_key}.p.{player_id}",
         "name": name.strip(),
-        "nfl_team": nfl_team.upper(),
+        "nfl_team": nfl_team.upper() if nfl_team else None,
         "primary_position": eligible[0],
         "eligible_positions": eligible,
         "selected_position": slot,

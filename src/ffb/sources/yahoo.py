@@ -356,6 +356,19 @@ def _parse_player(item: Any) -> dict[str, Any]:
         if isinstance(position, str) and position:
             eligible.append(position)
 
+    # A known D/ST id stays a defense when Yahoo's position/team fields are
+    # noisy. A row that already canonicalizes as a defense keeps that team,
+    # so an editorial abbreviation is not overwritten by the id table.
+    defense = identity.resolve_roster_defense(
+        primary, merged.get("player_id"), nfl_team, full_name, provider="yahoo"
+    )
+    if defense is not None and (
+        not identity.is_defense_position(primary) or identity.canonical_team(nfl_team) is None
+    ):
+        _player_key, nfl_team = defense
+        primary = "DEF"
+        eligible = ["DEF"]
+
     return {
         "native_id": _str(merged["player_id"], "player.player_id"),
         "native_player_key": _str(merged["player_key"], "player.player_key"),
