@@ -61,6 +61,27 @@ def test_full_capture_builds():
     assert _players(_build(_capture())) == 150
 
 
+def test_noisy_defense_lines_resolve_by_yahoo_id():
+    """A WR-shaped Rams line stays LAR. Chargers stay LAC, not a guessed city."""
+    capture = _capture()
+    rows = capture["rosters"]["9"]
+    benches = [i for i, row in enumerate(rows) if row.startswith("BN|")]
+    rows[benches[0]] = "BN|100014||WR|Rams"
+    rows[benches[1]] = "BN|100024|Los Angeles|WR|Los Angeles"
+    players = {
+        player["native_id"]: player
+        for roster in _build(capture)["rosters"]
+        for player in roster["players"]
+    }
+    assert players["100014"]["name"] == "Rams"
+    assert players["100014"]["nfl_team"] == "LAR"
+    assert players["100014"]["primary_position"] == "DEF"
+    assert players["100014"]["eligible_positions"] == ["DEF"]
+    assert players["100024"]["name"] == "Los Angeles"
+    assert players["100024"]["nfl_team"] == "LAC"
+    assert players["100024"]["primary_position"] == "DEF"
+
+
 def test_empty_rendered_slots_are_not_players():
     capture = _capture()
     # "(Empty)" TE and bench slots still render their slot labels.

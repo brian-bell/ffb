@@ -124,6 +124,44 @@ def test_teams_flatten_positional_fragments_and_detect_user_team():
     ]
 
 
+def test_yahoo_defense_id_overrides_a_noisy_skill_position():
+    """100014 is the Rams D/ST even when the payload says WR and has no team."""
+    raw = _load("roster_team1.json")
+    players = raw["fantasy_content"]["team"][1]["roster"]["0"]["players"]
+    players["1"]["player"][0] = [
+        {"player_key": "461.p.100014"},
+        {"player_id": "100014"},
+        {"name": {"full": "Rams", "first": "Rams", "last": ""}},
+        {"editorial_team_abbr": ""},
+        {"display_position": "WR"},
+        {"primary_position": "WR"},
+        {"eligible_positions": [{"position": "WR"}]},
+    ]
+    dst = yahoo.parse_roster(raw)["players"][1]
+    assert dst["name"] == "Rams"
+    assert dst["nfl_team"] == "LAR"
+    assert dst["primary_position"] == "DEF"
+    assert dst["eligible_positions"] == ["DEF"]
+
+
+def test_yahoo_chargers_id_is_los_angeles_not_the_rams():
+    raw = _load("roster_team1.json")
+    players = raw["fantasy_content"]["team"][1]["roster"]["0"]["players"]
+    players["1"]["player"][0] = [
+        {"player_key": "461.p.100024"},
+        {"player_id": "100024"},
+        {"name": {"full": "Los Angeles", "first": "Los Angeles", "last": ""}},
+        {"editorial_team_abbr": ""},
+        {"display_position": "WR"},
+        {"primary_position": "WR"},
+        {"eligible_positions": [{"position": "WR"}]},
+    ]
+    dst = yahoo.parse_roster(raw)["players"][1]
+    assert dst["name"] == "Los Angeles"
+    assert dst["nfl_team"] == "LAC"
+    assert dst["primary_position"] == "DEF"
+
+
 def test_yahoo_defense_names_canonicalize_without_abbr():
     raw = _load("roster_team1.json")
     players = raw["fantasy_content"]["team"][1]["roster"]["0"]["players"]

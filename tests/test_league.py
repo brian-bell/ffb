@@ -298,6 +298,109 @@ def test_refresh_keeps_and_heals_named_defenses(store, crosswalk_rows):
     assert store.refresh_league_roster_identities(2024) == 0
 
 
+def test_noisy_yahoo_defense_ids_resolve_and_refresh(store, crosswalk_rows):
+    """A WR-shaped Rams row is still def:LAR. Los Angeles is not guessed as one."""
+    store.upsert_crosswalk(crosswalk_rows)
+    data = _bundle()
+    data["rosters"][0]["players"] = [
+        {
+            "native_id": "100014",
+            "native_player_key": "470.p.100014",
+            "name": "Rams",
+            "nfl_team": None,
+            "primary_position": "WR",
+            "eligible_positions": ["WR"],
+            "selected_position": "BN",
+        },
+        {
+            "native_id": "100024",
+            "native_player_key": "470.p.100024",
+            "name": "Los Angeles",
+            "nfl_team": None,
+            "primary_position": "WR",
+            "eligible_positions": ["WR"],
+            "selected_position": "BN",
+        },
+        {
+            "native_id": "100033",
+            "native_player_key": "470.p.100033",
+            "name": "Ravens",
+            "nfl_team": "BAL",
+            "primary_position": "DEF",
+            "eligible_positions": ["DEF"],
+            "selected_position": "DEF",
+        },
+        {
+            "native_id": "42424",
+            "native_player_key": "470.p.42424",
+            "name": "Los Angeles",
+            "nfl_team": None,
+            "primary_position": "WR",
+            "eligible_positions": ["WR"],
+            "selected_position": "BN",
+        },
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    by_id = {row["native_id"]: row for row in store.league_roster_rows(2024)}
+    assert by_id["100014"]["player_key"] == "def:LAR"
+    assert by_id["100014"]["matched"] is True
+    assert by_id["100014"]["primary_position"] == "DEF"
+    assert by_id["100014"]["nfl_team"] == "LAR"
+    assert by_id["100014"]["eligible_positions"] == ["DEF"]
+    assert by_id["100024"]["player_key"] == "def:LAC"
+    assert by_id["100024"]["matched"] is True
+    assert by_id["100024"]["full_name"] == "Los Angeles"
+    assert by_id["100033"]["player_key"] == "def:BAL"
+    assert by_id["42424"]["player_key"] == "yahoo:42424"
+    assert by_id["42424"]["matched"] is False
+    assert by_id["42424"]["primary_position"] == "WR"
+
+    store.conn.execute(
+        """
+        UPDATE league_rosters
+        SET player_key = ?, matched = FALSE, nfl_team = NULL, primary_position = 'WR',
+            eligible_positions_json = '["WR"]'
+        WHERE native_id = ?
+        """,
+        ["yahoo:100014", "100014"],
+    )
+    assert store.refresh_league_roster_identities(2024) == 1
+    healed = {row["native_id"]: row for row in store.league_roster_rows(2024)}
+    assert healed["100014"]["player_key"] == "def:LAR"
+    assert healed["100014"]["matched"] is True
+    assert healed["100014"]["primary_position"] == "DEF"
+    assert healed["100014"]["nfl_team"] == "LAR"
+    assert healed["100014"]["eligible_positions"] == ["DEF"]
+    assert healed["100024"]["player_key"] == "def:LAC"
+    assert store.refresh_league_roster_identities(2024) == 0
+
+
+def test_sleeper_roster_does_not_treat_yahoo_defense_ids_as_defenses(store, crosswalk_rows):
+    """Sleeper native ids are not Yahoo D/ST ids, even when the number collides."""
+    store.upsert_crosswalk(crosswalk_rows)
+    data = _bundle()
+    data["source"] = "sleeper"
+    data["league"] = data["league"] | {"league_id": "sleeper-1", "league_key": "sleeper-1"}
+    data["teams"][0]["team_key"] = "sleeper-1.t.1"
+    data["rosters"][0]["team_key"] = "sleeper-1.t.1"
+    data["rosters"][0]["players"] = [
+        {
+            "native_id": "100014",
+            "native_player_key": "sleeper:100014",
+            "name": "Not A Defense",
+            "nfl_team": "LAR",
+            "primary_position": "WR",
+            "eligible_positions": ["WR"],
+            "selected_position": "BN",
+        }
+    ]
+    store.replace_league_state(parse_bundle(data, season=2024))
+    [row] = store.league_roster_rows(2024, league_key="sleeper:sleeper-1")
+    assert row["player_key"] == "sleeper:100014"
+    assert row["matched"] is False
+    assert row["primary_position"] == "WR"
+
+
 def test_stored_defenses_keep_their_canonical_key(store, crosswalk_rows):
     """A D/ST has its own identity; storing it unmatched mislabels a player that scores."""
     store.upsert_crosswalk(crosswalk_rows)
