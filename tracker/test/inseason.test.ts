@@ -232,6 +232,7 @@ describe("Worker POST /api/inseason/{kind}", () => {
     expect((await post("ros", { ...rosFixture, generated_at: "2026-09-16T11:06:20+00:00" })).status).toBe(200);
     const equal = await post("ros", rosFixture);
     expect(equal.status).toBe(200);
+    expect(await env.BOARD.get(inseasonKey(2024, "ros", 1))).toBe(JSON.stringify(rosFixture));
     const older = await post("ros", { ...rosFixture, generated_at: "2026-09-16T11:06:19+00:00" });
     expect(older.status).toBe(409);
   });

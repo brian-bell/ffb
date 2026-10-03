@@ -228,6 +228,46 @@ describe("cardFreshness", () => {
     const now = mutate(view, cards) ?? NOW;
     expect(cardFreshness(kind, view, now)).toEqual(expected);
   });
+
+  describe("past weeks", () => {
+    // Week 2 viewed after the league has moved on to week 4, a month later:
+    // every age and newer-input rule would fire, but the week is over.
+    function past(): { view: InseasonView; cards: Cards; now: number } {
+      const { view, cards } = fresh();
+      view.league = { synced_at: "2026-10-10T12:00:00Z", current_week: 4 };
+      cards.digest.report.injury_as_of = "2026-09-24T13:00:00Z";
+      return { view, cards, now: NOW + 30 * DAY_MS };
+    }
+
+    it.each(["lineup", "digest", "retro", "ros"] as InseasonKind[])("%s is archived instead of stale", (kind) => {
+      const { view, now } = past();
+      expect(cardFreshness(kind, view, now)).toEqual({ state: "archived", reason: "Week 2 is over" });
+    });
+
+    it("keeps degraded, since the report is still missing data", () => {
+      const { view, cards, now } = past();
+      cards.lineup.report.missing_projections = [cards.lineup.report.start[0]!];
+      expect(cardFreshness("lineup", view, now)).toEqual({ state: "degraded", reason: "1 player has no projection" });
+    });
+
+    it("keeps missing and waiting", () => {
+      const { view, now } = past();
+      view.cards.digest.envelope = null;
+      view.cards.retro.envelope = null;
+      view.actuals_available = { "1": false };
+      expect(cardFreshness("digest", view, now).state).toBe("missing");
+      expect(cardFreshness("retro", view, now).state).toBe("waiting");
+    });
+
+    it("does not archive the current week or when the league week is unknown", () => {
+      const current = past();
+      current.view.league = { synced_at: "2026-09-20T12:22:00Z", current_week: 2 };
+      expect(cardFreshness("ros", current.view, current.now).state).toBe("stale");
+      const unknown = past();
+      unknown.view.league = null;
+      expect(cardFreshness("ros", unknown.view, unknown.now).state).toBe("stale");
+    });
+  });
 });
 
 describe("oldestSource and formatAge", () => {

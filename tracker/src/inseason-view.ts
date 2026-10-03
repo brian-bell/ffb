@@ -19,7 +19,7 @@ export interface InseasonView {
   cards: Record<InseasonKind, InseasonCard>;
 }
 
-export type FreshnessState = "fresh" | "stale" | "degraded" | "waiting" | "missing";
+export type FreshnessState = "fresh" | "stale" | "degraded" | "waiting" | "missing" | "archived";
 
 export interface Freshness {
   state: FreshnessState;
@@ -62,34 +62,41 @@ function plural(count: number, singular: string, pluralWord: string): string {
 
 const FRESH: Freshness = { state: "fresh", reason: "" };
 
+/** A week before the league's current week: its documents can no longer go stale. */
+export function isPastWeek(view: InseasonView): boolean {
+  return view.league !== null && view.week < view.league.current_week;
+}
+
 export function cardFreshness(kind: InseasonKind, view: InseasonView, now: number): Freshness {
   const week = view.week;
   const envelope = view.cards[kind]?.envelope ?? null;
+  const past = isPastWeek(view);
   const age = envelope ? ageMillis(envelope.generated_at, now) : null;
+  const settled: Freshness = past ? { state: "archived", reason: `Week ${week} is over` } : FRESH;
 
   if (kind === "lineup") {
     if (!envelope || envelope.kind !== "lineup") return { state: "missing", reason: `Not published for week ${week}` };
-    if (view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {
+    if (!past && view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {
       return { state: "stale", reason: "Roster changed after this lineup was built" };
     }
     const digest = view.cards.digest?.envelope ?? null;
     const digestInjury = digest && digest.kind === "digest" ? digest.report.injury_as_of : null;
-    if (envelope.report.injury_as_of && digestInjury && later(digestInjury, envelope.report.injury_as_of)) {
+    if (!past && envelope.report.injury_as_of && digestInjury && later(digestInjury, envelope.report.injury_as_of)) {
       return { state: "stale", reason: "Newer injury report available" };
     }
-    if (age !== null && age > LINEUP_MAX_AGE_MS) return { state: "stale", reason: "Built more than 5 days ago" };
+    if (!past && age !== null && age > LINEUP_MAX_AGE_MS) return { state: "stale", reason: "Built more than 5 days ago" };
     const noProjection = envelope.report.missing_projections.length + envelope.report.undecidable.length;
     if (noProjection > 0) {
       return { state: "degraded", reason: `${plural(noProjection, "player has", "players have")} no projection` };
     }
-    return FRESH;
+    return settled;
   }
 
   if (kind === "digest") {
     if (!envelope || envelope.kind !== "digest") return { state: "missing", reason: `Not published for week ${week}` };
-    if (age !== null && age > DIGEST_MAX_AGE_MS) return { state: "stale", reason: "Headlines are more than 5 days old" };
+    if (!past && age !== null && age > DIGEST_MAX_AGE_MS) return { state: "stale", reason: "Headlines are more than 5 days old" };
     if (envelope.report.llm?.error) return { state: "degraded", reason: "LLM skipped — headlines only" };
-    return FRESH;
+    return settled;
   }
 
   if (kind === "retro") {
@@ -101,12 +108,12 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
     }
     const missing = envelope.report.missing_actuals.length;
     if (missing > 0) return { state: "degraded", reason: `${plural(missing, "player has", "players have")} no actuals` };
-    return FRESH;
+    return settled;
   }
 
   if (!envelope || envelope.kind !== "ros") return { state: "missing", reason: "Not published" };
-  if (age !== null && age > ROS_MAX_AGE_MS) return { state: "stale", reason: "Built more than 8 days ago" };
-  return FRESH;
+  if (!past && age !== null && age > ROS_MAX_AGE_MS) return { state: "stale", reason: "Built more than 8 days ago" };
+  return settled;
 }
 
 export interface OldestSource {

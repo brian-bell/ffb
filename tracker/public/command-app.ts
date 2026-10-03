@@ -4,7 +4,7 @@
 // badges come only from cardFreshness (../src/inseason-view).
 
 import type { DigestPlayer, DigestReport, Headline, InseasonEnvelope, InseasonKind, LineupReport, LineupRow, RetroReport, RetroRow, RosReport } from "../src/inseason";
-import { KIND_LABEL, ageMillis, cardFreshness, formatAge, lineupCardRows, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
+import { KIND_LABEL, ageMillis, cardFreshness, formatAge, isPastWeek, lineupCardRows, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
 import { leagueLabels, type LeagueDirectory, type LeagueOption } from "../src/league-directory";
 import { requestJson } from "../src/request-json";
 import { makeStore } from "../src/state";
@@ -544,10 +544,12 @@ function renderAll(): void {
     card.addEventListener("click", () => openPanel(card.dataset.kind as InseasonKind, card));
   }
   const oldest = oldestSource(current, now);
-  oldestEl.classList.remove("ok", "none");
+  oldestEl.classList.remove("ok", "none", "archived");
   if (oldest) {
     oldestTextEl.textContent = `Oldest source: ${KIND_LABEL[oldest.kind]}, ${formatAge(oldest.ageMs)}`;
-    oldestEl.classList.toggle("ok", oldest.ageMs < 2 * DAY_MS);
+    // A finished week's documents are expected to be old; age is not a warning there.
+    if (isPastWeek(current)) oldestEl.classList.add("archived");
+    else oldestEl.classList.toggle("ok", oldest.ageMs < 2 * DAY_MS);
   } else {
     oldestTextEl.textContent = "Nothing published";
     oldestEl.classList.add("none");
