@@ -278,7 +278,7 @@ describe("cardFreshness", () => {
       return { view, cards, now: NOW + 30 * DAY_MS };
     }
 
-    it.each(["lineup", "digest", "retro", "ros"] as InseasonKind[])("%s is archived instead of stale", (kind) => {
+    it.each(["lineup", "digest", "retro", "ros", "waivers"] as InseasonKind[])("%s is archived instead of stale", (kind) => {
       const { view, now } = past();
       expect(cardFreshness(kind, view, now)).toEqual({ state: "archived", reason: "Week 2 is over" });
     });

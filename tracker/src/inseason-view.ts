@@ -124,15 +124,15 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
       }
       return { state: "missing", reason: `Not published for week ${week}` };
     }
-    if (view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {
+    if (!past && view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {
       return { state: "stale", reason: "Rosters changed after these targets were built" };
     }
-    if (age !== null && age > WAIVERS_MAX_AGE_MS) return { state: "stale", reason: "Built more than 5 days ago" };
+    if (!past && age !== null && age > WAIVERS_MAX_AGE_MS) return { state: "stale", reason: "Built more than 5 days ago" };
     const unmatched = envelope.report.unmatched_rostered.length;
     if (unmatched > 0) {
       return { state: "degraded", reason: `${plural(unmatched, "rostered player is", "rostered players are")} unmatched` };
     }
-    return FRESH;
+    return settled;
   }
 
   if (!envelope || envelope.kind !== "ros") return { state: "missing", reason: "Not published" };
