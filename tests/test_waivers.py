@@ -157,3 +157,21 @@ def test_a_multi_position_free_agent_is_measured_at_every_slot_it_can_fill():
     assert row["replaces"] == "Mine RB2"
     assert row["replaces_slot"] == "W/R/T"
     assert row["gain"] == 5.0
+
+
+def test_an_unprojected_rostered_player_leaves_the_slot_baseline_unknown_not_zero():
+    roster, consensus, rostered = _league()
+    roster.append(_roster("def:BAL", "Ravens", "DEF", selected="DEF"))
+    rostered.add("def:BAL")
+    report = waiver_report(consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS)
+    # The Ravens have no ROS row: their value is unknown, so no free DEF is
+    # scored against them as if the slot were empty.
+    assert "49ers" not in _by_name(report)
+    starters = {row["slot"]: row for row in report["starters"]}
+    assert starters["DEF"] == {"slot": "DEF", "name": "Ravens", "position": "DEF", "ros": None}
+    # An injured unprojected player still leaves the slot genuinely empty.
+    injuries = [{"player_key": "def:BAL", "status": "IR", "matched": True}]
+    report = waiver_report(
+        consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS, injuries=injuries
+    )
+    assert _by_name(report)["49ers"]["gain"] == 110.0

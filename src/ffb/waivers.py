@@ -15,16 +15,22 @@ from ffb.lineup import (
     attach_injuries,
     attach_weekly_points,
     can_fill,
+    is_unavailable,
     optimal_starters,
     starting_slot_counts,
 )
-from ffb.vorp import eligible_positions
+from ffb.vorp import FLEX_SLOTS, eligible_positions
 
 CANDIDATES_PER_POSITION = 10
 
 
 def _baselines(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> list[dict]:
-    """ROS-optimal starters per slot, with an empty row for each slot left unfilled."""
+    """ROS-optimal starters per slot; each slot left unfilled is empty or unknown.
+
+    An available rostered player with no ROS projection who could fill an open
+    slot makes its baseline unknown (named, ``ros`` None) rather than empty:
+    a missing projection does not establish zero value.
+    """
     open_counts = dict(starting_slot_counts(roster_slots))
     rows: list[dict[str, Any]] = []
     for starter in optimal_starters(players, roster_slots):
@@ -37,12 +43,28 @@ def _baselines(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> l
                 "ros": starter["points"],
             }
         )
-    for slot, count in open_counts.items():
-        rows.extend(
-            {"slot": slot, "name": None, "position": None, "ros": None} for _ in range(count)
-        )
+    unprojected = [
+        player
+        for player in players
+        if player.get("points") is None and player.get("name") and not is_unavailable(player)
+    ]
+    for slot in sorted(open_counts, key=lambda slot: slot in FLEX_SLOTS):
+        for _ in range(open_counts[slot]):
+            holder = next((player for player in unprojected if can_fill(player, slot)), None)
+            if holder is None:
+                rows.append({"slot": slot, "name": None, "position": None, "ros": None})
+                continue
+            unprojected.remove(holder)
+            rows.append(
+                {"slot": slot, "name": holder["name"], "position": holder["position"], "ros": None}
+            )
     rows.sort(key=lambda row: (row["ros"] is not None, row["ros"] or 0.0, row["slot"]))
     return rows
+
+
+def _unknown(starter: dict[str, Any]) -> bool:
+    """A slot held by a rostered player without a ROS projection."""
+    return starter["name"] is not None and starter["ros"] is None
 
 
 def waiver_report(
@@ -89,7 +111,7 @@ def waiver_report(
             "eligible_positions": (eligibility or {}).get(row["player_key"], []),
         }
         options = [starter for starter in starters if can_fill(probe, starter["slot"])]
-        if not options:
+        if not options or any(_unknown(starter) for starter in options):
             continue
         weakest = min(options, key=lambda starter: starter["ros"] or 0.0)
         gain = round(float(row["consensus"]) - float(weakest["ros"] or 0.0), 2)

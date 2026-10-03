@@ -132,6 +132,12 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
     if (unmatched > 0) {
       return { state: "degraded", reason: `${plural(unmatched, "rostered player is", "rostered players are")} unmatched` };
     }
+    // A named starter without ROS points has an unknown baseline, so its slot
+    // was left out of the targets.
+    const unprojected = envelope.report.starters.filter((row) => row.name && row.ros === null).length;
+    if (unprojected > 0) {
+      return { state: "degraded", reason: `${plural(unprojected, "starter has", "starters have")} no projection` };
+    }
     return settled;
   }
 

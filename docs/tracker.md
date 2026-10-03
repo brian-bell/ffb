@@ -223,8 +223,8 @@ Freshness is decided only by `cardFreshness(kind, view, now)` in
 States are `fresh`, `stale` (roster changed after the lineup was built, a
 newer injury report in the digest, or aged past 5 days for lineup and news or
 8 days for rest of season; waivers go stale like lineup), `degraded` (missing
-projections, LLM skipped, missing actuals, or unmatched rostered players on the
-waiver card), `waiting` (no prior week, actuals not posted yet, or waivers for
+projections, LLM skipped, missing actuals, or unmatched or unprojected rostered
+players on the waiver card), `waiting` (no prior week, actuals not posted yet, or waivers for
 a non-Sleeper league until Yahoo live authorization), and
 `missing` (nothing published; the card shows the command to run). Retro never
 ages out. The header strip shows the week, team, and the oldest source on

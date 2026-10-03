@@ -260,6 +260,18 @@ describe("cardFreshness", () => {
       mutate: (_view, cards) => { cards.waivers.report.unmatched_rostered = ["Rival Receiver"]; },
       expected: { state: "degraded", reason: "1 rostered player is unmatched" },
     },
+    {
+      name: "waivers with an unprojected starter",
+      kind: "waivers",
+      mutate: (_view, cards) => {
+        cards.waivers.report.starters = [
+          ...cards.waivers.report.starters,
+          { slot: "DEF", name: "Ravens", position: "DEF", ros: null },
+          { slot: "K", name: null, position: null, ros: null },
+        ];
+      },
+      expected: { state: "degraded", reason: "1 starter has no projection" },
+    },
   ];
 
   it.each(table)("$name", ({ kind, mutate, expected }) => {

@@ -467,7 +467,10 @@ they could replace:
    slots it can fill (an empty slot counts as 0). A player Sleeper lists at two
    positions (a QB/TE) can fill the slots of both, read from the cached
    `/players/nfl` map. Only positive gains are kept,
-   ranked by gain, at most 10 per position.
+   ranked by gain, at most 10 per position. An available rostered player with
+   no ROS projection who could fill an open slot holds it with an unknown
+   value (`ros` null): a missing projection is not zero, so no free agent is
+   measured against a set of slots that includes it.
 
 Report shape: `candidates` (`rank`, `name`, `position`, `team`, `ros`,
 `injury`, `replaces`, `replaces_slot`, `replaces_ros`, `gain`), `starters`
@@ -494,7 +497,8 @@ Freshness, first match wins:
 | `league.synced_at` > `context.league_synced_at` | `stale` — "Rosters changed after these targets were built" |
 | age > 5 days | `stale` — "Built more than 5 days ago" |
 | `report.unmatched_rostered` non-empty | `degraded` — "N rostered players are unmatched" |
-| otherwise | `fresh` |
+| a `report.starters` row has a `name` and null `ros` | `degraded` — "N starters have no projection" |
+| otherwise | `fresh` (`archived` for a past week) |
 
 The grid gains a third desktop row (`waivers waivers news`); between 760 and
 1100 px and below, waivers stacks after rest of season.
