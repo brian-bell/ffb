@@ -459,7 +459,9 @@ they could replace:
    whose canonical key is on no team in the league. Unmatched consensus rows
    never enter.
 3. Each free agent's gain is its ROS points minus the weakest starter among the
-   slots it can fill (an empty slot counts as 0). Only positive gains are kept,
+   slots it can fill (an empty slot counts as 0). A player Sleeper lists at two
+   positions (a QB/TE) can fill the slots of both, read from the cached
+   `/players/nfl` map. Only positive gains are kept,
    ranked by gain, at most 10 per position.
 
 Report shape: `candidates` (`rank`, `name`, `position`, `team`, `ros`,

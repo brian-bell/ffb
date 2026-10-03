@@ -53,6 +53,7 @@ def waiver_report(
     roster_slots: dict[str, int],
     injuries: list[dict[str, Any]] | None = None,
     unmatched_rostered: list[str] | None = None,
+    eligibility: dict[str, list[str]] | None = None,
     per_position: int = CANDIDATES_PER_POSITION,
 ) -> dict[str, Any]:
     """Rank unrostered players by ROS gain over the weakest starter they could replace.
@@ -61,6 +62,8 @@ def waiver_report(
     only true free agents enter the pool. Unmatched consensus rows never do.
     ``unmatched_rostered`` names rostered players with no canonical key: they
     cannot be excluded from the pool, so the report says so instead of guessing.
+    ``eligibility`` maps a canonical key to provider slot eligibility beyond its
+    position (a QB/TE), so such a player is measured at every slot it can fill.
     """
     injury_rows = injuries or []
     players = attach_injuries(attach_weekly_points(roster, consensus), injury_rows)
@@ -81,7 +84,10 @@ def waiver_report(
     ]
     candidates: list[dict[str, Any]] = []
     for row in pool:
-        probe = {"position": row["position"], "eligible_positions": []}
+        probe = {
+            "position": row["position"],
+            "eligible_positions": (eligibility or {}).get(row["player_key"], []),
+        }
         options = [starter for starter in starters if can_fill(probe, starter["slot"])]
         if not options:
             continue

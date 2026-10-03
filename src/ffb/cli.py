@@ -1141,6 +1141,9 @@ def waivers(
     )
     status = _service(store).status(season)
     injuries = store.injury_rows(season)
+    eligibility = sleeper_league.cached_free_agent_eligibility(
+        store, SnapshotCache(paths.snapshot_dir())
+    )
     store.close()
     _warn_source_states(status, include_adp=False, wanted={"injuries"})
     rostered_keys = {key for row in all_roster if (key := projection_key(row)) is not None}
@@ -1162,6 +1165,7 @@ def waivers(
         roster_slots=league_ctx.roster_slots,
         injuries=injuries,
         unmatched_rostered=unmatched,
+        eligibility=eligibility,
     )
     _render_waivers(report, season=season, week=current_week, limit=limit)
     _report_scoring_provenance(league_ctx)

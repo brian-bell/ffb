@@ -442,6 +442,44 @@ def _eligible(position: str, fantasy_positions: object = None) -> list[str]:
     return slots
 
 
+def free_agent_eligibility(store: Any, players_by_id: dict[str, Any]) -> dict[str, list[str]]:
+    """Canonical key → Sleeper slot eligibility for players listed at two positions.
+
+    A waiver pool built from consensus rows knows only each player's crosswalk
+    position, so a QB/TE would be measured against QB alone. Only players whose
+    ``fantasy_positions`` add a modeled slot are returned, and only when the
+    Sleeper id resolves to a unique crosswalk row; anything else is never guessed.
+    """
+    multi: dict[str, tuple[str, list[str]]] = {}
+    for player_id, raw in players_by_id.items():
+        meta = raw if isinstance(raw, dict) else {}
+        raw_position = meta.get("position")
+        if not isinstance(raw_position, str):
+            continue
+        position = "K" if raw_position == "PK" else raw_position
+        if position not in config.FANTASY_POSITIONS:
+            continue
+        slots = _eligible(position, meta.get("fantasy_positions"))
+        if slots != identity.slot_eligibility(position):
+            multi[str(player_id)] = (position, slots)
+    if not multi:
+        return {}
+    lookup = store.resolve_batch("sleeper", list(multi))
+    eligibility: dict[str, list[str]] = {}
+    for player_id, hit in lookup.items():
+        position, slots = multi[player_id]
+        eligibility[hit["player_key"]] = identity.merge_eligibility(
+            hit.get("position") or position, position, slots
+        )
+    return eligibility
+
+
+def cached_free_agent_eligibility(store: Any, cache: Any) -> dict[str, list[str]]:
+    """``free_agent_eligibility`` over the cached ``/players/nfl`` map, or ``{}``."""
+    players = _cached_players(cache)
+    return free_agent_eligibility(store, players) if players else {}
+
+
 def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach canonical keys via ``resolve_batch("sleeper")``. DEF uses ``def:<team>``."""
     native_ids = [player["native_id"] for player in players]

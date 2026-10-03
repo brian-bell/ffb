@@ -139,3 +139,21 @@ def test_an_injured_starter_leaves_the_slot_to_the_next_best_rostered_player():
     # WR1 on IR: the bench WR (60) starts at WR, so Free Receiver (85) is +25.
     assert _by_name(report)["Free Receiver"]["gain"] == 25.0
     assert _by_name(report)["Free Receiver"]["replaces"] == "Mine WR Bench"
+
+
+def test_a_multi_position_free_agent_is_measured_at_every_slot_it_can_fill():
+    roster, consensus, rostered = _league()
+    consensus.append(_ros("fa-qbte", "Gadget Passer", "QB", 95.0))
+    plain = waiver_report(consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS)
+    assert "Gadget Passer" not in _by_name(plain)  # 95 never beats the 300 QB
+    report = waiver_report(
+        consensus,
+        roster=roster,
+        rostered_keys=rostered,
+        roster_slots=SLOTS,
+        eligibility={"fa-qbte": ["QB", "TE", "W/R/T"]},
+    )
+    row = _by_name(report)["Gadget Passer"]
+    assert row["replaces"] == "Mine RB2"
+    assert row["replaces_slot"] == "W/R/T"
+    assert row["gain"] == 5.0
