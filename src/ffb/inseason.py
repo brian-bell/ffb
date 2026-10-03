@@ -1,6 +1,6 @@
 """Closed publish envelope for the in-season command center.
 
-Each report command (`lineup`, `digest`, `retro`, `ros`) can ``--publish`` the
+Each report command (`lineup`, `digest`, `retro`, `ros`, `waivers`) can ``--publish`` the
 exact dict it just rendered. This module builds the versioned envelope the
 tracker Worker stores under ``inseason:v1:{season}:{kind}:{week}``; it is pure
 so the CLI owns all I/O. Secrets never enter the envelope.
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 SCHEMA_VERSION = 1
-KINDS = ("lineup", "digest", "retro", "ros")
+KINDS = ("lineup", "digest", "retro", "ros", "waivers")
 
 # Kind-specific provenance keys. Closed per kind: an envelope with extra or
 # missing context keys is a programming error, not a data condition.
@@ -21,6 +21,7 @@ CONTEXT_KEYS: dict[str, frozenset[str]] = {
     "digest": frozenset({"sources"}),
     "retro": frozenset({"actuals_synced_at"}),
     "ros": frozenset({"projection_sources", "playoff_weeks_requested"}),
+    "waivers": frozenset({"league_synced_at", "projection_sources"}),
 }
 
 
@@ -50,7 +51,7 @@ def build_envelope(
 
     ``report`` is passed through unchanged. ``week`` is the report week for
     ``lineup`` and ``digest``, the scored week for ``retro``, and the stored
-    current week at generation for ``ros``.
+    current week at generation for ``ros`` and ``waivers``.
     """
     if kind not in KINDS:
         raise ValueError(f"unknown report kind {kind!r}")

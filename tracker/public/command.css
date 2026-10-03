@@ -1,5 +1,5 @@
 /* In-season command center — desktop dashboard on the Draft Room dark tokens.
-   Four summary cards in a grid, one right-side detail panel. Card badges are
+   Five summary cards in a grid, one right-side detail panel. Card badges are
    driven only by cardFreshness (src/inseason-view.ts). */
 :root {
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, sans-serif;
@@ -79,7 +79,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60px; }
 .status { margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--muted); font-size: 13px; }
 .status.error { color: var(--reach); border-color: #5a2a2a; }
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "lineup lineup news" "retro ros news"; gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "lineup lineup news" "retro ros news" "waivers waivers news"; gap: 14px; }
 .card { position: relative; display: flex; flex-direction: column; min-height: 240px; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); text-align: left; overflow: hidden; transition: border-color 0.12s; }
 .card:hover { border-color: #3a4859; }
 .card[aria-expanded="true"] { border-color: var(--accent); }
@@ -87,6 +87,7 @@ main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 22px 0 60
 .card.digest { grid-area: news; }
 .card.retro { grid-area: retro; }
 .card.ros { grid-area: ros; }
+.card.waivers { grid-area: waivers; }
 .card.stale { box-shadow: inset 4px 0 var(--accent); }
 .card.waiting, .card.missing { border-style: dashed; background: transparent; cursor: default; }
 .card.waiting { border-color: #2b5a85; }
@@ -198,10 +199,10 @@ td.warn { color: var(--accent); }
 }
 
 @media (max-width: 1100px) {
-  .grid { grid-template-columns: 1fr 1fr; grid-template-areas: "lineup lineup" "news retro" "ros ros"; }
+  .grid { grid-template-columns: 1fr 1fr; grid-template-areas: "lineup lineup" "news retro" "ros ros" "waivers waivers"; }
 }
 @media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; grid-template-areas: "lineup" "news" "retro" "ros"; }
+  .grid { grid-template-columns: 1fr; grid-template-areas: "lineup" "news" "retro" "ros" "waivers"; }
   .oldest, .team { display: none; }
   /* Two rows on a phone: brand and links on top, then the league select and
      week stepper sharing a full-width row. One flex row crushed the select to

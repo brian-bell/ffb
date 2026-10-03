@@ -149,6 +149,7 @@ def test_a_stale_yahoo_bundle_publishes_no_yahoo_cards(tmp_path, stale):
     assert not set(YAHOO_COMMANDS) & set(ran)
     assert "season sync 2026 --week 4 --refresh" in ran
     assert "digest 2026 --league sleeper --publish" in ran
+    assert "waivers 2026 --league sleeper --publish" in ran
     assert result.stdout.rstrip().endswith(RERUN)
 
 
@@ -171,7 +172,12 @@ def test_make_refresh_still_fails_on_a_failed_command(tmp_path):
 def test_a_fresh_yahoo_bundle_publishes_yahoo_cards(tmp_path):
     result = _refresh(tmp_path, [_fresh(YAHOO_KEY), _fresh(SLEEPER_KEY)])
     assert result.returncode == 0, result.stderr
-    assert set(YAHOO_COMMANDS) <= set(_ran(tmp_path))
+    ran = _ran(tmp_path)
+    assert set(YAHOO_COMMANDS) <= set(ran)
+    # Yahoo free agents need live authorization, so waivers stay Sleeper-only.
+    assert [command for command in ran if command.startswith("waivers")] == [
+        "waivers 2026 --league sleeper --publish"
+    ]
     assert "yahoo-only" not in result.stdout
 
 

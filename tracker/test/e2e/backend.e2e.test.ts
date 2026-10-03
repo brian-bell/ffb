@@ -532,6 +532,9 @@ describe("in-season report publish", () => {
     expect(cardFreshness("digest", view1, now)).toEqual({ state: "degraded", reason: "LLM skipped — headlines only" });
     expect(cardFreshness("retro", view1, now)).toEqual({ state: "waiting", reason: "No prior week to grade" });
     expect(cardFreshness("ros", view1, now).state).toBe("fresh");
+    // The CLI refuses Yahoo waivers until live authorization, so this card waits.
+    expect(view1.cards.waivers.envelope).toBeNull();
+    expect(cardFreshness("waivers", view1, now)).toEqual({ state: "waiting", reason: "Yahoo free agents need live authorization" });
 
     const week2 = await api.getInseason(2024, 2);
     expect(week2.status).toBe(200);

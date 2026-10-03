@@ -18,6 +18,7 @@ from ffb import board as board_mod
 from ffb import config, paths
 from ffb import digest as digest_mod
 from ffb import ros as ros_mod
+from ffb import waivers as waivers_mod
 from ffb.actuals import parse_actuals
 from ffb.claude import (
     HAIKU_MODEL,
@@ -39,6 +40,7 @@ from ffb.lineup import (
     attach_weekly_points,
     compare_lineup,
     injury_badge,
+    projection_key,
 )
 from ffb.retro import (
     actuals_snapshot_key,
@@ -1084,6 +1086,108 @@ def ros(
 
 
 @app.command()
+def waivers(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    limit: int = typer.Option(15, "--limit", help="Max waiver targets to show."),
+    publish: bool = typer.Option(
+        False,
+        "--publish",
+        help="POST the full report to the tracker command center.",
+    ),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
+) -> None:
+    """Rank unrostered players by ROS gain over the user's weakest starters."""
+    store = _open_store()
+    league_key = _select_league(store, season, league)
+    assert league_key is not None
+    if not league_key.startswith("sleeper:"):
+        store.close()
+        console.print(
+            f"[yellow]Waiver targets cover Sleeper leagues only; {league_key} free agents "
+            f"need Yahoo live authorization (ffb-1ct.2).[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    context = store.league_context(season, league_key)
+    if context is None:
+        store.close()
+        _no_league_state(season)
+        raise typer.Exit(code=1)
+    current_week = context["current_week"]
+    teams = store.league_teams(season, league_key)
+    user_teams = [team for team in teams if team["is_user_team"]]
+    if len(user_teams) != 1:
+        store.close()
+        console.print(
+            "[red]Waiver targets need exactly one team marked is_user_team in league state.[/red]"
+        )
+        raise typer.Exit(code=1)
+    user = user_teams[0]
+    active_sources = [
+        source for source in _SOURCE_COLUMNS if store.has_season(season, source, "season")
+    ]
+    if not active_sources:
+        store.close()
+        console.print(f"[red]No projection sources are available for {season}.[/red]")
+        raise typer.Exit(code=1)
+    store.refresh_league_roster_identities(season, current_week, league_key)
+    all_roster = store.league_roster_rows(season, week=current_week, league_key=league_key)
+    league_ctx = load_league_context(store, season, league_key)
+    consensus = consensus_rows(
+        store,
+        season=season,
+        position=None,
+        sources=active_sources,
+        cfg=league_ctx.scoring,
+    )
+    status = _service(store).status(season)
+    injuries = store.injury_rows(season)
+    eligibility = sleeper_league.cached_free_agent_eligibility(
+        store, SnapshotCache(paths.snapshot_dir())
+    )
+    store.close()
+    _warn_source_states(status, include_adp=False, wanted={"injuries"})
+    rostered_keys = {key for row in all_roster if (key := projection_key(row)) is not None}
+    unmatched = [
+        row.get("full_name") or row.get("name") or str(row.get("native_id"))
+        for row in all_roster
+        if projection_key(row) is None
+    ]
+    if unmatched:
+        console.print(
+            f"[yellow]{len(unmatched)} rostered player(s) in the league did not match the "
+            f"crosswalk and may be listed as free agents: {', '.join(sorted(unmatched))}. "
+            f"Run: ffb season sync {season}[/yellow]"
+        )
+    report = waivers_mod.waiver_report(
+        consensus,
+        roster=[row for row in all_roster if row["team_key"] == user["team_key"]],
+        rostered_keys=rostered_keys,
+        roster_slots=league_ctx.roster_slots,
+        injuries=injuries,
+        unmatched_rostered=unmatched,
+        eligibility=eligibility,
+    )
+    _render_waivers(report, season=season, week=current_week, limit=limit)
+    _report_scoring_provenance(league_ctx)
+    if publish:
+        _publish_report(
+            build_envelope(
+                "waivers",
+                season=season,
+                week=current_week,
+                generated_at=utc_now(),
+                team_name=user["name"],
+                context={
+                    "league_synced_at": context["synced_at"],
+                    "projection_sources": list(active_sources),
+                },
+                report=report,
+            ),
+            league_key=league_key,
+        )
+
+
+@app.command()
 def digest(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
     week: int | None = typer.Option(
@@ -1451,6 +1555,47 @@ def _render_ros(report: dict, *, season: int, pos: str | None, limit: int) -> No
             console.print(f"Week {group['bye']}: {names}{thin}")
     if not report["usage_available"]:
         console.print("[dim]Usage trends are not ingested; stash/buy-low flags omitted.[/dim]")
+
+
+def _render_waivers(report: dict, *, season: int, week: int, limit: int) -> None:
+    """Print waiver targets and the starters they are measured against."""
+    console.print(
+        f"[yellow]{season} week {week} waiver targets[/yellow] — "
+        f"{report['free_agents']} free agents scored on rest-of-season consensus"
+    )
+    if report["candidates"]:
+        table = Table(title="Waiver targets")
+        table.add_column("Rank", justify="right", style="cyan")
+        table.add_column("Player")
+        table.add_column("Pos", justify="center")
+        table.add_column("Team", justify="center")
+        table.add_column("ROS", justify="right", style="green")
+        table.add_column("Replaces")
+        table.add_column("Gain", justify="right", style="green")
+        for row in report["candidates"][:limit]:
+            name = row["name"] + (f" ({row['injury']})" if row["injury"] else "")
+            replaces = row["replaces"] or "empty"
+            table.add_row(
+                str(row["rank"]),
+                name,
+                row["position"] or "—",
+                row["team"] or "—",
+                _num(row["ros"]),
+                f"{replaces} ({row['replaces_slot']}, {_num(row['replaces_ros'])})",
+                f"+{row['gain']:.1f}",
+            )
+        console.print(table)
+    else:
+        console.print("No free agent beats a current starter on rest-of-season value.")
+    starters = Table(title="Starters, weakest first")
+    starters.add_column("Slot", justify="center", style="cyan")
+    starters.add_column("Player")
+    starters.add_column("ROS", justify="right")
+    for row in report["starters"]:
+        starters.add_row(row["slot"], row["name"] or "empty", _num(row["ros"]))
+    console.print(starters)
+    if not report["trending_available"]:
+        console.print("[dim]Sleeper trending adds are not ingested; no trending boost.[/dim]")
 
 
 def _bye_plan_player_label(player: dict) -> str:

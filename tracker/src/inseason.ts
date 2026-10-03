@@ -9,7 +9,7 @@ import { DEFAULT_LEAGUE_KEY, isDefaultLeague, leagueSlug } from "./league-keys";
 export const INSEASON_KEY_PREFIX = "inseason:v1:";
 export const INSEASON_KEY_PREFIX_V2 = "inseason:v2:";
 export const INSEASON_SCHEMA_VERSION = 1;
-export const INSEASON_KINDS = ["lineup", "digest", "retro", "ros"] as const;
+export const INSEASON_KINDS = ["lineup", "digest", "retro", "ros", "waivers"] as const;
 export type InseasonKind = (typeof INSEASON_KINDS)[number];
 
 export interface LineupContext {
@@ -26,6 +26,10 @@ export interface RetroContext {
 export interface RosContext {
   projection_sources: string[];
   playoff_weeks_requested: number[];
+}
+export interface WaiversContext {
+  league_synced_at: string | null;
+  projection_sources: string[];
 }
 
 export interface LineupRow {
@@ -126,6 +130,34 @@ export interface RosReport {
   usage_available: boolean;
 }
 
+export interface WaiverCandidate {
+  rank: number;
+  player_key?: string;
+  name: string;
+  position: string | null;
+  team: string | null;
+  ros: number;
+  n?: number;
+  injury: string | null;
+  replaces: string | null;
+  replaces_slot: string;
+  replaces_ros: number | null;
+  gain: number;
+}
+export interface WaiverStarter {
+  slot: string;
+  name: string | null;
+  position: string | null;
+  ros: number | null;
+}
+export interface WaiversReport {
+  candidates: WaiverCandidate[];
+  starters: WaiverStarter[];
+  free_agents: number;
+  unmatched_rostered: string[];
+  trending_available: boolean;
+}
+
 interface EnvelopeBase {
   schema_version: 1;
   season: number;
@@ -137,7 +169,8 @@ export type InseasonEnvelope =
   | (EnvelopeBase & { kind: "lineup"; context: LineupContext; report: LineupReport })
   | (EnvelopeBase & { kind: "digest"; context: DigestContext; report: DigestReport })
   | (EnvelopeBase & { kind: "retro"; context: RetroContext; report: RetroReport })
-  | (EnvelopeBase & { kind: "ros"; context: RosContext; report: RosReport });
+  | (EnvelopeBase & { kind: "ros"; context: RosContext; report: RosReport })
+  | (EnvelopeBase & { kind: "waivers"; context: WaiversContext; report: WaiversReport });
 
 export type ParseEnvelopeResult =
   | { ok: true; envelope: InseasonEnvelope }
@@ -476,6 +509,38 @@ function rosReport(value: unknown): void {
   bool(report.usage_available, "report.usage_available");
 }
 
+function waiversReport(value: unknown): void {
+  const report = obj(value, "report");
+  requireKeys(report, ["candidates", "starters", "free_agents", "unmatched_rostered", "trending_available"], "report");
+  list(report.candidates, "report.candidates").forEach((raw, i) => {
+    const label = `report.candidates[${i}]`;
+    const row = obj(raw, label);
+    positiveInt(row.rank, `${label}.rank`);
+    str(row.name, `${label}.name`);
+    nullableStr(row.position ?? null, `${label}.position`);
+    nullableStr(row.team ?? null, `${label}.team`);
+    num(row.ros, `${label}.ros`);
+    nullableStr(row.injury ?? null, `${label}.injury`);
+    nullableStr(row.replaces ?? null, `${label}.replaces`);
+    str(row.replaces_slot, `${label}.replaces_slot`);
+    nullableNum(row.replaces_ros ?? null, `${label}.replaces_ros`);
+    num(row.gain, `${label}.gain`);
+  });
+  list(report.starters, "report.starters").forEach((raw, i) => {
+    const label = `report.starters[${i}]`;
+    const row = obj(raw, label);
+    str(row.slot, `${label}.slot`);
+    nullableStr(row.name ?? null, `${label}.name`);
+    nullableStr(row.position ?? null, `${label}.position`);
+    nullableNum(row.ros ?? null, `${label}.ros`);
+  });
+  if (typeof report.free_agents !== "number" || !Number.isInteger(report.free_agents) || report.free_agents < 0) {
+    fail("report.free_agents must be a non-negative integer");
+  }
+  stringList(report.unmatched_rostered, "report.unmatched_rostered");
+  bool(report.trending_available, "report.trending_available");
+}
+
 function context(kind: InseasonKind, value: unknown): void {
   const ctx = obj(value, "context");
   switch (kind) {
@@ -498,6 +563,11 @@ function context(kind: InseasonKind, value: unknown): void {
       stringList(ctx.projection_sources, "context.projection_sources");
       intList(ctx.playoff_weeks_requested, "context.playoff_weeks_requested");
       return;
+    case "waivers":
+      exactKeys(ctx, ["league_synced_at", "projection_sources"], "context");
+      nullableUtcTimestamp(ctx.league_synced_at, "context.league_synced_at");
+      stringList(ctx.projection_sources, "context.projection_sources");
+      return;
   }
 }
 
@@ -506,6 +576,7 @@ const REPORT_CHECKS: Record<InseasonKind, (value: unknown) => void> = {
   digest: digestReport,
   retro: retroReport,
   ros: rosReport,
+  waivers: waiversReport,
 };
 
 /**
@@ -517,7 +588,7 @@ export function parseEnvelope(payload: unknown, expectedKind?: InseasonKind): Pa
     const data = obj(payload, "envelope");
     exactKeys(data, ["schema_version", "kind", "season", "week", "generated_at", "team_name", "context", "report"], "envelope");
     if (data.schema_version !== INSEASON_SCHEMA_VERSION) fail("envelope.schema_version must be 1");
-    if (!isInseasonKind(data.kind)) fail("envelope.kind must be lineup, digest, retro, or ros");
+    if (!isInseasonKind(data.kind)) fail("envelope.kind must be lineup, digest, retro, ros, or waivers");
     if (expectedKind !== undefined && data.kind !== expectedKind) {
       fail(`envelope.kind ${data.kind} does not match route kind ${expectedKind}`);
     }

@@ -27,7 +27,7 @@ const generatedPlayers = Array.from({ length: 240 }, (_, index) => {
 });
 const board = { ...fixture, players: generatedPlayers };
 const inseason = Object.fromEntries(
-  await Promise.all(["lineup", "digest", "retro", "ros"].map(async (kind) => [
+  await Promise.all(["lineup", "digest", "retro", "ros", "waivers"].map(async (kind) => [
     kind,
     JSON.parse(await readFile(join(trackerRoot, `test/fixtures/inseason/${kind}.json`), "utf8")),
   ])),
@@ -50,6 +50,7 @@ function inseasonView(week = 2) {
       digest: { envelope: week === 2 ? at("digest", 2) : null },
       retro: { envelope: week === 2 ? at("retro", 1) : null },
       ros: { envelope: at("ros", 1) },
+      waivers: { envelope: week === 2 ? at("waivers", 2) : null },
     },
   };
 }

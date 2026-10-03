@@ -245,13 +245,14 @@ async function getDashboard(
     (weeks.length ? weeks[weeks.length - 1]! : 1);
 
   const rosWeek = rosWeeks.filter((candidate) => candidate <= week).pop() ?? null;
-  const [lineup, digest, retro, ros, actualsText] = await Promise.all([
+  const [lineup, digest, retro, ros, waivers, actualsText] = await Promise.all([
     readInseason(env, season, "lineup", week, leagueKey),
     readInseason(env, season, "digest", week, leagueKey),
     week > 1 ? readInseason(env, season, "retro", week - 1, leagueKey) : Promise.resolve(null),
     rosWeek === null
       ? Promise.resolve(null)
       : readInseason(env, season, "ros", rosWeek, leagueKey),
+    readInseason(env, season, "waivers", week, leagueKey),
     week > 1 ? readActuals(env.BOARD, season, week - 1, leagueKey) : Promise.resolve(null),
   ]);
 
@@ -260,10 +261,12 @@ async function getDashboard(
   cards.digest = { envelope: digest };
   cards.retro = { envelope: retro };
   cards.ros = { envelope: ros };
+  cards.waivers = { envelope: waivers };
 
   const view: InseasonView = {
     season,
     week,
+    league_key: leagueKey,
     server_now: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     league:
       league.season === season && league.synced_at !== null && league.current_week !== null

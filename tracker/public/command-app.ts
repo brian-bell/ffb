@@ -1,9 +1,9 @@
-// /command client: one GET /api/inseason per week, four summary cards, one
+// /command client: one GET /api/inseason per week, five summary cards, one
 // detail panel. Read-only. Every report string (LLM narrative, notes,
 // headlines) is rendered through textContent — never innerHTML. Freshness
 // badges come only from cardFreshness (../src/inseason-view).
 
-import type { DigestPlayer, DigestReport, Headline, InseasonEnvelope, InseasonKind, LineupReport, LineupRow, RetroReport, RetroRow, RosReport } from "../src/inseason";
+import type { DigestPlayer, DigestReport, Headline, InseasonEnvelope, InseasonKind, LineupReport, LineupRow, RetroReport, RetroRow, RosReport, WaiverCandidate, WaiversReport } from "../src/inseason";
 import { KIND_LABEL, ageMillis, cardFreshness, formatAge, isPastWeek, lineupCardRows, millis, oldestSource, DAY_MS, type Freshness, type InseasonView } from "../src/inseason-view";
 import { leagueLabels, type LeagueDirectory, type LeagueOption } from "../src/league-directory";
 import { requestJson } from "../src/request-json";
@@ -13,9 +13,10 @@ type Lineup = Extract<InseasonEnvelope, { kind: "lineup" }>;
 type Digest = Extract<InseasonEnvelope, { kind: "digest" }>;
 type Retro = Extract<InseasonEnvelope, { kind: "retro" }>;
 type Ros = Extract<InseasonEnvelope, { kind: "ros" }>;
+type Waivers = Extract<InseasonEnvelope, { kind: "waivers" }>;
 
-const KINDS: InseasonKind[] = ["lineup", "digest", "retro", "ros"];
-const HORIZON: Record<InseasonKind, string> = { lineup: "this week", digest: "this week", retro: "last week", ros: "season" };
+const KINDS: InseasonKind[] = ["lineup", "digest", "retro", "ros", "waivers"];
+const HORIZON: Record<InseasonKind, string> = { lineup: "this week", digest: "this week", retro: "last week", ros: "season", waivers: "rest of season" };
 
 function localStorageOrNull(): Storage | null {
   try {
@@ -102,6 +103,7 @@ function runCommand(kind: InseasonKind, season: number, week: number): string {
     case "digest": return `ffb digest ${season} --week ${week} --publish`;
     case "retro": return `ffb retro ${season} --week ${week - 1} --publish`;
     case "ros": return `ffb ros ${season} --publish`;
+    case "waivers": return `ffb waivers ${season} --league sleeper --publish`;
   }
 }
 
@@ -298,6 +300,34 @@ function renderRos(current: InseasonView, now: number): HTMLElement {
     el("span", { class: "more", text: `${count(report.bye_plan.length, "bye week")} ›` }),
   );
   return cardShell("ros", freshness, envelope, now, headline, rows, foot);
+}
+
+function replacesText(candidate: WaiverCandidate): string {
+  const who = candidate.replaces ?? `empty ${candidate.replaces_slot}`;
+  return candidate.replaces ? `for ${who} (${candidate.replaces_slot})` : `fills ${who}`;
+}
+
+function renderWaivers(current: InseasonView, now: number): HTMLElement {
+  const freshness = cardFreshness("waivers", current, now);
+  const envelope = current.cards.waivers.envelope as Waivers | null;
+  if (!envelope) return cardShell("waivers", freshness, null, now, emptyBody("waivers", freshness, current));
+  const report: WaiversReport = envelope.report;
+  const best = report.candidates[0];
+  const headline = el("div", { class: "head" },
+    el("b", { class: best ? "good" : "plain", "data-headline": "", text: best ? signed(best.gain) : "0" }),
+    el("span", { text: best ? `ROS over your weakest starter · ${count(report.candidates.length, "target")}` : "no free agent beats a starter" }),
+  );
+  const rows = el("ul", { class: "rows" });
+  for (const candidate of report.candidates.slice(0, 5)) {
+    const name = candidate.injury ? `${candidate.name} · ${candidate.injury}` : candidate.name;
+    rows.appendChild(row(candidate.position ?? "—", "", name, replacesText(candidate), signed(candidate.gain), "good"));
+  }
+  if (!rows.childElementCount) rows.appendChild(row("—", "", "Your starters out-project every free agent.", null, ""));
+  const foot = el("div", { class: "cfoot" },
+    el("span", { text: `${count(report.free_agents, "free agent")} scored` }),
+    el("span", { class: "more", text: "all targets ›" }),
+  );
+  return cardShell("waivers", freshness, envelope, now, headline, rows, foot);
 }
 
 // ---- panel bodies ----
@@ -499,12 +529,49 @@ function panelRos(envelope: Ros): HTMLElement[] {
   return body;
 }
 
+function panelWaivers(envelope: Waivers): HTMLElement[] {
+  const report = envelope.report;
+  const body: HTMLElement[] = [];
+  body.push(provenance([
+    ["built", fmtTime(envelope.generated_at)],
+    ["rosters", fmtTime(envelope.context.league_synced_at)],
+    ["sources", envelope.context.projection_sources.join(", ") || "—"],
+    ["free agents", String(report.free_agents)],
+  ]));
+  body.push(el("p", { class: "note", text: "Gain is a free agent's rest-of-season projection minus the weakest starter in any slot they could fill. Only players who beat that starter are listed." }));
+  body.push(el("h3", { text: "Targets" }));
+  body.push(report.candidates.length
+    ? table(
+      [{ h: "#", num: true }, { h: "Player" }, { h: "Pos" }, { h: "Team" }, { h: "ROS", num: true }, { h: "Replaces" }, { h: "Gain", num: true }],
+      report.candidates.map((candidate) => [
+        String(candidate.rank),
+        { node: el("span", {}, candidate.name, candidate.injury ? el("span", { class: "chip inline warn", text: candidate.injury }) : null) },
+        candidate.position ?? "—",
+        candidate.team ?? "—",
+        pts(candidate.ros),
+        `${candidate.replaces ?? "empty"} (${candidate.replaces_slot}, ${pts(candidate.replaces_ros)})`,
+        { text: signed(candidate.gain), cls: "good" },
+      ]),
+    )
+    : el("p", { class: "note", text: "No free agent beats a current starter on rest-of-season value." }));
+  body.push(el("h3", { text: "Starters, weakest first" }));
+  body.push(table([{ h: "Slot" }, { h: "Player" }, { h: "ROS", num: true }], report.starters.map((starter) => [starter.slot, starter.name ?? "empty", pts(starter.ros)])));
+  if (report.unmatched_rostered.length) {
+    body.push(el("h3", { text: "Unmatched rostered players" }));
+    body.push(el("p", { class: "note", text: "These rostered players did not resolve to a canonical id, so they cannot be excluded and may appear as free agents." }));
+    body.push(el("div", { class: "chips" }, report.unmatched_rostered.map((name) => el("span", { class: "chip warn", text: name }))));
+  }
+  if (!report.trending_available) body.push(el("p", { class: "note", text: "trending_available: false — Sleeper trending adds are not ingested, so there is no trending boost." }));
+  return body;
+}
+
 function panelBody(kind: InseasonKind, envelope: InseasonEnvelope): HTMLElement[] {
   switch (kind) {
     case "lineup": return panelLineup(envelope as Lineup);
     case "digest": return panelDigest(envelope as Digest);
     case "retro": return panelRetro(envelope as Retro);
     case "ros": return panelRos(envelope as Ros);
+    case "waivers": return panelWaivers(envelope as Waivers);
   }
 }
 
@@ -538,7 +605,7 @@ function renderAll(): void {
   weekPrevEl.disabled = current.week <= Math.min(...known, current.week);
   weekNextEl.disabled = current.week >= Math.max(...known, current.week);
   renderTeam();
-  const renderers: Record<InseasonKind, (v: InseasonView, n: number) => HTMLElement> = { lineup: renderLineup, digest: renderDigest, retro: renderRetro, ros: renderRos };
+  const renderers: Record<InseasonKind, (v: InseasonView, n: number) => HTMLElement> = { lineup: renderLineup, digest: renderDigest, retro: renderRetro, ros: renderRos, waivers: renderWaivers };
   gridEl.replaceChildren(...KINDS.map((kind) => renderers[kind](current, now)));
   for (const card of gridEl.querySelectorAll<HTMLButtonElement>("button.card")) {
     card.addEventListener("click", () => openPanel(card.dataset.kind as InseasonKind, card));

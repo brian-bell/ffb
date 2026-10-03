@@ -605,3 +605,30 @@ def test_a_bye_matchup_id_is_refused():
             season=2026,
             synced_at=SYNCED_AT,
         )
+
+
+class _CrosswalkStore:
+    def __init__(self, rows):
+        self.rows = rows
+        self.asked = []
+
+    def resolve_batch(self, source, native_ids):
+        assert source == "sleeper"
+        self.asked.extend(native_ids)
+        return {nid: self.rows[nid] for nid in native_ids if nid in self.rows}
+
+
+def test_free_agent_eligibility_keeps_only_multi_position_players_that_resolve():
+    players = {
+        "4381": {"position": "QB", "fantasy_positions": ["QB", "TE"]},
+        "9001": {"position": "WR", "fantasy_positions": ["WR"]},
+        "9002": {"position": "TE", "fantasy_positions": ["TE", "QB"]},
+        "9003": {"position": "LB", "fantasy_positions": ["LB", "DL"]},
+    }
+    store = _CrosswalkStore(
+        {"4381": {"player_key": "13136", "position": "QB", "full_name": "Taysom Hill"}}
+    )
+    eligibility = sl.free_agent_eligibility(store, players)
+    # Single-position players never reach the crosswalk; an unresolved one is skipped.
+    assert sorted(store.asked) == ["4381", "9002"]
+    assert eligibility == {"13136": ["QB", "TE", "W/R/T"]}

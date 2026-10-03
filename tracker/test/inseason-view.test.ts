@@ -5,6 +5,7 @@ import digestFixture from "./fixtures/inseason/digest.json";
 import lineupFixture from "./fixtures/inseason/lineup.json";
 import retroFixture from "./fixtures/inseason/retro.json";
 import rosFixture from "./fixtures/inseason/ros.json";
+import waiversFixture from "./fixtures/inseason/waivers.json";
 
 const NOW = Date.parse("2026-09-20T15:40:00Z");
 
@@ -16,12 +17,14 @@ type Lineup = Extract<InseasonEnvelope, { kind: "lineup" }>;
 type Digest = Extract<InseasonEnvelope, { kind: "digest" }>;
 type Retro = Extract<InseasonEnvelope, { kind: "retro" }>;
 type Ros = Extract<InseasonEnvelope, { kind: "ros" }>;
+type Waivers = Extract<InseasonEnvelope, { kind: "waivers" }>;
 
 interface Cards {
   lineup: Lineup;
   digest: Digest;
   retro: Retro;
   ros: Ros;
+  waivers: Waivers;
 }
 
 function fresh(): { view: InseasonView; cards: Cards } {
@@ -30,6 +33,7 @@ function fresh(): { view: InseasonView; cards: Cards } {
     digest: clone(digestFixture) as unknown as Digest,
     retro: clone(retroFixture) as unknown as Retro,
     ros: clone(rosFixture) as unknown as Ros,
+    waivers: clone(waiversFixture) as unknown as Waivers,
   };
   cards.lineup.week = 2;
   cards.lineup.generated_at = "2026-09-20T14:05:12Z";
@@ -46,9 +50,13 @@ function fresh(): { view: InseasonView; cards: Cards } {
   cards.retro.report.missing_actuals = [];
   cards.ros.week = 2;
   cards.ros.generated_at = "2026-09-16T11:06:20Z";
+  cards.waivers.week = 2;
+  cards.waivers.generated_at = "2026-09-20T14:07:00Z";
+  cards.waivers.context.league_synced_at = "2026-09-20T12:22:00Z";
   const view: InseasonView = {
     season: 2026,
     week: 2,
+    league_key: "sleeper:1395854363380965376",
     server_now: "2026-09-20T15:40:00Z",
     league: { synced_at: "2026-09-20T12:22:00Z", current_week: 2 },
     actuals_available: { "1": true },
@@ -58,13 +66,14 @@ function fresh(): { view: InseasonView; cards: Cards } {
       digest: { envelope: cards.digest },
       retro: { envelope: cards.retro },
       ros: { envelope: cards.ros },
+      waivers: { envelope: cards.waivers },
     },
   };
   return { view, cards };
 }
 
 describe("cardFreshness", () => {
-  it.each(["lineup", "digest", "retro", "ros"] as InseasonKind[])("%s is fresh on the Sunday baseline", (kind) => {
+  it.each(["lineup", "digest", "retro", "ros", "waivers"] as InseasonKind[])("%s is fresh on the Sunday baseline", (kind) => {
     const { view } = fresh();
     expect(cardFreshness(kind, view, NOW)).toEqual({ state: "fresh", reason: "" });
   });
@@ -221,6 +230,48 @@ describe("cardFreshness", () => {
       mutate: () => Date.parse("2026-09-16T11:06:20Z") + 8 * DAY_MS,
       expected: { state: "fresh", reason: "" },
     },
+    {
+      name: "waivers missing for a Sleeper league",
+      kind: "waivers",
+      mutate: (view) => { view.cards.waivers.envelope = null; },
+      expected: { state: "missing", reason: "Not published for week 2" },
+    },
+    {
+      name: "waivers wait on Yahoo live authorization",
+      kind: "waivers",
+      mutate: (view) => { view.cards.waivers.envelope = null; view.league_key = "yahoo:470.l.928421"; },
+      expected: { state: "waiting", reason: "Yahoo free agents need live authorization" },
+    },
+    {
+      name: "waivers rosters changed after build",
+      kind: "waivers",
+      mutate: (view) => { view.league = { synced_at: "2026-09-20T15:10:00Z", current_week: 2 }; },
+      expected: { state: "stale", reason: "Rosters changed after these targets were built" },
+    },
+    {
+      name: "waivers older than 5 days",
+      kind: "waivers",
+      mutate: () => Date.parse("2026-09-20T14:07:00Z") + 5 * DAY_MS + 1,
+      expected: { state: "stale", reason: "Built more than 5 days ago" },
+    },
+    {
+      name: "waivers with unmatched rostered players",
+      kind: "waivers",
+      mutate: (_view, cards) => { cards.waivers.report.unmatched_rostered = ["Rival Receiver"]; },
+      expected: { state: "degraded", reason: "1 rostered player is unmatched" },
+    },
+    {
+      name: "waivers with an unprojected starter",
+      kind: "waivers",
+      mutate: (_view, cards) => {
+        cards.waivers.report.starters = [
+          ...cards.waivers.report.starters,
+          { slot: "DEF", name: "Ravens", position: "DEF", ros: null },
+          { slot: "K", name: null, position: null, ros: null },
+        ];
+      },
+      expected: { state: "degraded", reason: "1 starter has no projection" },
+    },
   ];
 
   it.each(table)("$name", ({ kind, mutate, expected }) => {
@@ -239,7 +290,7 @@ describe("cardFreshness", () => {
       return { view, cards, now: NOW + 30 * DAY_MS };
     }
 
-    it.each(["lineup", "digest", "retro", "ros"] as InseasonKind[])("%s is archived instead of stale", (kind) => {
+    it.each(["lineup", "digest", "retro", "ros", "waivers"] as InseasonKind[])("%s is archived instead of stale", (kind) => {
       const { view, now } = past();
       expect(cardFreshness(kind, view, now)).toEqual({ state: "archived", reason: "Week 2 is over" });
     });
@@ -279,6 +330,8 @@ describe("oldestSource and formatAge", () => {
     view.cards.ros.envelope = null;
     view.cards.lineup.envelope = null;
     view.cards.digest.envelope = null;
+    expect(oldestSource(view, NOW)?.kind).toBe("waivers");
+    view.cards.waivers.envelope = null;
     expect(oldestSource(view, NOW)).toBeNull();
   });
 

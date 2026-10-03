@@ -1,6 +1,6 @@
 # In-season command center
 
-Status: implemented (MVP, all five delivery slices)
+Status: implemented (MVP, all five delivery slices; waiver card added 2026-10-02)
 
 Route: `/command`
 
@@ -56,10 +56,11 @@ These were settled during design review on 2026-09-13.
 6. **`--publish` on each existing command.** No new CLI verb. A published
    report is byte-for-byte the report the command rendered. Scheduling lives in
    an external cron; the repository only documents the runbook.
-7. **Strict scope.** The page shows only fields the four report dicts already
-   contain. No opponent projection, standings, waiver ranking, or usage trends.
-   Gaps appear only as the reports' own notes (for example
-   `usage_available: false`).
+7. **Strict scope.** The page shows only fields the report dicts already
+   contain. No opponent projection, standings, or usage trends. Gaps appear
+   only as the reports' own notes (for example `usage_available: false`). The
+   MVP left waiver ranking out; it is now the fifth card, from its own
+   `ffb waivers` report (see [Waivers card](#waivers-card)).
 
 ## Non-goals
 
@@ -91,9 +92,9 @@ existing report dict, unchanged.
 | Field | Rule |
 | --- | --- |
 | `schema_version` | Exactly `1`. Breaking shape changes bump it. |
-| `kind` | One of `lineup`, `digest`, `retro`, `ros`. Must match the route. |
+| `kind` | One of `lineup`, `digest`, `retro`, `ros`, `waivers`. Must match the route. |
 | `season` | Must equal the published board season, same rule as the league bundle ingest. |
-| `week` | Positive integer. `lineup` and `digest`: the report week. `retro`: the scored week. `ros`: the stored `current_week` at generation. |
+| `week` | Positive integer. `lineup` and `digest`: the report week. `retro`: the scored week. `ros` and `waivers`: the stored `current_week` at generation. |
 | `generated_at` | UTC ISO-8601, set by the CLI when the report is built. |
 | `team_name` | User team name, or `null` when league state has none. |
 | `context` | Kind-specific provenance, closed per kind (below). |
@@ -107,6 +108,7 @@ Kind-specific `context`:
 | `digest` | `sources` (news sources ready at generation) |
 | `retro` | `actuals_synced_at` (the actuals bundle `synced_at`) |
 | `ros` | `projection_sources`, `playoff_weeks_requested` |
+| `waivers` | `league_synced_at` (stored league state sync time), `projection_sources` (active season sources) |
 
 `digest` publishes after `_apply_digest_llm`, so `report.llm.error` travels
 with the report. The Worker never holds an Anthropic key.
@@ -445,8 +447,61 @@ Each slice is a vertical tracer bullet that ships a working card.
 | `ffb-0gi` 14. Snapshot + weekly retro | Appears delivered by PR #48 but still open. Close or confirm; "Tuesday brief opens with a retro" is satisfied by the retro card. |
 | `ffb-8yi` 12. Scheduled runs + email | Owns the cron. The runbook above is its command list; email stays out of scope here. |
 | `ffb-1ct.2` Yahoo OAuth | Blocks unattended league sync in the runbook. |
-| `ffb-qmw` 11. Waiver report | Natural fifth card after MVP; not in scope (decision 7). |
+| `ffb-qmw` 11. Waiver report | Delivered as the fifth card for Sleeper leagues ([Waivers card](#waivers-card)); Yahoo waits on `ffb-1ct.2`, trending boost on Sleeper trending ingest. |
 | `ffb-oeb` Desktop app experience | Same responsive principles; the command center is not a draft workflow, so track it separately rather than under this epic. |
+
+## Waivers card
+
+Added after the MVP (`ffb-qmw`). `ffb waivers S --league sleeper [--publish]`
+ranks every unrostered player by rest-of-season gain over the weakest starter
+they could replace:
+
+1. The user's roster is scored on season-scope consensus with the league's own
+   weights, and a greedy ROS-optimal lineup fills the starting slots (the same
+   slot rules as sit/start). Out/IR/Doubtful starters sit, and a slot nobody
+   can fill counts as empty.
+2. The free-agent pool is every matched consensus row at a startable position
+   whose canonical key is on no team in the league. Unmatched consensus rows
+   never enter.
+3. Each free agent's gain is its ROS points minus the weakest starter among the
+   slots it can fill (an empty slot counts as 0). A player Sleeper lists at two
+   positions (a QB/TE) can fill the slots of both, read from the cached
+   `/players/nfl` map. Only positive gains are kept,
+   ranked by gain, at most 10 per position. An available rostered player with
+   no ROS projection who could fill an open slot holds it with an unknown
+   value (`ros` null): a missing projection is not zero, so no free agent is
+   measured against a set of slots that includes it.
+
+Report shape: `candidates` (`rank`, `name`, `position`, `team`, `ros`,
+`injury`, `replaces`, `replaces_slot`, `replaces_ros`, `gain`), `starters`
+(every starting slot, weakest first), `free_agents` (pool size),
+`unmatched_rostered` (rostered players with no canonical key; they cannot be
+excluded, so they may show up as free agents), and `trending_available`
+(`false` until Sleeper trending adds are ingested).
+
+Yahoo is out of scope until live authorization (`ffb-1ct.2`): the CLI exits 1
+for a non-Sleeper league and `make refresh` publishes waivers only for Sleeper.
+The Worker reads waivers at exactly week `W`, and the dashboard view carries
+`league_key` so freshness can tell the two apart.
+
+| Card | Headline | Rows | Panel |
+| --- | --- | --- | --- |
+| Waivers | best gain, target count | top 5 targets with who they replace | full target table, starters weakest first, unmatched rostered players, trending note |
+
+Freshness, first match wins:
+
+| Rule | State and reason |
+| --- | --- |
+| no envelope, non-Sleeper league | `waiting` — "Yahoo free agents need live authorization" |
+| no envelope | `missing` — "Not published for week W" |
+| `league.synced_at` > `context.league_synced_at` | `stale` — "Rosters changed after these targets were built" |
+| age > 5 days | `stale` — "Built more than 5 days ago" |
+| `report.unmatched_rostered` non-empty | `degraded` — "N rostered players are unmatched" |
+| a `report.starters` row has a `name` and null `ros` | `degraded` — "N starters have no projection" |
+| otherwise | `fresh` (`archived` for a past week) |
+
+The grid gains a third desktop row (`waivers waivers news`); between 760 and
+1100 px and below, waivers stacks after rest of season.
 
 ## Open questions
 

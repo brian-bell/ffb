@@ -18,10 +18,11 @@ import digestFixture from "./fixtures/inseason/digest.json";
 import lineupFixture from "./fixtures/inseason/lineup.json";
 import retroFixture from "./fixtures/inseason/retro.json";
 import rosFixture from "./fixtures/inseason/ros.json";
+import waiversFixture from "./fixtures/inseason/waivers.json";
 import type { InseasonView } from "../src/inseason-view";
 
 const KEY = "test-secret-key";
-const FIXTURES = { lineup: lineupFixture, digest: digestFixture, retro: retroFixture, ros: rosFixture } as const;
+const FIXTURES = { lineup: lineupFixture, digest: digestFixture, retro: retroFixture, ros: rosFixture, waivers: waiversFixture } as const;
 type Kind = keyof typeof FIXTURES;
 
 function clone<T>(value: T): T {
@@ -127,6 +128,13 @@ describe("parseEnvelope", () => {
     const ros = clone(rosFixture) as { report: { usage_available: unknown } };
     ros.report.usage_available = "no";
     expect(parseEnvelope(ros, "ros").ok).toBe(false);
+
+    const waivers = clone(waiversFixture) as { report: { candidates: Array<Record<string, unknown>>; free_agents: unknown } };
+    waivers.report.candidates[1]!.gain = "38.8";
+    expect(parseEnvelope(waivers, "waivers")).toMatchObject({ ok: false, message: expect.stringContaining("report.candidates[1].gain") });
+    const negative = clone(waiversFixture) as { report: { free_agents: unknown } };
+    negative.report.free_agents = -1;
+    expect(parseEnvelope(negative, "waivers").ok).toBe(false);
   });
 
   it("tolerates extra report keys because the report passes through unchanged", () => {
@@ -195,7 +203,7 @@ describe("Worker POST /api/inseason/{kind}", () => {
   it("requires the bearer key and rejects unknown kinds and methods", async () => {
     expect((await SELF.fetch("https://x/api/inseason/lineup", { method: "POST", body: "{}" })).status).toBe(401);
     expect((await post("lineup", lineupFixture, "nope")).status).toBe(401);
-    expect((await post("waivers", lineupFixture)).status).toBe(404);
+    expect((await post("trades", lineupFixture)).status).toBe(404);
     expect((await post("lineup/extra", lineupFixture)).status).toBe(404);
     const get = await SELF.fetch("https://x/api/inseason/lineup", { headers: bearer() });
     expect(get.status).toBe(405);
@@ -299,6 +307,7 @@ describe("Worker GET /api/inseason", () => {
       digest: { envelope: null },
       retro: { envelope: null },
       ros: { envelope: null },
+      waivers: { envelope: null },
     });
     expect(fallback.body.server_now).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
@@ -436,6 +445,22 @@ describe("inseason KV rekey: per-league v2 keys with a v1 dual-read window", () 
     // The default league never wrote one, and must not borrow Sleeper's.
     const yahooView = await view(`?season=${season}&week=${week}`);
     expect(yahooView.body.cards.lineup.envelope).toBeNull();
+  });
+
+  it("serves a Sleeper league's waivers at the requested week and names the league", async () => {
+    const { season } = waiversFixture as { season: number };
+    expect((await postFor("waivers", { ...waiversFixture, week: 2 }, SLEEPER)).status).toBe(200);
+
+    const week2 = await view(`?season=${season}&week=2&league=${encodeURIComponent(SLEEPER)}`);
+    expect(week2.body.league_key).toBe(SLEEPER);
+    expect(week2.body.cards.waivers.envelope?.week).toBe(2);
+    // Waiver targets are for the week they were built, not carried forward like ros.
+    const week3 = await view(`?season=${season}&week=3&league=${encodeURIComponent(SLEEPER)}`);
+    expect(week3.body.cards.waivers.envelope).toBeNull();
+
+    const yahooView = await view(`?season=${season}&week=2`);
+    expect(yahooView.body.league_key).toBe("yahoo:470.l.928421");
+    expect(yahooView.body.cards.waivers.envelope).toBeNull();
   });
 
   it("does not treat the default league's actuals as another league's", async () => {

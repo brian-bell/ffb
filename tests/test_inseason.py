@@ -17,6 +17,7 @@ def _ctx(kind):
         "digest": {"sources": ["news", "injuries"]},
         "retro": {"actuals_synced_at": "2026-09-16T10:30:00Z"},
         "ros": {"projection_sources": ["sleeper"], "playoff_weeks_requested": [15, 16, 17]},
+        "waivers": {"league_synced_at": "2026-09-20T12:22:00Z", "projection_sources": ["sleeper"]},
     }[kind]
 
 
@@ -89,7 +90,7 @@ def test_context_keys_are_closed_per_kind():
 @pytest.mark.parametrize(
     "kwargs, message",
     [
-        ({"kind": "waivers"}, "unknown report kind"),
+        ({"kind": "trades"}, "unknown report kind"),
         ({"season": 0}, "season must be"),
         ({"week": 0}, "week must be"),
         ({"week": True}, "week must be"),

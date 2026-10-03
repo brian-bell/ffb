@@ -24,6 +24,7 @@ uv run ffb board show 2026
 uv run ffb board export 2026
 uv run ffb lineup 2026
 uv run ffb lineup 2026 --league sleeper   # Sleeper sit/start; no DuckDB/KV write
+uv run ffb waivers 2026 --league sleeper  # free agents vs weakest starters (Sleeper only)
 uv run ffb retro 2026 --week 1 --fixture PATH
 uv run ffb lineup 2026 --publish          # POST to the tracker /command page
 uv run ffb league sync 2026 --from-tracker
@@ -67,6 +68,7 @@ src/ffb/          Python package and CLI
   league.py       LeagueBundle v1 validation; sources/yahoo.py is the live peer
   lineup.py       weekly sit/start report
   ros.py          rest-of-season report
+  waivers.py      waiver targets vs the weakest ROS starters
   actuals.py      closed weekly scoreboard/actuals contract
   retro.py        sit/start snapshot vs actuals
   inseason.py     closed --publish envelope for the tracker command center
@@ -83,7 +85,7 @@ The main dependency paths are:
 CLI writes: cli → season_data → ingest → store
 CLI reads:  cli → consensus/board/lineup/retro → store + snapshots + pure compute
 Tracker:    board.json → KV → Worker/client; draft state → D1; actuals → KV
-Command:    lineup/digest/retro/ros --publish → POST /api/inseason → KV → /command
+Command:    lineup/digest/retro/ros/waivers --publish → POST /api/inseason → KV → /command
 ```
 
 ## Invariants
