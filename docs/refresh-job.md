@@ -81,7 +81,8 @@ What it does, in order:
 4. Runs `season sync`.
 5. Syncs both leagues. The Sleeper sync adds `--push` when its bundle is stale
    so `/api/leagues` catches up.
-6. Publishes `ros`, `lineup --force`, and `digest` for both leagues. With
+6. Publishes `ros`, `lineup --force`, and `digest` for both leagues, then
+   `waivers` for Sleeper only (Yahoo does not expose free agents). With
    `--week-roll` it also runs the Sleeper `W-1` backfill and retro, plus the
    Yahoo retro when the Worker already holds `W-1` Yahoo actuals (otherwise it
    prints `skipped`).
@@ -233,12 +234,14 @@ pipe output through `tail` to keep it short. Each successful publish prints
      uv run ffb lineup S --week W --league $L --force --publish
      uv run ffb digest S --league $L --publish
    done
+   uv run ffb waivers S --league sleeper --publish      # Sleeper only
    ```
 
 4. **Dashboard check.** For both full keys,
    `GET /api/inseason?season=S&week=W&league=<full key>`. Read
-   `cards.{lineup,digest,ros,retro}.envelope.generated_at` and `week`, plus
-   `league.synced_at` and `actuals_available`. Freshness badges are computed
+   `cards.{lineup,digest,ros,retro}.envelope.generated_at` and `week` (plus
+   `cards.waivers` for the Sleeper key), `league.synced_at`, and
+   `actuals_available`. Freshness badges are computed
    client-side, so report the timestamps. Retro shows week `W-1` until the
    next Wednesday; that is expected.
 
