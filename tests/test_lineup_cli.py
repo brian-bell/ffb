@@ -470,3 +470,71 @@ def test_lineup_warns_when_injuries_are_stale(tmp_path):
     result = runner.invoke(app, ["lineup", "2024"], env=env)
     assert result.exit_code == 0, result.output
     assert "Warning: injuries has stale identity resolution" in result.output
+
+
+LEAGUE = "yahoo:1.l.sit"
+
+
+def _snapshot_files(tmp_path, prefix):
+    root = tmp_path / "snapshots" / prefix
+    return sorted(root.glob("*.json")) if root.exists() else []
+
+
+def test_lineup_logs_league_wide_predictions_on_every_run(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
+    again = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert again.exit_code == 0, again.output
+    assert "already exists" in again.output
+
+    ledgers = _snapshot_files(tmp_path, "predlog/yahoo_1.l.sit/2024_week1")
+    assert len(ledgers) == 2
+    ledger = json.loads(ledgers[0].read_text())
+    assert ledger["kind"] == "prediction_ledger"
+    assert ledger["league_key"] == LEAGUE
+    assert ledger["projection_sources"]["sleeper"]["key"]
+    by_id = {row["native_id"]: row for row in ledger["players"]}
+    assert by_id["29279"]["is_user_team"] is True
+    assert by_id["29279"]["consensus"] == 18.0
+    assert by_id["29279"]["source_points"] == {"sleeper": 18.0}
+    assert by_id["99901"]["is_user_team"] is False
+    assert by_id["99901"]["team_key"] == "1.l.sit.t.2"
+
+
+def test_lineup_keeps_a_history_copy_of_every_snapshot_it_writes(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
+    assert runner.invoke(app, ["lineup", "2024"], env=env).exit_code == 0
+    assert runner.invoke(app, ["lineup", "2024", "--force"], env=env).exit_code == 0
+
+    history = _snapshot_files(tmp_path, "lineup/history/yahoo_1.l.sit/2024_week1")
+    assert len(history) == 2
+    latest = json.loads((tmp_path / "snapshots/lineup/yahoo_1.l.sit/2024_week1.json").read_text())
+    assert json.loads(history[-1].read_text()) == latest
+
+
+def test_lineup_logs_no_predictions_for_a_past_week(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    week2 = json.loads(FIXTURE.read_text())
+    week2["league"]["current_week"] = 2
+    for roster in week2["rosters"]:
+        roster["week"] = 2
+    week2_path = tmp_path / "week2.json"
+    week2_path.write_text(json.dumps(week2))
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(week2_path)], env=env)
+    assert synced.exit_code == 0, synced.output
+
+    forced = runner.invoke(app, ["lineup", "2024", "--week", "1", "--force"], env=env)
+    assert forced.exit_code == 0, forced.output
+
+    assert _snapshot_files(tmp_path, "predlog/yahoo_1.l.sit/2024_week1") == []

@@ -138,6 +138,16 @@ class SnapshotCache:
             raise
         log.info("snapshot saved key=%s path=%s", key, path)
 
+    def _archive_if_changed(self, key: str, data: Any) -> None:
+        metadata = self.metadata(key)
+        if metadata is None:
+            return
+        previous = self.read_json(key)
+        if previous == data:
+            return
+        stamp = metadata.modified_at.replace(":", "-")
+        self.put_json(f"archive/{key}/{stamp}", previous)
+
     def get_json(
         self,
         key: str,
@@ -148,6 +158,7 @@ class SnapshotCache:
         is_valid: Callable[[Any], bool] | None = None,
         attempt_interval: timedelta | None = None,
         now: datetime | None = None,
+        archive_replaced: bool = False,
     ) -> Any:
         """Return cached JSON for ``key``, or call ``fetch`` according to policy.
 
@@ -161,6 +172,10 @@ class SnapshotCache:
         throttle. The cache claims ``now`` atomically immediately before
         calling ``fetch``, so exceptions and rejected results still consume
         the interval without changing accepted snapshot metadata.
+
+        ``archive_replaced`` keeps history: before an accepted fetch replaces a
+        snapshot with different content, the old one is copied to
+        ``archive/<key>/<old mtime>``, so point-in-time pulls survive a refresh.
         """
         selected = (
             SnapshotPolicy(policy)
@@ -211,6 +226,8 @@ class SnapshotCache:
                 )
         data = fetch()
         if is_valid is None or is_valid(data):
+            if archive_replaced:
+                self._archive_if_changed(key, data)
             self.put_json(key, data)
         elif path.exists():
             log.info("snapshot rejected key=%s; preserving cached response", key)

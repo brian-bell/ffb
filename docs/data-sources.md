@@ -451,8 +451,11 @@ is the thin authed fetch (`GET /api/actuals`, configured by `FFB_TRACKER_URL`
 and `FFB_TRACKER_API_KEY`) the CLI uses when no local snapshot exists. The CLI
 snapshots accepted bundles under `snapshots/actuals/` and never writes actuals
 to DuckDB. `ffb lineup`
-snapshots sit/start advice under `snapshots/lineup/`; `ffb retro` joins the two
-by `native_id`.
+snapshots sit/start advice under `snapshots/lineup/` (with every written
+version under `snapshots/lineup/history/`) and league-wide weekly projections
+under `snapshots/predlog/`; `ffb retro` joins advice and actuals by
+`native_id`. A refresh that changes a weekly Sleeper or ESPN projection pull
+first copies the old pull to `snapshots/archive/<key>/`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by
 name (`names.py`) into the `adp` table; `ensure_schedule_ingested` mirrors

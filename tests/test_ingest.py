@@ -516,3 +516,39 @@ def test_espn_weekly_ingest_coexists_with_sleeper_week_and_season(store, tmp_pat
     season = consensus_rows(store, 2024, sources=["sleeper", "espn"])
     season_henry = next(r for r in season if r["player_key"] == "12626")
     assert season_henry["consensus"] != henry_c["consensus"]
+
+
+def test_weekly_refresh_archives_the_projections_it_replaces(store, tmp_path, crosswalk_rows):
+    store.upsert_crosswalk(crosswalk_rows)
+    snap = tmp_path / "snap"
+    cache = _prime_weekly_snapshots(snap)
+    original = json.loads(SLEEPER_WEEK.read_text())
+    moved = json.loads(SLEEPER_WEEK.read_text())
+    moved[0]["stats"]["rush_yd"] = moved[0]["stats"].get("rush_yd", 0.0) + 7.0
+    ensure_espn_ingested(store, cache, season=2024, week=1, fetch=_no_network)
+
+    ensure_ingested(store, cache, season=2024, week=1, refresh=True, fetch=lambda: moved)
+    ensure_espn_ingested(
+        store,
+        cache,
+        season=2024,
+        week=1,
+        refresh=True,
+        fetch=lambda: json.loads(ESPN_WEEK.read_text()),
+    )
+
+    sleeper_archive = list((snap / "archive" / snapshot_key(2024, week=1)).glob("*.json"))
+    assert [json.loads(path.read_text()) for path in sleeper_archive] == [original]
+    assert not (snap / "archive" / espn_key(2024, week=1)).exists()
+
+
+def test_season_refresh_does_not_archive(store, tmp_path, crosswalk_rows):
+    store.upsert_crosswalk(crosswalk_rows)
+    snap = tmp_path / "snap"
+    cache = _prime_snapshot(snap)
+    raw = json.loads(FIXTURE.read_text())
+    raw[0]["stats"]["rush_yd"] = raw[0]["stats"].get("rush_yd", 0.0) + 7.0
+
+    ensure_ingested(store, cache, season=2024, refresh=True, fetch=lambda: raw)
+
+    assert not (snap / "archive").exists()

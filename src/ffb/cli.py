@@ -42,9 +42,11 @@ from ffb.lineup import (
     injury_badge,
     projection_key,
 )
+from ffb.predlog import build_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
     actuals_snapshot_key,
     build_lineup_snapshot,
+    lineup_history_key,
     lineup_snapshot_key,
     parse_lineup_snapshot,
     retro_report,
@@ -52,7 +54,7 @@ from ffb.retro import (
 )
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import sleeper_league, yahoo
+from ffb.sources import espn, sleeper, sleeper_league, yahoo
 from ffb.sources.sleeper_league import SleeperLeagueError
 from ffb.sources.tracker import (
     TrackerConfig,
@@ -591,11 +593,8 @@ def lineup(
         raise typer.Exit(code=1)
     user = user_teams[0]
     store.refresh_league_roster_identities(season, chosen_week, league_key)
-    roster_rows = [
-        row
-        for row in store.league_roster_rows(season, week=chosen_week, league_key=league_key)
-        if row["team_key"] == user["team_key"]
-    ]
+    league_roster_rows = store.league_roster_rows(season, week=chosen_week, league_key=league_key)
+    roster_rows = [row for row in league_roster_rows if row["team_key"] == user["team_key"]]
     scope = config.projection_scope(chosen_week)
     active_sources = [
         source for source in _SOURCE_COLUMNS if store.has_season(season, source, scope)
@@ -640,9 +639,11 @@ def lineup(
             f"score zero: {', '.join(row['full_name'] for row in unmatched)}. "
             f"Run: ffb season sync {season}[/yellow]"
         )
-    players = attach_injuries(attach_weekly_points(roster_rows, consensus), injuries)
+    league_players = attach_injuries(attach_weekly_points(league_roster_rows, consensus), injuries)
+    players = [row for row in league_players if row["team_key"] == user["team_key"]]
     report = compare_lineup(players, league_ctx.roster_slots)
     cache = SnapshotCache(paths.snapshot_dir())
+    generated_at = snapshot_now()
     advice_key = lineup_snapshot_key(season, chosen_week, league_key)
     exists = cache.has(advice_key)
     post_hoc = chosen_week < current_week
@@ -664,17 +665,38 @@ def lineup(
                 f"[yellow]Snapshot uses {len(active_sources)} projection source(s): "
                 f"{', '.join(active_sources)}.[/yellow]"
             )
+        advice = build_lineup_snapshot(
+            season=season,
+            week=chosen_week,
+            generated_at=generated_at,
+            team_key=user["team_key"],
+            team_name=user["name"],
+            roster_slots=league_ctx.roster_slots,
+            players=players,
+            report=report,
+        )
+        cache.put_json(advice_key, advice, mode=0o600)
         cache.put_json(
-            advice_key,
-            build_lineup_snapshot(
+            lineup_history_key(season, chosen_week, generated_at, league_key),
+            advice,
+            mode=0o600,
+        )
+    if not post_hoc:
+        # Every pre-game run is kept, even when the advice snapshot is left
+        # unchanged, so retro history can see what the model believed and when.
+        cache.put_json(
+            prediction_ledger_key(season, chosen_week, generated_at, league_key),
+            build_prediction_ledger(
                 season=season,
                 week=chosen_week,
-                generated_at=snapshot_now(),
-                team_key=user["team_key"],
-                team_name=user["name"],
-                roster_slots=league_ctx.roster_slots,
-                players=players,
-                report=report,
+                league_key=league_key,
+                user_team_key=user["team_key"],
+                generated_at=generated_at,
+                scoring_weights=league_ctx.scoring.weights,
+                projection_sources=_projection_snapshot_metadata(
+                    cache, season, chosen_week, active_sources
+                ),
+                players=league_players,
             ),
             mode=0o600,
         )
@@ -700,6 +722,23 @@ def lineup(
             ),
             league_key=league_key,
         )
+
+
+def _projection_snapshot_metadata(
+    cache: SnapshotCache, season: int, week: int, sources: list[str]
+) -> dict[str, dict]:
+    """Which raw weekly pulls fed a run, so a ledger can name its inputs."""
+    key_for = {"sleeper": sleeper.snapshot_key, "espn": espn.snapshot_key}
+    out: dict[str, dict] = {}
+    for source in sources:
+        key = key_for[source](season, week=week)
+        metadata = cache.metadata(key)
+        out[source] = {
+            "key": key,
+            "sha256": None if metadata is None else metadata.sha256,
+            "modified_at": None if metadata is None else metadata.modified_at,
+        }
+    return out
 
 
 @app.command()

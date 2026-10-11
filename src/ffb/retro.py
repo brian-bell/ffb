@@ -61,6 +61,19 @@ def lineup_snapshot_key(season: int, week: int, league_key: str | None = None) -
     return f"lineup/{league_snapshot_segment(league_key)}{season}_week{week}"
 
 
+def snapshot_stamp(generated_at: str) -> str:
+    """A ``generated_at`` timestamp usable as a snapshot path segment."""
+    return generated_at.replace(":", "-")
+
+
+def lineup_history_key(
+    season: int, week: int, generated_at: str, league_key: str | None = None
+) -> str:
+    """One immutable copy per written sit/start snapshot; the flat key holds the latest."""
+    segment = league_snapshot_segment(league_key)
+    return f"lineup/history/{segment}{season}_week{week}/{snapshot_stamp(generated_at)}"
+
+
 def actuals_snapshot_key(season: int, week: int, league_key: str | None = None) -> str:
     return f"actuals/{league_snapshot_segment(league_key)}{season}_week{week}"
 
