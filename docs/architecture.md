@@ -80,7 +80,10 @@ backfills only with `--force`. Every snapshot it writes is also kept under
 writes a `predlog.py` prediction ledger under `snapshots/predlog/`: weekly
 consensus and per-source points for every rostered player in the league, the
 input to the retro feedback loop in
-[specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). A weekly
+[specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). `ffb retro history`
+joins those ledgers to league-scoped actuals at read time and reports
+cross-week source-by-position accuracy, sit/start regret, and the hit rate of
+Questionable starts. A weekly
 projection refresh archives the pull it replaces under `snapshots/archive/`.
 `ffb retro --fixture` likewise refuses to
 replace differing locked actuals without `--force`; `ffb retro` joins that
