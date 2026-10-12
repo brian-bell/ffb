@@ -1,7 +1,7 @@
 """Layering guards: the pure compute modules stay I/O-free.
 
 ``vorp``/``tiers``/``board``/``names``/``lineup``/``ros``/``actuals``/``retro``/
-``digest``/``inseason``/``waivers``/``predlog``/``outcomes`` are pure (dicts in,
+``digest``/``inseason``/``waivers``/``predlog``/``outcomes``/``calibration`` are pure (dicts in,
 dicts/strings out) so
 they're trivially testable and re-derive on a config swap with no re-ingest. They
 must not reach for the network, the DB, the snapshot cache, or the filesystem —
@@ -32,6 +32,7 @@ _FORBIDDEN = ("import httpx", "import duckdb", "ffb.store", "ffb.snapshot", "ffb
         "retro.py",
         "predlog.py",
         "outcomes.py",
+        "calibration.py",
         "digest.py",
         "inseason.py",
         "waivers.py",

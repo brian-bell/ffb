@@ -80,7 +80,12 @@ backfills only with `--force`. Every snapshot it writes is also kept under
 writes a `predlog.py` prediction ledger under `snapshots/predlog/`: weekly
 consensus and per-source points for every rostered player in the league, the
 input to the retro feedback loop in
-[specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). `ffb retro history`
+[specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). For the current or
+a future week it also writes `snapshots/calibration/` once, fit walk-forward on
+earlier weeks pooled across leagues, and stores that run's calibrated mean and
+sd on the ledger only. Advice, the lineup snapshot, and published reports stay
+on raw consensus. `ffb retro` prints a shadow section for the lineup those
+calibrated means would have started. `ffb retro history`
 joins those ledgers to league-scoped actuals at read time and reports
 cross-week source-by-position accuracy, sit/start regret, and the hit rate of
 Questionable starts. A weekly

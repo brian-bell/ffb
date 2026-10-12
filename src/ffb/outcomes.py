@@ -7,7 +7,7 @@ join key.
 
 ``hours_before_kickoff`` is always ``None``: neither the ledger nor the
 actuals bundle carries a kickoff time. ``calibrated_mean`` / ``calibrated_sd``
-stay ``None`` until a later phase writes them onto the ledger.
+are copied from the ledger when a v2 run stored them, and stay ``None`` on v1.
 """
 
 from __future__ import annotations

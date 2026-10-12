@@ -20,6 +20,12 @@ from ffb import digest as digest_mod
 from ffb import ros as ros_mod
 from ffb import waivers as waivers_mod
 from ffb.actuals import parse_actuals
+from ffb.calibration import (
+    annotate_players,
+    calibration_params_key,
+    fit_calibration,
+    parse_calibration_params,
+)
 from ffb.claude import (
     HAIKU_MODEL,
     SONNET_MODEL,
@@ -45,12 +51,15 @@ from ffb.lineup import (
 from ffb.outcomes import fact_table, history_report
 from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
+    RAW_CONSENSUS_WARNING,
     actuals_snapshot_key,
     build_lineup_snapshot,
+    league_snapshot_segment,
     lineup_history_key,
     lineup_snapshot_key,
     parse_lineup_snapshot,
     retro_report,
+    shadow_report,
     snapshot_now,
 )
 from ffb.season_data import SeasonDataService
@@ -703,6 +712,14 @@ def lineup(
     if not post_hoc:
         # Every pre-game run is kept, even when the advice snapshot is left
         # unchanged, so retro history can see what the model believed and when.
+        # Calibrated mean/sd land on this ledger only. Advice, the v1 snapshot,
+        # and the published report stay on raw consensus.
+        params_key = calibration_params_key(season, chosen_week, league_key)
+        params, warning = _load_or_fit_calibration(
+            cache, season=season, week=chosen_week, league_key=league_key, params_key=params_key
+        )
+        if warning:
+            console.print(f"[yellow]{warning}[/yellow]")
         cache.put_json(
             prediction_ledger_key(season, chosen_week, generated_at, league_key),
             build_prediction_ledger(
@@ -715,7 +732,12 @@ def lineup(
                 projection_sources=_projection_snapshot_metadata(
                     cache, season, chosen_week, active_sources
                 ),
-                players=league_players,
+                players=annotate_players(league_players, params),
+                calibration=(
+                    None
+                    if params is None
+                    else {"params_key": params_key, "sha256": params["sha256"]}
+                ),
             ),
             mode=0o600,
         )
@@ -741,6 +763,94 @@ def lineup(
             ),
             league_key=league_key,
         )
+
+
+def _load_or_fit_calibration(
+    cache: SnapshotCache,
+    *,
+    season: int,
+    week: int,
+    league_key: str,
+    params_key: str,
+) -> tuple[dict | None, str | None]:
+    """Return this week's params, writing them once. A miss or bad file is raw.
+
+    An existing file is never replaced, so a later refit cannot rewrite the
+    model a ledger already recorded. Fit uses every league's decision rows
+    from weeks before ``week``.
+    """
+    if cache.has(params_key):
+        try:
+            return parse_calibration_params(cache.read_json(params_key)), None
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None, RAW_CONSENSUS_WARNING
+    try:
+        params = fit_calibration(
+            _calibration_training_facts(cache, season, week),
+            season=season,
+            week=week,
+            league_key=league_key,
+        )
+        cache.put_json(params_key, params, mode=0o600)
+    except (OSError, ValueError):
+        return None, RAW_CONSENSUS_WARNING
+    return params, None
+
+
+def _calibration_training_facts(cache: SnapshotCache, season: int, week: int) -> list[dict]:
+    """Labelled outcomes for every stored league, from weeks before ``week``."""
+    facts: list[dict] = []
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    for ledger in _read_ledgers(cache, season, None):
+        if ledger["week"] >= week:
+            continue
+        grouped.setdefault((ledger["league_key"], ledger["week"]), []).append(ledger)
+    for (league_key, fact_week), runs in grouped.items():
+        bundle = _read_optional_actuals(cache, season, fact_week, league_key)
+        if bundle is None:
+            continue
+        for ledger in runs:
+            try:
+                table = fact_table(ledger, bundle, None)
+            except ValueError as exc:
+                console.print(
+                    f"[yellow]Skipping week {fact_week} {league_key} for calibration:[/yellow] "
+                    f"{exc}"
+                )
+                continue
+            facts.extend(table["facts"])
+    return facts
+
+
+def _read_optional_actuals(cache: SnapshotCache, season: int, week: int, league_key: str):
+    key = actuals_snapshot_key(season, week, league_key)
+    if not cache.has(key):
+        return None
+    try:
+        return parse_actuals(cache.read_json(key), season=season)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        console.print(f"[yellow]Skipping actuals {key} for calibration:[/yellow] {exc}")
+        return None
+
+
+def _ledger_for_snapshot(cache: SnapshotCache, advice: dict, league_key: str | None):
+    """Ledger from the same lineup run as the advice snapshot, else the latest earlier one."""
+    ledgers = [
+        ledger
+        for ledger in _read_ledgers(cache, advice["season"], league_key)
+        if ledger["week"] == advice["week"]
+    ]
+    if league_key is None:
+        ledgers = [
+            ledger for ledger in ledgers if league_snapshot_segment(ledger["league_key"]) == ""
+        ]
+    exact = [ledger for ledger in ledgers if ledger["generated_at"] == advice["generated_at"]]
+    if exact:
+        return exact[-1]
+    earlier = [ledger for ledger in ledgers if ledger["generated_at"] <= advice["generated_at"]]
+    if not earlier:
+        return None
+    return max(earlier, key=lambda ledger: ledger["generated_at"])
 
 
 def _projection_snapshot_metadata(
@@ -903,10 +1013,12 @@ def retro(
 
     try:
         report = retro_report(advice, bundle)
+        shadow = shadow_report(advice, bundle, _ledger_for_snapshot(cache, advice, league_key))
     except ValueError as exc:
         console.print(f"[red]Weekly actuals do not match the sit/start snapshot:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     _render_retro(report)
+    _render_shadow(shadow)
     if publish:
         _publish_report(
             build_envelope(
@@ -2071,6 +2183,30 @@ def _render_retro(report: dict) -> None:
         console.print(
             f"[yellow]⚠ {len(report['missing_actuals'])} rostered player(s) "
             f"have no weekly actuals: {names}{more}[/yellow]"
+        )
+
+
+def _render_shadow(shadow: dict) -> None:
+    """Print the calibrated lineup retro would have graded. Not part of the publish."""
+    if shadow.get("warning"):
+        console.print(f"[yellow]{shadow['warning']}[/yellow]")
+    console.print(
+        f"Shadow {shadow['model']} {shadow['recommended_total']:.1f}   "
+        f"Started {shadow['started_total']:.1f}   "
+        f"Δ {shadow['delta']:+.1f}"
+    )
+    if shadow["matches_advice"]:
+        console.print("[green]Shadow matches the advice snapshot.[/green]")
+        return
+    for row in shadow["start"]:
+        console.print(
+            f"[yellow]Shadow start[/yellow] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+        )
+    for row in shadow["sit"]:
+        console.print(
+            f"[yellow]Shadow sit[/yellow] {row['name']} "
+            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
         )
 
 

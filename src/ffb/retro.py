@@ -11,9 +11,11 @@ from typing import Any
 
 from ffb import config
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
-from ffb.lineup import BENCH_SLOT, NON_STARTING_SLOTS, _assign_optimal, is_starter
+from ffb.lineup import BENCH_SLOT, NON_STARTING_SLOTS, _assign_optimal, compare_lineup, is_starter
 
 _UNSTARTABLE_SLOTS = NON_STARTING_SLOTS - {BENCH_SLOT}
+
+RAW_CONSENSUS_WARNING = "Calibration params missing; using raw consensus."
 
 LINEUP_SNAPSHOT_KIND = "lineup_recommendation"
 LINEUP_SNAPSHOT_KEYS = {
@@ -249,6 +251,136 @@ def retro_report(advice: dict[str, Any], actuals: WeeklyActualsBundle | dict[str
         "source_accuracy": _source_accuracy(snapshot["players"], by_id),
         "matchup": _user_matchup(matchups, team_key),
         "league_week": league["week"],
+    }
+
+
+def shadow_report(
+    advice: dict[str, Any],
+    actuals: WeeklyActualsBundle | dict[str, Any],
+    ledger: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """What calibrated means would have started, scored on the same actuals.
+
+    The published retro report stays the raw advice. This is a sibling section:
+    it replays ``compare_lineup`` on the ledger's calibrated means when the run
+    recorded a params file, and on consensus when it did not. With no ledger,
+    the section reports the advice snapshot's own starters and says so.
+    """
+    snapshot = parse_lineup_snapshot(advice) if "kind" in advice else advice
+    bundle = (
+        actuals
+        if isinstance(actuals, WeeklyActualsBundle)
+        else parse_actuals(actuals, season=snapshot["season"])
+    )
+    by_id = {str(row["native_id"]): row for row in bundle.players}
+    team_key = snapshot["team_key"]
+    if team_key not in _scoreboard_team_keys(bundle.matchups):
+        raise ValueError(f"actuals scoreboard does not include snapshot team_key {team_key}")
+    started = [
+        row
+        for row in bundle.players
+        if row["team_key"] == team_key and is_starter(row.get("selected_position"))
+    ]
+    started_total = _sum_actuals(started, by_id)
+    raw_optimal = snapshot["report"]["optimal"]
+    raw_ids = {_identity(row) for row in raw_optimal}
+    calibration = _ledger_calibration(ledger)
+    if ledger is None:
+        recommended_total = _sum_actuals(raw_optimal, by_id)
+        return _shadow_body(
+            model="raw",
+            warning=RAW_CONSENSUS_WARNING,
+            params_key=None,
+            digest=None,
+            recommended_total=recommended_total,
+            started_total=started_total,
+            matches_advice=True,
+            start=[],
+            sit=[],
+        )
+
+    model = "calibrated" if calibration is not None else "raw"
+    warning = None if calibration is not None else RAW_CONSENSUS_WARNING
+    players = _shadow_players(ledger, model)
+    replay = compare_lineup(players, snapshot["roster_slots"])
+    recommended_total = _sum_actuals(replay["optimal"], by_id)
+    shadow_ids = {_identity(row) for row in replay["optimal"]}
+    start = [_scored(row, by_id) for row in replay["optimal"] if _identity(row) not in raw_ids]
+    sit = [_scored(row, by_id) for row in raw_optimal if _identity(row) not in shadow_ids]
+    return _shadow_body(
+        model=model,
+        warning=warning,
+        params_key=None if calibration is None else calibration["params_key"],
+        digest=None if calibration is None else calibration["sha256"],
+        recommended_total=recommended_total,
+        started_total=started_total,
+        matches_advice=shadow_ids == raw_ids,
+        start=start,
+        sit=sit,
+    )
+
+
+def _ledger_calibration(ledger: dict[str, Any] | None) -> dict[str, str] | None:
+    if ledger is None or ledger.get("schema_version") == 1:
+        return None
+    calibration = ledger.get("calibration")
+    if not isinstance(calibration, dict):
+        return None
+    return calibration
+
+
+def _shadow_players(ledger: dict[str, Any], model: str) -> list[dict[str, Any]]:
+    players = []
+    for row in ledger.get("players") or []:
+        if not row.get("is_user_team"):
+            continue
+        if model == "calibrated" and row.get("calibrated_mean") is not None:
+            points = row["calibrated_mean"]
+        else:
+            points = row.get("consensus")
+        status = row.get("injury_status")
+        players.append(
+            {
+                "native_id": row.get("native_id"),
+                "name": row.get("name") or "",
+                "position": row.get("position"),
+                "team": row.get("nfl_team"),
+                "selected_position": row.get("selected_position"),
+                "eligible_positions": list(row.get("eligible_positions") or []),
+                "projection_key": row.get("projection_key"),
+                "player_key": row.get("player_key"),
+                "points": points,
+                "n": row.get("n") or 0,
+                "matched": bool(row.get("matched")),
+                "injury": None if not status else {"status": status},
+            }
+        )
+    return players
+
+
+def _shadow_body(
+    *,
+    model: str,
+    warning: str | None,
+    params_key: str | None,
+    digest: str | None,
+    recommended_total: float,
+    started_total: float,
+    matches_advice: bool,
+    start: list[dict[str, Any]],
+    sit: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "warning": warning,
+        "params_key": params_key,
+        "sha256": digest,
+        "recommended_total": recommended_total,
+        "started_total": started_total,
+        "delta": round(recommended_total - started_total, 2),
+        "matches_advice": matches_advice,
+        "start": start,
+        "sit": sit,
     }
 
 
