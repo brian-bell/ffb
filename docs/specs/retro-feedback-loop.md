@@ -1,6 +1,6 @@
 # Retro → sit/start feedback loop: design
 
-Status: Phase 0 implemented; Phases 1–4 proposed (2026-10-11)
+Status: Phases 0–1 implemented; Phases 2–4 proposed (2026-10-12)
 
 ## TL;DR
 
@@ -287,7 +287,7 @@ until Phase 4.
 - No contract changes: the lineup snapshot, `board.json` and the publish
   envelopes are untouched.
 
-**Phase 1: join and measure.**
+**Phase 1: join and measure.** Implemented.
 - `outcomes.py` fact and decision tables (§3); a loader in the CLI.
 - `ffb retro history SEASON [--league]`: cross-week source × position
   accuracy, regret trend and Q-player hit rate. Optional later: a `/command`

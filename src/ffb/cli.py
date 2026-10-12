@@ -42,7 +42,8 @@ from ffb.lineup import (
     injury_badge,
     projection_key,
 )
-from ffb.predlog import build_prediction_ledger, prediction_ledger_key
+from ffb.outcomes import fact_table, history_report
+from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
     actuals_snapshot_key,
     build_lineup_snapshot,
@@ -75,6 +76,24 @@ board_app = typer.Typer(help="Show or export the persisted draft board.", no_arg
 app.add_typer(league_app, name="league")
 app.add_typer(season_app, name="season")
 app.add_typer(board_app, name="board")
+
+
+class _RetroGroup(typer.core.TyperGroup):
+    """``ffb retro SEASON`` stays the weekly grade; ``history`` is the new subcommand."""
+
+    def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
+        if not args or args[0] != "history":
+            args = ["run", *args]
+        return super().parse_args(ctx, args)
+
+
+retro_app = typer.Typer(
+    cls=_RetroGroup,
+    help="Compare a snapshotted sit/start run to ingested weekly actuals. "
+    "Cross-week feedback: ffb retro history SEASON.",
+    add_completion=False,
+)
+app.add_typer(retro_app, name="retro")
 console = Console()
 
 # Per-source columns shown by --show-sources, in display order.
@@ -741,7 +760,7 @@ def _projection_snapshot_metadata(
     return out
 
 
-@app.command()
+@retro_app.command("run", hidden=True)
 def retro(
     season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
     week: int | None = typer.Option(
@@ -767,7 +786,11 @@ def retro(
     ),
     league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
 ) -> None:
-    """Compare a snapshotted sit/start run to ingested weekly actuals."""
+    """Compare a snapshotted sit/start run to ingested weekly actuals.
+
+    Cross-week source accuracy, regret, and Questionable hit rate:
+    ``ffb retro history SEASON``.
+    """
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
     if from_matchups and fixture is not None:
@@ -897,6 +920,153 @@ def retro(
             ),
             league_key=league_key,
         )
+
+
+@retro_app.command("history")
+def retro_history(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
+) -> None:
+    """Cross-week source accuracy, sit/start regret, and Questionable hit rate."""
+    report = _retro_history_report(season, league)
+    _render_history(report)
+
+
+def _retro_history_report(season: int, league: str | None) -> dict:
+    """Load league-scoped ledgers and actuals, then score the latest run of each week."""
+    selected = _history_league_filter(season, league)
+    cache = SnapshotCache(paths.snapshot_dir())
+    ledgers = _read_ledgers(cache, season, selected)
+    if not ledgers:
+        which = selected or "every stored league"
+        console.print(f"[red]No prediction ledgers for {season} ({which}).[/red]")
+        raise typer.Exit(code=1)
+    facts: list[dict] = []
+    roster_slots: dict[tuple[str, int], dict[str, int]] = {}
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    for ledger in ledgers:
+        grouped.setdefault((ledger["league_key"], ledger["week"]), []).append(ledger)
+    for (league_key, week), runs in grouped.items():
+        bundle = _read_week_actuals(cache, season, week, league_key)
+        advices = _read_lineup_history(cache, season, league_key, week)
+        for ledger in runs:
+            advice = _advice_as_of(advices, ledger["generated_at"])
+            try:
+                table = fact_table(ledger, bundle, advice)
+            except ValueError as exc:
+                console.print(
+                    f"[red]Week {week} {league_key} ledger does not match actuals:[/red] {exc}"
+                )
+                raise typer.Exit(code=1) from exc
+            facts.extend(table["facts"])
+        latest = max(runs, key=lambda row: row["generated_at"])
+        advice = _advice_as_of(advices, latest["generated_at"])
+        if advice is not None:
+            roster_slots[(league_key, week)] = dict(advice["roster_slots"])
+    return history_report(facts, season=season, roster_slots=roster_slots)
+
+
+def _history_league_filter(season: int, league: str | None) -> str | None:
+    """Resolve ``--league`` when the store knows it; otherwise keep the raw token.
+
+    A season with no stored league still grades snapshots. ``yahoo`` and
+    ``sleeper`` then match the ledger key's provider, and a full key matches
+    exactly.
+    """
+    store = _open_store()
+    closed = False
+    try:
+        if league is not None and not store.league_keys(season):
+            return league.strip()
+        return _select_league(store, season, league, required=False)
+    except typer.Exit:
+        closed = True
+        raise
+    finally:
+        if not closed:
+            store.close()
+
+
+def _league_selected(league_key: str, selected: str | None) -> bool:
+    if selected is None:
+        return True
+    if league_key == selected:
+        return True
+    return ":" not in selected and league_key.split(":", 1)[0] == selected
+
+
+def _read_ledgers(cache: SnapshotCache, season: int, selected: str | None) -> list[dict]:
+    root = cache.root / "predlog"
+    if not root.is_dir():
+        return []
+    ledgers = []
+    for path in sorted(root.rglob("*.json")):
+        key = path.relative_to(cache.root).with_suffix("").as_posix()
+        try:
+            ledger = parse_prediction_ledger(cache.read_json(key))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            console.print(f"[yellow]Skipping prediction ledger {key}:[/yellow] {exc}")
+            continue
+        if ledger["season"] != season or not _league_selected(ledger["league_key"], selected):
+            continue
+        ledgers.append(ledger)
+    return ledgers
+
+
+def _read_week_actuals(cache: SnapshotCache, season: int, week: int, league_key: str):
+    key = actuals_snapshot_key(season, week, league_key)
+    if not cache.has(key):
+        return None
+    try:
+        return parse_actuals(cache.read_json(key), season=season)
+    except ValueError as exc:
+        console.print(f"[red]Stored weekly actuals are invalid:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _read_lineup_history(
+    cache: SnapshotCache, season: int, league_key: str, week: int
+) -> list[dict]:
+    """Versioned sit/start snapshots for one league-week, oldest first."""
+    root = cache.root / "lineup"
+    if not root.is_dir():
+        return []
+    found = []
+    for path in sorted(root.rglob("*.json")):
+        key = path.relative_to(cache.root).with_suffix("").as_posix()
+        if _lineup_league_key(key) != league_key:
+            continue
+        try:
+            advice = parse_lineup_snapshot(cache.read_json(key))
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            console.print(f"[yellow]Skipping sit/start snapshot {key}:[/yellow] {exc}")
+            continue
+        if advice["season"] == season and advice["week"] == week:
+            found.append(advice)
+    found.sort(key=lambda advice: advice["generated_at"])
+    return found
+
+
+def _lineup_league_key(key: str) -> str | None:
+    """League named by a lineup snapshot path, including the flat Yahoo default."""
+    parts = key.split("/")
+    if not parts or parts[0] != "lineup":
+        return None
+    rest = parts[1:]
+    if rest and rest[0] == "history":
+        rest = rest[1:]
+    if not rest:
+        return None
+    if rest[0].split("_week", 1)[0].isdigit():
+        return config.YAHOO_LEAGUE_KEY
+    return rest[0].replace("_", ":", 1)
+
+
+def _advice_as_of(advices: list[dict], generated_at: str) -> dict | None:
+    eligible = [advice for advice in advices if advice["generated_at"] <= generated_at]
+    if not eligible:
+        return None
+    return max(eligible, key=lambda advice: advice["generated_at"])
 
 
 def _tracker_client() -> httpx.Client:
@@ -1902,6 +2072,82 @@ def _render_retro(report: dict) -> None:
             f"[yellow]⚠ {len(report['missing_actuals'])} rostered player(s) "
             f"have no weekly actuals: {names}{more}[/yellow]"
         )
+
+
+def _render_history(report: dict) -> None:
+    """Print cross-week accuracy, regret, and Questionable decision hit rate."""
+    leagues = ", ".join(report["leagues"]) or "no leagues"
+    console.print(f"[yellow]{report['season']} retro history[/yellow] — {leagues}")
+    accuracy = report["source_position_accuracy"]
+    if accuracy:
+        table = Table(title="Source × position")
+        table.add_column("Source")
+        table.add_column("Pos")
+        table.add_column("n", justify="right")
+        table.add_column("MAE", justify="right")
+        table.add_column("Bias", justify="right")
+        table.add_column("n ex-DNP", justify="right")
+        table.add_column("MAE ex-DNP", justify="right")
+        table.add_column("Bias ex-DNP", justify="right")
+        for row in accuracy:
+            table.add_row(
+                row["source"],
+                row["position"] or "—",
+                str(row["n"]),
+                f"{row['mae']:.2f}",
+                f"{row['bias']:+.2f}",
+                str(row["n_without_dnp"]),
+                "—" if row["mae_without_dnp"] is None else f"{row['mae_without_dnp']:.2f}",
+                "—" if row["bias_without_dnp"] is None else f"{row['bias_without_dnp']:+.2f}",
+            )
+        console.print(table)
+    else:
+        console.print("[yellow]No joined projections to score.[/yellow]")
+    _print_hit_rate("Questionable starts", report["q_player_hit_rate"])
+    _print_hit_rate("Decisions", report["decision_accuracy"])
+    if report["regret_trend"]:
+        table = Table(title="Regret")
+        table.add_column("League")
+        table.add_column("Week", justify="right")
+        table.add_column("As of")
+        table.add_column("Recommended", justify="right")
+        table.add_column("Hindsight", justify="right")
+        table.add_column("Regret", justify="right")
+        for row in report["regret_trend"]:
+            table.add_row(
+                row["league_key"],
+                str(row["week"]),
+                row["generated_at"],
+                f"{row['recommended_total']:.1f}",
+                f"{row['hindsight_total']:.1f}",
+                f"{row['regret']:+.1f}",
+            )
+        console.print(table)
+    else:
+        console.print("[yellow]No sit/start snapshot to score regret against.[/yellow]")
+    if report["weeks_without_actuals"]:
+        weeks = ", ".join(
+            f"{row['league_key']} week {row['week']}" for row in report["weeks_without_actuals"]
+        )
+        console.print(f"[yellow]No actuals snapshot: {weeks}.[/yellow]")
+    missing = report["missing_actuals"]
+    if missing:
+        console.print(f"[yellow]⚠ {len(missing)} ledger player(s) have no weekly actuals.[/yellow]")
+
+
+def _print_hit_rate(label: str, rate: dict) -> None:
+    console.print(
+        f"{label} {_format_rate(rate, '')}; without DNP {_format_rate(rate, '_without_dnp')}"
+    )
+
+
+def _format_rate(rate: dict, suffix: str) -> str:
+    hits = rate[f"hits{suffix}"]
+    count = rate[f"n{suffix}"]
+    hit_rate = rate[f"hit_rate{suffix}"]
+    if hit_rate is None:
+        return f"{hits}/{count}"
+    return f"{hits}/{count} ({hit_rate:.0%})"
 
 
 def _render_board(rows: list[dict], *, season: int, pos: str | None) -> None:
