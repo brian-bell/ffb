@@ -239,6 +239,7 @@ def ensure_ingested(
         refresh=refresh,
         policy=policy,
         is_valid=lambda data: bool(sleeper.parse_projections(data, week=week)),
+        archive_replaced=week is not None,
     )
     rows = sleeper.parse_projections(raw, week=week)
     if not rows:
@@ -501,6 +502,7 @@ def ensure_espn_ingested(
         refresh=refresh,
         policy=policy,
         is_valid=lambda data: bool(espn.parse_projections(data, season, week=week)),
+        archive_replaced=week is not None,
     )
     rows = espn.parse_projections(raw, season, week=week)
     if not rows:

@@ -75,7 +75,14 @@ regular-season games, ranks playoff-week opponent DEF consensus, and (when a
 user roster is stored) groups that roster by bye. `ffb lineup` writes an
 immutable sit/start snapshot under `snapshots/lineup/` on the first run for a
 week and refuses to replace it, skips past weeks as post-hoc, and replaces or
-backfills only with `--force`; `ffb retro --fixture` likewise refuses to
+backfills only with `--force`. Every snapshot it writes is also kept under
+`snapshots/lineup/history/`, and every run for the current or a future week
+writes a `predlog.py` prediction ledger under `snapshots/predlog/`: weekly
+consensus and per-source points for every rostered player in the league, the
+input to the retro feedback loop in
+[specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). A weekly
+projection refresh archives the pull it replaces under `snapshots/archive/`.
+`ffb retro --fixture` likewise refuses to
 replace differing locked actuals without `--force`; `ffb retro` joins that
 advice to a closed `WeeklyActualsBundle` (fixture, `snapshots/actuals/`, a
 Sleeper `/matchups` cache via `--from-matchups`, or a one-time pull from the

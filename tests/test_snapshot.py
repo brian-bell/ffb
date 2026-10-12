@@ -283,3 +283,40 @@ def test_future_attempt_beyond_skew_threshold_repairs_and_claims(tmp_path):
     assert result == {"players": []}
     assert calls == 1
     assert cache.last_attempt_at("sleeper/players_nfl") == attempted_at
+
+
+def test_archive_replaced_keeps_the_previous_snapshot_when_a_refresh_changes_it(tmp_path):
+    cache = SnapshotCache(tmp_path)
+    cache.get_json("src/week6", lambda: {"v": 1})
+
+    cache.get_json("src/week6", lambda: {"v": 2}, refresh=True, archive_replaced=True)
+
+    assert cache.read_json("src/week6") == {"v": 2}
+    archived = sorted((tmp_path / "archive" / "src" / "week6").glob("*.json"))
+    assert [json.loads(path.read_text()) for path in archived] == [{"v": 1}]
+
+
+def test_archive_replaced_skips_an_unchanged_or_rejected_refresh(tmp_path):
+    cache = SnapshotCache(tmp_path)
+    cache.get_json("src/week6", lambda: {"v": 1})
+
+    cache.get_json("src/week6", lambda: {"v": 1}, refresh=True, archive_replaced=True)
+    cache.get_json(
+        "src/week6",
+        lambda: {"v": 3},
+        refresh=True,
+        archive_replaced=True,
+        is_valid=lambda data: False,
+    )
+
+    assert cache.read_json("src/week6") == {"v": 1}
+    assert not (tmp_path / "archive").exists()
+
+
+def test_refresh_without_archive_replaced_keeps_no_history(tmp_path):
+    cache = SnapshotCache(tmp_path)
+    cache.get_json("src/week6", lambda: {"v": 1})
+
+    cache.get_json("src/week6", lambda: {"v": 2}, refresh=True)
+
+    assert not (tmp_path / "archive").exists()
