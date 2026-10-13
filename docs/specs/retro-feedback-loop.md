@@ -1,6 +1,6 @@
 # Retro → sit/start feedback loop: design
 
-Status: Phases 0–1 implemented; Phases 2–4 proposed (2026-10-12)
+Status: Phases 0–2 implemented; Phases 3–4 proposed (2026-10-12)
 
 ## TL;DR
 
@@ -294,7 +294,7 @@ until Phase 4.
   card (needs an `inseason.py` kind and tracker work).
 - Retro's existing `source_accuracy` stays unchanged.
 
-**Phase 2: calibrate in shadow.**
+**Phase 2: calibrate in shadow.** Implemented.
 - `calibration.py` fit (§4.1–4.3) and the params file per week.
 - `lineup` computes calibrated mean/sd into the ledger only. Advice, snapshot
   v1 and the published report are unchanged.

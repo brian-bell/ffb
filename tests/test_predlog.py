@@ -52,7 +52,8 @@ def test_ledger_records_every_rostered_player_with_its_projection():
     ledger = _ledger([_player(), _player(team_key="t.2", native_id="99", points=None, n=0)])
 
     assert ledger["kind"] == PREDICTION_LEDGER_KIND
-    assert ledger["schema_version"] == 1
+    assert ledger["schema_version"] == 2
+    assert ledger["calibration"] is None
     mine, theirs = ledger["players"]
     assert mine == {
         "team_key": "t.1",
@@ -71,6 +72,8 @@ def test_ledger_records_every_rostered_player_with_its_projection():
         "consensus": 13.5,
         "n": 2,
         "source_points": {"sleeper": 14.2, "espn": 12.8},
+        "calibrated_mean": None,
+        "calibrated_sd": None,
     }
     assert theirs["is_user_team"] is False
     assert theirs["consensus"] is None
@@ -91,6 +94,26 @@ def test_parser_rejects_unknown_fields():
         parse_prediction_ledger({**ledger, "extra": 1})
     with pytest.raises(ValueError):
         parse_prediction_ledger({**ledger, "players": [{**ledger["players"][0], "x": 1}]})
+
+
+def test_v1_ledger_still_parses_without_calibrated_fields():
+    ledger = _ledger([_player()])
+    v1 = {key: value for key, value in ledger.items() if key != "calibration"}
+    v1["schema_version"] = 1
+    v1["players"] = [
+        {
+            key: value
+            for key, value in player.items()
+            if key not in {"calibrated_mean", "calibrated_sd"}
+        }
+        for player in ledger["players"]
+    ]
+
+    parsed = parse_prediction_ledger(v1)
+
+    assert parsed["schema_version"] == 1
+    assert "calibration" not in parsed
+    assert "calibrated_mean" not in parsed["players"][0]
 
 
 def test_ledger_key_is_one_file_per_run_under_the_league_week():
