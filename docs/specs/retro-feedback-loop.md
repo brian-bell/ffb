@@ -1,6 +1,6 @@
 # Retro → sit/start feedback loop: design
 
-Status: Phases 0–3 implemented; Phases 4–5 proposed (2026-10-13)
+Status: Phases 0–4 implemented; Phase 5 optional (2026-10-13)
 
 ## TL;DR
 
@@ -306,7 +306,7 @@ until Phase 4.
   published reports.
 - Win-probability close calls computed in shadow alongside the 1.5-point rule.
 
-**Phase 4: promote (gated).**
+**Phase 4: promote (gated).** Implemented.
 - `lineup --model raw|calibrated`, defaulting to `calibrated` once the gate
   passes.
 - Lineup snapshot schema v2 adds `model` and per-row `sd`/`p_start`, with a

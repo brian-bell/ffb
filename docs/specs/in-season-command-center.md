@@ -290,7 +290,7 @@ quietly redirected to a different league's roster.
 
 | Card | Headline | Rows | Panel |
 | --- | --- | --- | --- |
-| Lineup | `delta` to optimal, current vs optimal totals | `start`, `sit`, `undecidable`, top `close_calls` | aligned slot table, all close calls, missing projections, injury timestamp, projection sources |
+| Lineup | `delta` to optimal, current vs optimal totals | `start`, `sit`, `undecidable`, top `close_calls` | aligned slot table, all close calls, missing projections, injury timestamp, projection sources, additive `model` / `p_start` / `p_win` when a v2 payload is published |
 | News | count of flagged roster players | roster players with `flag` or injury badge, first sentence of `narrative` | full narrative, roster and watch lists with notes and headlines, other headlines, `news_as_of` |
 | Retro | `delta` recommended vs started, matchup score; muted second figure when `hindsight_delta` > `delta` | advice start/sit misses, then hindsight start/sit not already in the advice lists, then advice hits | all four hit/miss lists, hindsight start/sit, source accuracy table, missing actuals |
 | Rest of season | playoff weeks and roster exposure | next `bye_plan` group with `thin_positions`, rostered players' playoff difficulty | ROS table with position filter, playoff schedule strength, full bye plan, usage note |

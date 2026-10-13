@@ -81,6 +81,27 @@ describe("parseEnvelope", () => {
     expect(parseEnvelope({ ...lineupFixture, team_name: 7 }).ok).toBe(false);
   });
 
+  it("accepts additive lineup model fields and still parses a v1 card", () => {
+    expect(parseEnvelope(lineupFixture, "lineup")).toMatchObject({ ok: true });
+    const additive = clone(lineupFixture) as unknown as {
+      report: {
+        model: string;
+        start: Array<Record<string, unknown>>;
+        close_calls: Array<Record<string, unknown>>;
+      };
+    };
+    additive.report.model = "calibrated";
+    additive.report.start[0]!.sd = 3.2;
+    additive.report.start[0]!.p_start = 0.62;
+    additive.report.close_calls[0]!.p_win = 0.58;
+    expect(parseEnvelope(additive, "lineup")).toMatchObject({ ok: true });
+    additive.report.model = "shadow";
+    expect(parseEnvelope(additive, "lineup")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("report.model"),
+    });
+  });
+
   it("accepts every UTC spelling the producer contracts allow", () => {
     // parse_bundle / parse_actuals accept RFC 3339 `+00:00` (and a space
     // separator), and the CLI copies those timestamps into the context.

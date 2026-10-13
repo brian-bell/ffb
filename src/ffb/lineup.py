@@ -235,6 +235,10 @@ def _row(player: dict[str, Any], slot: str) -> dict[str, Any]:
         row["injury"] = player["injury"]
     if player.get("undecidable"):
         row["undecidable"] = True
+    if player.get("sd") is not None:
+        row["sd"] = player["sd"]
+    if player.get("p_start") is not None:
+        row["p_start"] = player["p_start"]
     return row
 
 

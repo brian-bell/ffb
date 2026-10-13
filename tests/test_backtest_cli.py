@@ -66,11 +66,12 @@ def test_empty_backtest_fails_closed(tmp_path):
     assert not (tmp_path / "snapshots").exists()
 
 
-def test_lineup_stays_on_raw_consensus_without_a_model_switch():
+def test_lineup_help_names_the_model_switch():
     result = runner.invoke(app, ["lineup", "--help"])
 
     assert result.exit_code == 0, result.output
-    assert "--model" not in result.output
+    assert "--model" in result.output
+    assert "calibrated" in result.output
 
 
 def test_backtest_help_names_the_league_variant():

@@ -18,6 +18,7 @@ _UNSTARTABLE_SLOTS = NON_STARTING_SLOTS - {BENCH_SLOT}
 RAW_CONSENSUS_WARNING = "Calibration params missing; using raw consensus."
 
 LINEUP_SNAPSHOT_KIND = "lineup_recommendation"
+LINEUP_MODELS = ("raw", "calibrated")
 LINEUP_SNAPSHOT_KEYS = {
     "schema_version",
     "kind",
@@ -30,6 +31,7 @@ LINEUP_SNAPSHOT_KEYS = {
     "players",
     "report",
 }
+LINEUP_SNAPSHOT_KEYS_V2 = LINEUP_SNAPSHOT_KEYS | {"model"}
 _SNAPSHOT_PLAYER_KEYS = {
     "native_id",
     "native_player_key",
@@ -45,6 +47,7 @@ _SNAPSHOT_PLAYER_KEYS = {
     "n",
     "matched",
 }
+_SNAPSHOT_PLAYER_KEYS_V2 = _SNAPSHOT_PLAYER_KEYS | {"sd", "p_start"}
 
 
 def league_snapshot_segment(league_key: str | None) -> str:
@@ -90,17 +93,22 @@ def build_lineup_snapshot(
     roster_slots: dict[str, int],
     players: list[dict[str, Any]],
     report: dict[str, Any],
+    model: str = "raw",
 ) -> dict[str, Any]:
-    """Serialize one sit/start run as the retro replay boundary."""
+    """Serialize one sit/start run as the retro replay boundary.
+
+    New runs are schema v2: ``model`` plus per-player ``sd`` / ``p_start``.
+    """
     return parse_lineup_snapshot(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": LINEUP_SNAPSHOT_KIND,
             "season": season,
             "week": week,
             "generated_at": generated_at,
             "team_key": team_key,
             "team_name": team_name,
+            "model": model,
             "roster_slots": dict(roster_slots),
             "players": [_snapshot_player(player) for player in players],
             "report": {
@@ -116,16 +124,46 @@ def build_lineup_snapshot(
     )
 
 
+def _upgrade_v1_lineup_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
+    """Back-compat shim: a v1 snapshot is raw advice with null sd / p_start.
+
+    Mirrors ``actuals._upgrade_v1_players``. v1 files remain at rest under
+    ``snapshots/lineup/``; parse upgrades them in memory and validates as v2.
+    """
+    upgraded = dict(payload)
+    upgraded["schema_version"] = 2
+    upgraded["model"] = "raw"
+    players = []
+    for player in upgraded.get("players") or []:
+        if not isinstance(player, dict):
+            players.append(player)
+            continue
+        players.append({**player, "sd": None, "p_start": None})
+    upgraded["players"] = players
+    return upgraded
+
+
 def parse_lineup_snapshot(payload: object) -> dict[str, Any]:
-    """Validate a lineup-recommendation snapshot before retro joins it."""
+    """Validate a lineup-recommendation snapshot before retro joins it.
+
+    Schema v2 adds ``model`` and per-player ``sd`` / ``p_start``. Schema v1
+    payloads are upgraded in place so existing readers keep working.
+    """
     if not isinstance(payload, dict):
         raise ValueError("lineup snapshot must be an object")
-    if set(payload) != LINEUP_SNAPSHOT_KEYS:
+    version = payload.get("schema_version")
+    if version == 1:
+        if set(payload) != LINEUP_SNAPSHOT_KEYS:
+            raise ValueError("lineup snapshot has unknown or missing fields")
+        payload = _upgrade_v1_lineup_snapshot(payload)
+    elif version != 2:
+        raise ValueError("lineup snapshot schema_version must be 1 or 2")
+    if set(payload) != LINEUP_SNAPSHOT_KEYS_V2:
         raise ValueError("lineup snapshot has unknown or missing fields")
-    if payload.get("schema_version") != 1:
-        raise ValueError("lineup snapshot schema_version must be 1")
     if payload.get("kind") != LINEUP_SNAPSHOT_KIND:
         raise ValueError("lineup snapshot kind must be lineup_recommendation")
+    if payload.get("model") not in LINEUP_MODELS:
+        raise ValueError("lineup snapshot model must be raw or calibrated")
     for key in ("season", "week"):
         if type(payload[key]) is not int or payload[key] <= 0:
             raise ValueError(f"lineup snapshot {key} must be a positive integer")
@@ -414,10 +452,21 @@ def _snapshot_player(player: dict[str, Any]) -> dict[str, Any]:
         "source_points": dict(player.get("source_points") or {}),
         "n": player.get("n", 0),
         "matched": bool(player.get("matched")),
+        "sd": player.get("sd"),
+        "p_start": player.get("p_start"),
     }
-    if set(row) != _SNAPSHOT_PLAYER_KEYS:
+    _optional_number(row["sd"], "sd")
+    _optional_number(row["p_start"], "p_start")
+    if set(row) != _SNAPSHOT_PLAYER_KEYS_V2:
         raise ValueError("lineup snapshot player has unknown or missing fields")
     return row
+
+
+def _optional_number(value: object, name: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"lineup snapshot {name} must be a number or null")
 
 
 def _identity_row(row: dict[str, Any]) -> dict[str, Any]:

@@ -456,11 +456,12 @@ version under `snapshots/lineup/history/`) and league-wide weekly projections
 under `snapshots/predlog/`; `ffb retro` joins advice and actuals by
 `native_id`. A current-week lineup also writes
 `snapshots/calibration/[league/]{season}_week{week}.json` once per week and
-records calibrated mean/sd on that run's ledger. The advice snapshot and
-published report stay on raw consensus; `ffb retro` prints the calibrated
-lineup as a shadow section, with win-probability close calls beside the
-1.5-point rule. `ffb calibrate backtest` scores that shadow model walk-forward
-and prints the promotion gate without applying it. A refresh that changes a weekly Sleeper or ESPN projection pull
+records calibrated mean/sd on that run's ledger. `ffb lineup --model` (default:
+follow the promotion gate) writes a schema-v2 advice snapshot with `model` and
+per-row `sd` / `p_start`; v1 snapshots still parse. The published `/command`
+card shows those additive fields when present. Raw consensus remains the
+fallback. `ffb retro` still prints a calibrated shadow section. `ffb calibrate
+backtest` scores walk-forward and prints the gate `lineup` re-runs each week. A refresh that changes a weekly Sleeper or ESPN projection pull
 first copies the old pull to `snapshots/archive/<key>/`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by

@@ -134,17 +134,98 @@ def _actuals(*, henry_slot="BN", henry_points=24.0, slow_slot="RB", slow_points=
 
 
 def test_snapshot_keys_are_week_scoped():
+    from ffb.config import SLEEPER_LEAGUE_KEY, YAHOO_LEAGUE_KEY
+
     assert lineup_snapshot_key(2024, 1) == "lineup/2024_week1"
+    assert lineup_snapshot_key(2026, 6, YAHOO_LEAGUE_KEY) == "lineup/2026_week6"
+    assert lineup_snapshot_key(2026, 6, SLEEPER_LEAGUE_KEY) == (
+        "lineup/sleeper_1395854363380965376/2026_week6"
+    )
     assert actuals_snapshot_key(2026, 12) == "actuals/2026_week12"
 
 
 def test_lineup_snapshot_is_closed_and_round_trips():
     snapshot = parse_lineup_snapshot(_advice())
     assert snapshot["kind"] == "lineup_recommendation"
+    assert snapshot["schema_version"] == 2
+    assert snapshot["model"] == "raw"
     assert snapshot["team_key"] == "1.l.sit.t.1"
     henry = next(row for row in snapshot["players"] if row["native_id"] == "29279")
     assert henry["source_points"] == {"sleeper": 19.0, "espn": 17.0}
     assert henry["points"] == 18.0
+    assert henry["sd"] is None
+    assert henry["p_start"] is None
+
+
+def _v1_payload(snapshot):
+    payload = {key: value for key, value in snapshot.items() if key != "model"}
+    payload["schema_version"] = 1
+    payload["players"] = [
+        {key: value for key, value in player.items() if key not in {"sd", "p_start"}}
+        for player in snapshot["players"]
+    ]
+    return payload
+
+
+def test_v1_lineup_snapshot_upgrades_to_v2_and_still_grades():
+    v1 = _v1_payload(_advice())
+    parsed = parse_lineup_snapshot(v1)
+    assert parsed["schema_version"] == 2
+    assert parsed["model"] == "raw"
+    henry = next(row for row in parsed["players"] if row["native_id"] == "29279")
+    assert henry["sd"] is None
+    assert henry["p_start"] is None
+    assert henry["points"] == 18.0
+    retro = retro_report(v1, _actuals())
+    assert retro["recommended_total"] == 24.0
+    assert [row["name"] for row in retro["start_misses"]] == ["Derrick Henry"]
+
+
+def test_v2_lineup_snapshot_keeps_model_and_per_row_fields():
+    players = attach_weekly_points(
+        [
+            _player(
+                native_id="29279",
+                native_player_key="1.p.29279",
+                full_name="Derrick Henry",
+                selected_position="BN",
+                player_key="12626",
+                matched=True,
+            )
+        ],
+        [_consensus("12626", 18.0, {"sleeper": 19.0, "espn": 17.0})],
+    )
+    players[0]["sd"] = 2.5
+    players[0]["p_start"] = 0.71
+    snapshot = parse_lineup_snapshot(
+        build_lineup_snapshot(
+            season=2024,
+            week=1,
+            generated_at="2026-09-13T13:00:00Z",
+            team_key="1.l.sit.t.1",
+            team_name="Brian's Team",
+            roster_slots={"RB": 1, "BN": 2},
+            players=players,
+            report=compare_lineup(players, {"RB": 1, "BN": 2}),
+            model="calibrated",
+        )
+    )
+    assert snapshot["model"] == "calibrated"
+    assert snapshot["schema_version"] == 2
+    henry = snapshot["players"][0]
+    assert henry["sd"] == 2.5
+    assert henry["p_start"] == 0.71
+
+
+def test_lineup_snapshot_rejects_unknown_schema_and_extra_keys():
+    v1 = _v1_payload(_advice())
+    with pytest.raises(ValueError, match="schema_version"):
+        parse_lineup_snapshot({**v1, "schema_version": 3})
+    v2 = parse_lineup_snapshot(_advice())
+    with pytest.raises(ValueError, match="unknown or missing"):
+        parse_lineup_snapshot({**v2, "extra": 1})
+    with pytest.raises(ValueError, match="model"):
+        parse_lineup_snapshot({**v2, "model": "shadow"})
 
 
 def test_attach_weekly_points_copies_source_points():

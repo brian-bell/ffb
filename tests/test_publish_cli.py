@@ -103,7 +103,15 @@ def test_lineup_publish_posts_rendered_report_with_context(tmp_path, monkeypatch
     assert envelope["context"]["snapshot_generated_at"] == snapshot["generated_at"]
     report = envelope["report"]
     assert report["start"][0]["name"] == "Derrick Henry"
-    assert {"aligned", "close_calls", "missing_projections", "undecidable", "delta"} <= set(report)
+    assert report["model"] == "raw"
+    assert {
+        "aligned",
+        "close_calls",
+        "missing_projections",
+        "undecidable",
+        "delta",
+        "model",
+    } <= set(report)
 
 
 def test_lineup_publish_reports_the_locked_snapshot_it_did_not_replace(tmp_path, monkeypatch):
