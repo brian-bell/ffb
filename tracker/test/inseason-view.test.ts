@@ -455,6 +455,21 @@ describe("lineupCardRows", () => {
     expect(rows.close).toEqual([{ name: "Trevor Lawrence", points: 16.9, versus: "Jared Goff", slot: "QB", delta: 0.1, p_win: 0.58, swap: true }]);
   });
 
+  it("drops p_win when a folded swap pairs a different starter", () => {
+    const rows = lineupCardRows(report({
+      start: [player("C", "RB", 10.0), player("D", "RB", 9.5)],
+      sit: [player("A", "RB", 9.4), player("B", "RB", 9.3)],
+      close_calls: [
+        { name: "A", points: 9.4, versus: "C", slot: "RB", delta: 0.6, p_win: 0.61 },
+        { name: "B", points: 9.3, versus: "C", slot: "RB", delta: 0.7, p_win: 0.58 },
+      ],
+    }));
+    expect(rows.close.map((call) => [call.versus, call.name, call.p_win, call.swap])).toEqual([
+      ["D", "B", undefined, true],
+      ["C", "A", 0.61, true],
+    ]);
+  });
+
   it("keeps start and sit when the close call pairs different players", () => {
     const rows = lineupCardRows(report({
       start: [player("Jared Goff", "QB", 17.0)],

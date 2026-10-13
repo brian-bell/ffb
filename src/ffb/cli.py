@@ -2272,12 +2272,15 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
     else:
         console.print("[green]Stored lineup matches the weekly optimum.[/green]")
     for row in report["close_calls"]:
-        chance = ""
         if row.get("p_win") is not None:
-            chance = f", {row['p_win']:.0%} to start"
+            console.print(
+                f"[yellow]Close[/yellow] start {row['versus']} over {row['name']}: "
+                f"{row['p_win']:.0%}"
+            )
+            continue
         console.print(
             f"[yellow]Close[/yellow] {row['name']} {_num(row['points'])} vs "
-            f"{row['versus']} ({row['slot']}, Δ {row['delta']:.1f}{chance})"
+            f"{row['versus']} ({row['slot']}, Δ {row['delta']:.1f})"
         )
     if report["missing_projections"]:
         names = ", ".join(row["name"] for row in report["missing_projections"][:8])

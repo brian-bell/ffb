@@ -231,7 +231,15 @@ export function lineupCardRows(report: LineupReport): { start: LineupRow[]; sit:
   const close: CardCloseCall[] = [
     ...folded.map(({ start, sit, gap }) => {
       const call = callFor.get(sit.name);
-      return { name: sit.name, points: sit.points!, versus: start.name, slot: start.slot!, delta: gap, swap: true, p_win: call?.p_win };
+      return {
+        name: sit.name,
+        points: sit.points!,
+        versus: start.name,
+        slot: start.slot!,
+        delta: gap,
+        swap: true,
+        p_win: call?.versus === start.name ? call.p_win : undefined,
+      };
     }),
     ...plain.slice(0, Math.max(0, LINEUP_CARD_CLOSE_CALLS - folded.length)).map((call) => ({ ...call, swap: false })),
   ];
