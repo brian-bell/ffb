@@ -458,7 +458,9 @@ under `snapshots/predlog/`; `ffb retro` joins advice and actuals by
 `snapshots/calibration/[league/]{season}_week{week}.json` once per week and
 records calibrated mean/sd on that run's ledger. The advice snapshot and
 published report stay on raw consensus; `ffb retro` prints the calibrated
-lineup as a shadow section. A refresh that changes a weekly Sleeper or ESPN projection pull
+lineup as a shadow section, with win-probability close calls beside the
+1.5-point rule. `ffb calibrate backtest` scores that shadow model walk-forward
+and prints the promotion gate without applying it. A refresh that changes a weekly Sleeper or ESPN projection pull
 first copies the old pull to `snapshots/archive/<key>/`.
 
 `ensure_adp_ingested` runs the same fetch → snapshot → parse path but resolves by

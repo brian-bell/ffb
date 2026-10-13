@@ -33,6 +33,7 @@ _FORBIDDEN = ("import httpx", "import duckdb", "ffb.store", "ffb.snapshot", "ffb
         "predlog.py",
         "outcomes.py",
         "calibration.py",
+        "backtest.py",
         "digest.py",
         "inseason.py",
         "waivers.py",

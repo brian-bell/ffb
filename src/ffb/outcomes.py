@@ -463,6 +463,11 @@ def _recommended_total(facts: list[dict[str, Any]]) -> float:
     return round(total, 2)
 
 
+def hindsight_total(facts: list[dict[str, Any]], roster_slots: dict[str, int]) -> float:
+    """Actual points of the greedy optimum on the user roster."""
+    return _hindsight_total(facts, roster_slots)
+
+
 def _hindsight_total(facts: list[dict[str, Any]], roster_slots: dict[str, int]) -> float:
     pool = []
     for fact in facts:

@@ -1,6 +1,6 @@
 # Retro → sit/start feedback loop: design
 
-Status: Phases 0–2 implemented; Phases 3–4 proposed (2026-10-12)
+Status: Phases 0–3 implemented; Phases 4–5 proposed (2026-10-13)
 
 ## TL;DR
 
@@ -300,8 +300,10 @@ until Phase 4.
   v1 and the published report are unchanged.
 - `retro` gains a "shadow" section: what calibrated advice would have done.
 
-**Phase 3: backtest and probabilities.**
+**Phase 3: backtest and probabilities.** Implemented.
 - `ffb calibrate backtest` (§5) with the promotion gate printed as pass/fail.
+  The command reports the gate and does not change advice, snapshots, or
+  published reports.
 - Win-probability close calls computed in shadow alongside the 1.5-point rule.
 
 **Phase 4: promote (gated).**

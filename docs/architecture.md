@@ -85,7 +85,10 @@ a future week it also writes `snapshots/calibration/` once, fit walk-forward on
 earlier weeks pooled across leagues, and stores that run's calibrated mean and
 sd on the ledger only. Advice, the lineup snapshot, and published reports stay
 on raw consensus. `ffb retro` prints a shadow section for the lineup those
-calibrated means would have started. `ffb retro history`
+calibrated means would have started, including 1.5-point close calls and
+win-probability close calls. `ffb calibrate backtest` refits each week from
+earlier weeks only, compares raw and calibrated advice, and prints whether the
+promotion gate would pass. It does not change the advice. `ffb retro history`
 joins those ledgers to league-scoped actuals at read time and reports
 cross-week source-by-position accuracy, sit/start regret, and the hit rate of
 Questionable starts. A weekly

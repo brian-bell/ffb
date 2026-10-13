@@ -20,6 +20,7 @@ from ffb import digest as digest_mod
 from ffb import ros as ros_mod
 from ffb import waivers as waivers_mod
 from ffb.actuals import parse_actuals
+from ffb.backtest import walk_forward_backtest
 from ffb.calibration import (
     annotate_players,
     calibration_params_key,
@@ -103,6 +104,12 @@ retro_app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(retro_app, name="retro")
+calibrate_app = typer.Typer(
+    help="Walk-forward sit/start calibration. "
+    "ffb calibrate backtest SEASON compares raw and calibrated advice.",
+    no_args_is_help=True,
+)
+app.add_typer(calibrate_app, name="calibrate")
 console = Console()
 
 # Per-source columns shown by --show-sources, in display order.
@@ -1042,6 +1049,154 @@ def retro_history(
     """Cross-week source accuracy, sit/start regret, and Questionable hit rate."""
     report = _retro_history_report(season, league)
     _render_history(report)
+
+
+@calibrate_app.command("backtest")
+def calibrate_backtest(
+    season: int = typer.Argument(config.DEFAULT_SEASON, help="League season."),
+    league: str | None = typer.Option(
+        None,
+        "--league",
+        help="Per-league fit variant. Omit to pool every stored league, which is "
+        "the promotion gate.",
+    ),
+) -> None:
+    """Walk-forward raw vs calibrated sit/start, and whether the gate would pass.
+
+    Week W is fit on earlier weeks only. The gate is printed and not applied:
+    lineup advice, snapshots, and published reports stay on raw consensus.
+    """
+    report = _calibrate_backtest_report(season, league)
+    _render_backtest(report)
+
+
+def _calibrate_backtest_report(season: int, league: str | None) -> dict:
+    """Load every league's ledgers unless ``--league`` selects the per-league variant."""
+    selected = None if league is None else _history_league_filter(season, league)
+    cache = SnapshotCache(paths.snapshot_dir())
+    ledgers = _read_ledgers(cache, season, selected)
+    facts: list[dict] = []
+    roster_slots: dict[tuple[str, int], dict[str, int]] = {}
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    for ledger in ledgers:
+        grouped.setdefault((ledger["league_key"], ledger["week"]), []).append(ledger)
+    for (league_key, week), runs in grouped.items():
+        bundle = _read_optional_actuals(cache, season, week, league_key)
+        advices = _read_lineup_history(cache, season, league_key, week)
+        for ledger in runs:
+            advice = _advice_as_of(advices, ledger["generated_at"])
+            try:
+                table = fact_table(ledger, bundle, advice)
+            except ValueError as exc:
+                console.print(
+                    f"[yellow]Skipping week {week} {league_key} for backtest:[/yellow] {exc}"
+                )
+                continue
+            facts.extend(table["facts"])
+        latest = max(runs, key=lambda row: row["generated_at"])
+        advice = _advice_as_of(advices, latest["generated_at"])
+        if advice is not None:
+            roster_slots[(league_key, week)] = dict(advice["roster_slots"])
+    fit_league = selected
+    if selected is not None and ":" not in selected:
+        keys = sorted({fact["league_key"] for fact in facts})
+        if len(keys) == 1:
+            fit_league = keys[0]
+    return walk_forward_backtest(
+        facts,
+        season=season,
+        roster_slots=roster_slots,
+        league_key=fit_league,
+        pooled=selected is None,
+    )
+
+
+def _render_backtest(report: dict) -> None:
+    """Print the walk-forward comparison and the promotion gate. Nothing is written."""
+    scope = "pooled"
+    if not report["pooled"]:
+        scope = f"per-league {report['league_key']}"
+    leagues = ", ".join(report["leagues"])
+    suffix = f" — {leagues}" if leagues else ""
+    console.print(f"[yellow]{report['season']} calibration backtest[/yellow] — {scope}{suffix}")
+    if not report["weeks"]:
+        console.print("No scored weeks.")
+    for row in report["weeks"]:
+        fit = ",".join(str(week) for week in row["fit_weeks"])
+        raw = _maybe(row["regret_raw"])
+        calibrated = _maybe(row["regret_calibrated"])
+        console.print(f"Week {row['week']} fit={fit} regret raw {raw} calibrated {calibrated}")
+    metrics = report["metrics"]
+    regret = metrics["regret"]
+    console.print(
+        f"Regret mean raw {_maybe(regret['raw'])} calibrated {_maybe(regret['calibrated'])}"
+    )
+    _print_accuracy("Decision accuracy", metrics["decision_accuracy"])
+    _print_brier("Brier decisions", metrics["brier"]["decisions"])
+    _print_brier("Brier league slots", metrics["brier"]["league"])
+    bootstrap = report["bootstrap"]
+    _print_interval("Bootstrap regret Δ", bootstrap["regret_delta"])
+    _print_interval("Bootstrap Brier Δ", bootstrap["brier_delta"])
+    if metrics["model_position"]:
+        table = Table(title="Position MAE")
+        table.add_column("Pos")
+        table.add_column("n", justify="right")
+        table.add_column("Raw", justify="right")
+        table.add_column("Calibrated", justify="right")
+        table.add_column("Δ", justify="right")
+        for row in metrics["model_position"]:
+            delta = row["mae_calibrated"] - row["mae_raw"]
+            table.add_row(
+                row["position"],
+                str(row["n"]),
+                f"{row['mae_raw']:.4f}",
+                f"{row['mae_calibrated']:.4f}",
+                f"{delta:+.4f}",
+            )
+        console.print(table)
+    spearman = metrics["spearman"]
+    console.print(
+        "Spearman raw "
+        f"{_maybe(spearman['raw'])} calibrated {_maybe(spearman['calibrated'])} "
+        f"({spearman['n_groups']} groups)"
+    )
+    gate = report["gate"]
+    if gate["passed"]:
+        console.print("[green]GATE PASS[/green]")
+        return
+    console.print("[red]GATE FAIL[/red]")
+    for reason in gate["reasons"]:
+        console.print(f"- {reason}")
+
+
+def _print_accuracy(label: str, accuracy: dict) -> None:
+    for name in ("raw", "calibrated"):
+        row = accuracy[name]
+        weighted = "—" if row["weighted_hit_rate"] is None else f"{row['weighted_hit_rate']:.0%}"
+        rate = "—" if row["hit_rate"] is None else f"{row['hit_rate']:.0%}"
+        console.print(f"{label} {name} {row['hits']}/{row['n']} ({rate}) weighted {weighted}")
+
+
+def _print_brier(label: str, scores: dict) -> None:
+    raw = scores["raw"]
+    calibrated = scores["calibrated"]
+    console.print(
+        f"{label} raw {_maybe(raw['brier'])} (n={raw['n']}) "
+        f"calibrated {_maybe(calibrated['brier'])} (n={calibrated['n']})"
+    )
+
+
+def _print_interval(label: str, interval: dict | None) -> None:
+    if interval is None:
+        console.print(f"{label} —")
+        return
+    console.print(
+        f"{label} mean {interval['mean']:.4f} [{interval['low']:.4f}, {interval['high']:.4f}]"
+    )
+
+
+def _maybe(value: object) -> str:
+    return "—" if value is None else f"{value:.4f}"
 
 
 def _retro_history_report(season: int, league: str | None) -> dict:
@@ -2197,16 +2352,25 @@ def _render_shadow(shadow: dict) -> None:
     )
     if shadow["matches_advice"]:
         console.print("[green]Shadow matches the advice snapshot.[/green]")
-        return
-    for row in shadow["start"]:
+    else:
+        for row in shadow["start"]:
+            console.print(
+                f"[yellow]Shadow start[/yellow] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+        for row in shadow["sit"]:
+            console.print(
+                f"[yellow]Shadow sit[/yellow] {row['name']} "
+                f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            )
+    for row in shadow.get("close_calls") or []:
         console.print(
-            f"[yellow]Shadow start[/yellow] {row['name']} "
-            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            f"Close call (1.5) {row['name']} vs {row['versus']} {row['slot']} ({row['delta']:.1f})"
         )
-    for row in shadow["sit"]:
+    for row in shadow.get("probability_close_calls") or []:
         console.print(
-            f"[yellow]Shadow sit[/yellow] {row['name']} "
-            f"(actual {_num(row['actual'])}, proj {_num(row['projected'])})"
+            f"Close call (p) {row['name']} vs {row['versus']} {row['slot']} "
+            f"({row['p_win']:.0%} to be right, gap {row['delta']:.1f})"
         )
 
 
