@@ -265,6 +265,8 @@ def shadow_report(
     it replays ``compare_lineup`` on the ledger's calibrated means when the run
     recorded a params file, and on consensus when it did not. With no ledger,
     the section reports the advice snapshot's own starters and says so.
+    Close calls keep the 1.5-point rule and add win-probability calls when the
+    ledger stored a calibrated sd. Neither list is part of the published report.
     """
     snapshot = parse_lineup_snapshot(advice) if "kind" in advice else advice
     bundle = (
@@ -297,6 +299,8 @@ def shadow_report(
             matches_advice=True,
             start=[],
             sit=[],
+            close_calls=[],
+            probability_close_calls=[],
         )
 
     model = "calibrated" if calibration is not None else "raw"
@@ -307,6 +311,9 @@ def shadow_report(
     shadow_ids = {_identity(row) for row in replay["optimal"]}
     start = [_scored(row, by_id) for row in replay["optimal"] if _identity(row) not in raw_ids]
     sit = [_scored(row, by_id) for row in raw_optimal if _identity(row) not in shadow_ids]
+    # Imported here so calibration can keep using league path helpers from retro.
+    from ffb.calibration import probability_close_calls
+
     return _shadow_body(
         model=model,
         warning=warning,
@@ -317,6 +324,8 @@ def shadow_report(
         matches_advice=shadow_ids == raw_ids,
         start=start,
         sit=sit,
+        close_calls=replay["close_calls"],
+        probability_close_calls=probability_close_calls(players, replay["optimal"]),
     )
 
 
@@ -339,6 +348,7 @@ def _shadow_players(ledger: dict[str, Any], model: str) -> list[dict[str, Any]]:
         else:
             points = row.get("consensus")
         status = row.get("injury_status")
+        sd = row.get("calibrated_sd") if model == "calibrated" else None
         players.append(
             {
                 "native_id": row.get("native_id"),
@@ -350,6 +360,7 @@ def _shadow_players(ledger: dict[str, Any], model: str) -> list[dict[str, Any]]:
                 "projection_key": row.get("projection_key"),
                 "player_key": row.get("player_key"),
                 "points": points,
+                "sd": sd,
                 "n": row.get("n") or 0,
                 "matched": bool(row.get("matched")),
                 "injury": None if not status else {"status": status},
@@ -369,6 +380,8 @@ def _shadow_body(
     matches_advice: bool,
     start: list[dict[str, Any]],
     sit: list[dict[str, Any]],
+    close_calls: list[dict[str, Any]],
+    probability_close_calls: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "model": model,
@@ -381,6 +394,8 @@ def _shadow_body(
         "matches_advice": matches_advice,
         "start": start,
         "sit": sit,
+        "close_calls": close_calls,
+        "probability_close_calls": probability_close_calls,
     }
 
 

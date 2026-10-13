@@ -38,6 +38,7 @@ from hashlib import sha256
 from typing import Any
 
 from ffb.config import FANTASY_POSITIONS
+from ffb.lineup import can_fill, is_unavailable
 from ffb.retro import league_snapshot_segment
 
 PARAMS_KIND = "calibration_params"
@@ -53,6 +54,8 @@ HAIRCUT_MAX = 1.0
 SD_A_MAX = 40.0
 SD_C_MAX = 15.0
 MSE_FLOOR = 1e-6
+# "Under 60% to be right" (§4.2). Exactly 60% is not a close call.
+CLOSE_CALL_PROBABILITY = 0.6
 
 PRIORS: dict[str, Any] = {
     "k_w": K_W,
@@ -214,6 +217,81 @@ def calibrated_projection(
     """Return ``(calibrated_mean, calibrated_sd)`` for one player."""
     annotated = _annotated(player, params)
     return annotated["calibrated_mean"], annotated["calibrated_sd"]
+
+
+def win_probability(mu_a: float, sd_a: float, mu_b: float, sd_b: float) -> float | None:
+    """P(A outscores B) ≈ Φ((μ_A − μ_B) / sqrt(sd_A² + sd_B²)).
+
+    A zero combined variance is 1, 0, or 1/2 by the sign of the mean gap.
+    Non-finite inputs return None.
+    """
+    means = []
+    for value in (mu_a, sd_a, mu_b, sd_b):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value):
+            return None
+        means.append(float(value))
+    gap = means[0] - means[2]
+    variance = means[1] * means[1] + means[3] * means[3]
+    if variance <= 0:
+        if gap > 0:
+            return 1.0
+        if gap < 0:
+            return 0.0
+        return 0.5
+    z = gap / math.sqrt(variance)
+    probability = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+    return min(1.0, max(0.0, probability))
+
+
+def probability_close_calls(
+    players: list[dict[str, Any]],
+    optimal: list[dict[str, Any]],
+    *,
+    threshold: float = CLOSE_CALL_PROBABILITY,
+) -> list[dict[str, Any]]:
+    """Bench players the optimal lineup is under ``threshold`` to outscore.
+
+    The 1.5-point rule stays in ``compare_lineup``. This list is the
+    probability rule beside it: one row per eligible bench player, using the
+    starter they are least certain to lose to. A missing sd skips that pair.
+    """
+    optimal_ids = {str(row.get("native_id") or "") for row in optimal}
+    by_id = {str(player.get("native_id") or ""): player for player in players}
+    flagged = []
+    for player in players:
+        identity = str(player.get("native_id") or "")
+        if identity in optimal_ids or player.get("points") is None or is_unavailable(player):
+            continue
+        best = None
+        for starter in optimal:
+            if starter.get("points") is None or not can_fill(player, starter.get("slot")):
+                continue
+            source = by_id.get(str(starter.get("native_id") or ""), starter)
+            probability = win_probability(
+                starter.get("points"),
+                source.get("sd"),
+                player.get("points"),
+                player.get("sd"),
+            )
+            if probability is None or probability >= threshold:
+                continue
+            gap = round(float(starter["points"]) - float(player["points"]), 1)
+            candidate = {
+                "name": player.get("name") or "",
+                "points": player.get("points"),
+                "versus": starter.get("name") or "",
+                "slot": starter.get("slot"),
+                "delta": gap,
+                "p_win": round(probability, 4),
+            }
+            if best is None or candidate["p_win"] < best["p_win"]:
+                best = candidate
+        if best is not None:
+            flagged.append(best)
+    flagged.sort(key=lambda row: (row["p_win"], row["name"]))
+    return flagged
 
 
 def _annotated(player: dict[str, Any], params: dict[str, Any] | None) -> dict[str, Any]:
