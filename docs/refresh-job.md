@@ -58,11 +58,29 @@ UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/12
 curl -fsS -A "$UA" -H "Authorization: Bearer $FFB_TRACKER_API_KEY" "$FFB_TRACKER_URL/api/leagues"
 ```
 
+## Yahoo sign-in
+
+Before any Yahoo scrape, actuals pull, or LeagueBundle capture, open MCFFL
+first in the Claude in Chrome extension (`navigate`):
+`https://football.fantasysports.yahoo.com/f1/928421`. If the page is signed
+out, or it shows login, passkey, QR, or SSO, stop and notify Brian. Do not
+leave the Yahoo half silently undone, and do not use a cookie-seed workaround.
+After he signs in, resume in this order:
+
+1. POST the `W-1` Yahoo actuals ([Wednesday](#wednesday-week-roll)).
+2. POST the LeagueBundle with the
+   [`yahoo-league-bundle`](../.claude/skills/yahoo-league-bundle/SKILL.md)
+   skill.
+3. `uv run ffb retro S --week W-1 --league yahoo --publish`
+4. `make refresh ARGS="--skip-sync --yahoo-only --week W"`
+
 ## Fast path
 
 One command does all the CLI work: `make refresh`
-([scripts/inseason-refresh.sh](../scripts/inseason-refresh.sh)). Pick the
-arguments by day:
+([scripts/inseason-refresh.sh](../scripts/inseason-refresh.sh)). When `make` is
+not installed, `./scripts/inseason-refresh.sh` with the same arguments is the
+equivalent of `make refresh ARGS="..."` (`./scripts/inseason-refresh.sh --sunday`
+for `make refresh ARGS="--sunday"`). Pick the arguments by day:
 
 | Day | Run |
 | --- | --- |
@@ -106,7 +124,12 @@ Other options, combined in one quoted `ARGS` string:
 ### Outcomes
 
 - **Non-zero exit.** Hard failure. The `FAIL` line names the command; report
-  it.
+  it. Exit 126 is the exception below.
+- **Exit 126.** [scripts/inseason-refresh.sh](../scripts/inseason-refresh.sh)
+  can exit 126 (`Argument list too long`) from the final dashboard dump after
+  `ros`, `lineup`, and `digest` have already published. `make refresh` stops
+  on it too (only exit 3 is swallowed). That is soft, not a publish `FAIL`.
+  Confirm the cards from their `generated_at` timestamps.
 - **Stale Yahoo bundle.** The run still finishes the season sync and every
   Sleeper step, skips the Yahoo league sync and the three Yahoo cards
   (`[yahoo-…] skipped: … bundle is STALE`), and ends with:
@@ -118,7 +141,8 @@ Other options, combined in one quoted `ARGS` string:
   `make refresh` still exits 0. The script exits 3, but make cannot forward
   it, so the `next:` line is the signal. Run the
   [`yahoo-league-bundle`](../.claude/skills/yahoo-league-bundle/SKILL.md)
-  skill to capture and POST the bundle, then run the printed command exactly
+  skill to capture and POST the bundle (after the
+  [Yahoo sign-in](#yahoo-sign-in) check), then run the printed command exactly
   once. It publishes only the Yahoo cards (about 30 seconds). Do not rerun the
   full refresh. If the rerun prints `next:` again, the POST did not land:
   report it instead of looping.
@@ -147,9 +171,10 @@ points must match the scoreboard. Never paste next week's projections into
 actuals.
 
 Read Yahoo in the Claude in Chrome extension (`navigate` plus
-`javascript_tool`); Chrome is already signed in. Computer-use grants for Chrome
-are refused in scheduled runs, and `get_page_text` returns only the page
-header, so pull the table with JavaScript.
+`javascript_tool`) only after the [Yahoo sign-in](#yahoo-sign-in) check.
+Computer-use grants for Chrome are refused in scheduled runs, and
+`get_page_text` returns only the page header, so pull the table with
+JavaScript.
 
 - Team page for a past week:
   `https://football.fantasysports.yahoo.com/f1/928421/<team_id>/team?week=<W-1>`
@@ -220,7 +245,8 @@ pipe output through `tail` to keep it short. Each successful publish prints
    and `.week`.
 2. **Bundle freshness.** `GET /api/leagues` returns each league's `synced_at`
    and `current_week`. If the Yahoo bundle is not from today for week `W`, run
-   the `yahoo-league-bundle` skill first. If the Sleeper bundle is stale or
+   the [Yahoo sign-in](#yahoo-sign-in) check, then the `yahoo-league-bundle`
+   skill. If the Sleeper bundle is stale or
    missing, add `--push` to its league sync.
 3. **Commands, in order:**
 
