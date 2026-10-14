@@ -135,7 +135,8 @@ def parse_crosswalk(
             log.warning("skip malformed crosswalk row %s: %s", item.get("mfl_id"), exc)
     _fill_yahoo_from_unique_stats_id(rows, stats_ids)
     if sleeper_players is not None:
-        fill_missing_sleeper_ids(rows, link_ids, sleeper_link_index(sleeper_players))
+        index, collided = sleeper_link_index(sleeper_players)
+        fill_missing_sleeper_ids(rows, link_ids, index, collided)
     return rows
 
 
@@ -147,15 +148,19 @@ def _link_id(value: Any) -> str | None:
     return text
 
 
-def sleeper_link_index(players: Any) -> dict[tuple[str, str], dict[str, Any]]:
-    """Map ``(field, external_id)`` to one Sleeper player, dropping collisions.
+def sleeper_link_index(
+    players: Any,
+) -> tuple[dict[tuple[str, str], dict[str, Any]], set[tuple[str, str]]]:
+    """Map unique ``(field, external_id)`` pairs, and list the collided ones.
 
-    ``players`` is the raw ``/players/nfl`` object keyed by Sleeper id. An
-    external id owned by two Sleeper records is omitted so a later fill cannot
-    guess. Records whose map key and ``player_id`` disagree are skipped.
+    ``players`` is the raw ``/players/nfl`` object keyed by Sleeper id. The
+    set holds ids owned by two Sleeper records. Those are not missing: a
+    later fill must reject a row that carries one, even when another id on
+    that row is unique. Records whose map key and ``player_id`` disagree are
+    skipped.
     """
     if not isinstance(players, dict):
-        return {}
+        return {}, set()
     buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for map_id, item in players.items():
         if not isinstance(item, dict) or isinstance(map_id, bool):
@@ -184,10 +189,13 @@ def sleeper_link_index(players: Any) -> dict[tuple[str, str], dict[str, Any]]:
                 continue
             buckets.setdefault((field, external), []).append(record)
     index: dict[tuple[str, str], dict[str, Any]] = {}
+    collided: set[tuple[str, str]] = set()
     for key, records in buckets.items():
         if len({record["native_id"] for record in records}) == 1:
             index[key] = records[0]
-    return index
+        else:
+            collided.add(key)
+    return index, collided
 
 
 def _fantasy_position(position: Any) -> str | None:
@@ -202,14 +210,18 @@ def fill_missing_sleeper_ids(
     rows: list[dict[str, Any]],
     link_ids: list[dict[str, str | None]],
     index: dict[tuple[str, str], dict[str, Any]],
+    collided: set[tuple[str, str]],
 ) -> int:
     """Fill null ``sleeper_id`` values in place. Returns how many were set.
 
     A row is filled only when every present link id that Sleeper publishes
     points at the same player, that id is not already on another row, the
     normalized names match, and known fantasy positions agree (``PK`` is ``K``).
-    Two rows proposing one id are both left unset. Id-label drift outside
-    ``FANTASY_POSITIONS`` (``DE`` versus ``DL``) does not block the link.
+    An external id shared by two Sleeper records rejects the row even when
+    another id on it is unique. An id Sleeper does not publish is not a
+    disagreement. Two rows proposing one id are both left unset. Id-label
+    drift outside ``FANTASY_POSITIONS`` (``DE`` versus ``DL``) does not block
+    the link.
     """
     claimed = {row["sleeper_id"] for row in rows if row.get("sleeper_id")}
     proposals: dict[str, list[int]] = {}
@@ -225,7 +237,11 @@ def fill_missing_sleeper_ids(
             external = links.get(field)
             if not external:
                 continue
-            hit = index.get((field, external))
+            key = (field, external)
+            if key in collided:
+                conflict = True
+                break
+            hit = index.get(key)
             if hit is None:
                 continue
             if chosen is None:

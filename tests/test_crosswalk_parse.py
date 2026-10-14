@@ -120,6 +120,30 @@ def test_existing_sleeper_id_is_not_replaced():
     assert rows[0]["sleeper_id"] == "3198"
 
 
+def test_collided_rotowire_id_blocks_a_unique_espn_id():
+    # Two Sleeper records share rotowire 19511. ESPN 4869461 belongs to only
+    # one of them. The shared id rejects the link; it is not treated as unpublished.
+    rows = parse_crosswalk(
+        [
+            {
+                "mfl_id": 17668,
+                "name": "Trey Smack",
+                "position": "PK",
+                "team": "GBP",
+                "espn_id": 4869461,
+                "rotowire_id": 19511,
+            }
+        ],
+        sleeper_players={
+            "13545": _sleeper_player(
+                "13545", "Trey", "Smack", "K", rotowire_id=19511, espn_id=4869461
+            ),
+            "99999": _sleeper_player("99999", "Other", "Player", "K", rotowire_id=19511),
+        },
+    )
+    assert rows[0]["sleeper_id"] is None
+
+
 def test_sleeper_id_link_skips_disagreement_claims_and_name_or_position_conflicts():
     rows = parse_crosswalk(
         [

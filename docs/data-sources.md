@@ -238,11 +238,12 @@ Yahoo roster identities.
   is left unset rather than guessed. Existing `yahoo_id` values are never replaced.
   A null `sleeper_id` is filled from the cached Sleeper `/players/nfl` map when
   that map is available. `rotowire_id`, `espn_id`, `gsis_id`, and `sportradar_id`
-  must agree on a single Sleeper player (an id Sleeper does not publish is not
-  a disagreement). The normalized names must match, and if both sides are a
-  fantasy position they must match (`PK` counts as `K`). An id already stored
-  on another row, two canonicals proposing one id, or two Sleeper records
-  sharing one external id stays unset. Existing `sleeper_id` values are never
+  must agree on a single Sleeper player. An id Sleeper does not publish is
+  not a disagreement. An id shared by two Sleeper records rejects the link
+  even when another id on the row is unique. The normalized names must match,
+  and if both sides are a fantasy position they must match (`PK` counts as
+  `K`). An id already stored on another row, or two canonicals proposing one
+  id, stays unset. Existing `sleeper_id` values are never
   replaced. Projection ingest then re-resolves cached snapshots whose fallback
   key is now canonical, without another provider fetch.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
