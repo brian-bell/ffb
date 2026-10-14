@@ -364,7 +364,8 @@ free-agent grading. A third projection source was evaluated and not wired.
   `rush_2pt`, and `rec_2pt`. `def_tds` excludes fumble-recovery touchdowns
   and maps to `pass_int_td`. A skill player's `fumble_recovery_tds` maps to
   `fum_rec_td`; any other position's maps to `def_fum_td` on the team row.
-  `special_teams_tds` maps to `def_ret_td` on the team row. A game with no
+  `special_teams_tds` maps to `def_ret_td` on the team row.
+  `def_fumbles_forced` maps to `ff`. A game with no
   score does not become a shutout. Skill projections whose stat keys are
   absent from the scoring config are omitted, so unscored kickers do not
   inflate `n` with zeros. `--refresh` keeps a snapshot when its parser

@@ -12,6 +12,8 @@ position maps to ``def_fum_td`` on that team-week, so it is scored once.
 ``special_teams_tds`` maps to ``def_ret_td`` on the team row. Two-point
 conversions map to ``pass_2pt``, ``rush_2pt``, and ``rec_2pt``. Interceptions
 map to ``pass_int``. Sack, rush, and receiving fumbles lost sum to ``fum_lost``.
+``def_fumbles_forced`` maps to ``ff``, the key stored Sleeper configs use
+(``def_st_ff`` is an alias of ``ff``).
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ _PLAYER_COLS = (
     "special_teams_tds",
     "def_sacks",
     "def_interceptions",
+    "def_fumbles_forced",
     "def_safeties",
     "def_punt_blocks",
     "def_pat_blocks",
@@ -253,6 +256,7 @@ def _defense_stats(item: dict[str, Any]) -> dict[str, float]:
     pairs = (
         ("def_sacks", "sack"),
         ("def_interceptions", "int"),
+        ("def_fumbles_forced", "ff"),
         ("fumble_recovery_opp", "fum_rec"),
         ("def_safeties", "safe"),
         ("def_tds", "pass_int_td"),

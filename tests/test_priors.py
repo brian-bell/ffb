@@ -477,6 +477,29 @@ def test_player_stats_score_turnovers_with_yahoo_and_sleeper_weights():
     assert ppr_points(defense["stats"], LEAGUE_SCORING, position="DEF") == 6.0
 
 
+def test_defense_actuals_score_forced_fumbles_when_ff_is_weighted():
+    raw = {
+        "players": [
+            {
+                "player_id": "00-lb",
+                "player_display_name": "LB",
+                "position": "LB",
+                "season": 2024,
+                "week": 1,
+                "season_type": "REG",
+                "team": "KC",
+                "def_fumbles_forced": 2,
+            }
+        ],
+        "games": [],
+    }
+    rows = parse_actuals(raw, 2024)
+    defense = next(row for row in rows if row["native_id"] == "def:KCC")
+    assert defense["stats"]["ff"] == 2.0
+    sleeper = ScoringConfig(weights={"ff": 1.0})
+    assert ppr_points(defense["stats"], sleeper, position="DEF") == 2.0
+
+
 def test_loader_reads_snapshots_and_offline_sync_does_not_fetch(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "ffb.prior_data.sleeper.fetch_projections",

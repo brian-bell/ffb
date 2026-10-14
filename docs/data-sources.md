@@ -394,8 +394,9 @@ depends on FFC's non-exhaustive ADP list for byes.
   `rush_2pt`, and `rec_2pt`. `def_tds` maps only to `pass_int_td` (nflverse
   leaves fumble-recovery touchdowns out of that column). A skill player's
   `fumble_recovery_tds` maps to `fum_rec_td`; any other position's maps to
-  `def_fum_td` on the team row. `special_teams_tds` maps to `def_ret_td` on
-  the team row, not the skill player. Points-allowed bands come from the
+  `def_fum_td` on the team row.   `special_teams_tds` maps to `def_ret_td` on
+  the team row, not the skill player. `def_fumbles_forced` maps to `ff`
+  (Sleeper's `def_st_ff` alias). Points-allowed bands come from the
   opponent's score; a missing score is omitted and is not a shutout.
   Preseason rows are skipped. Points are scored later with each league's
   `ScoringConfig`, so a league that weights turnovers scores them and one
