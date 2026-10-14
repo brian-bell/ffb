@@ -182,6 +182,8 @@ def parse_calibration_params(payload: object) -> dict[str, Any]:
     if payload["fit_weeks"] != sorted(payload["fit_weeks"]):
         raise ValueError("calibration params fit_weeks must be sorted")
     _validate_counts(payload["n_by_position"], "n_by_position")
+    if not isinstance(payload["priors"], dict):
+        raise ValueError("calibration params priors must be an object")
     if set(payload["priors"]) != set(PRIORS):
         raise ValueError("calibration params priors have unknown or missing fields")
     for key, value in payload["priors"].items():

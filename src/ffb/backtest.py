@@ -1,7 +1,9 @@
 """Walk-forward backtest of raw consensus against shadow calibration.
 
 Pure. The CLI loads ledgers and actuals and passes fact rows in. Week ``W`` is
-fit with ``fit_calibration`` on the full sample, which keeps only weeks ``< W``.
+fit with ``fit_calibration`` on the selected roster rows, which keeps only
+weeks ``< W``. Selection is ``outcomes.select_scoring_facts``: one whole ledger
+run per league-week, then each player's last prediction from before kickoff.
 
 Readings §5 leaves open:
 
@@ -34,12 +36,13 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Mapping
 from typing import Any
 
 from ffb.calibration import calibrated_projection, fit_calibration, win_probability
 from ffb.config import FANTASY_POSITIONS
 from ffb.lineup import BENCH_SLOT, UNAVAILABLE_STATUSES, can_fill, compare_lineup, is_starter
-from ffb.outcomes import decision_table, hindsight_total
+from ffb.outcomes import NOTE_NO_KICKOFFS, decision_table, hindsight_total, select_scoring_facts
 from ffb.retro import LINEUP_MODELS, RAW_CONSENSUS_WARNING
 
 MIN_BACKTEST_WEEK = 3
@@ -96,20 +99,27 @@ def walk_forward_backtest(
     roster_slots: dict[tuple[str, int], dict[str, int]] | None = None,
     league_key: str | None = None,
     pooled: bool = True,
+    kickoffs: Mapping[tuple[int, str], str] | None = None,
 ) -> dict[str, Any]:
-    """Score each week ``W >= 3`` with a fit that cannot see week ``W`` or later."""
+    """Score each week ``W >= 3`` with a fit that cannot see week ``W`` or later.
+
+    Scored rows and the fit sample both come from :func:`select_scoring_facts`,
+    so a league-week is one roster run and a post-kickoff prediction is not
+    labelled.
+    """
     if not pooled and not league_key:
         raise ValueError("per-league backtest needs a league_key")
     slots = roster_slots or {}
     scoped = _scoped_facts(facts, season=season, league_key=league_key, pooled=pooled)
-    labelled = _latest(scoped, season=season, minimum_week=MIN_BACKTEST_WEEK)
+    selected = select_scoring_facts(scoped, kickoffs)
+    labelled = _scoreable(selected, minimum_week=MIN_BACKTEST_WEEK)
     weeks = sorted({int(fact["week"]) for fact in labelled})
     scored: list[dict[str, Any]] = []
     week_rows: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
     for week in weeks:
         params = fit_calibration(
-            scoped, season=season, week=week, league_key=league_key or "pooled"
+            selected, season=season, week=week, league_key=league_key or "pooled"
         )
         players = [_annotate(fact, params) for fact in labelled if int(fact["week"]) == week]
         scored.extend(players)
@@ -134,6 +144,7 @@ def walk_forward_backtest(
         "metrics": metrics,
         "bootstrap": _bootstrap(samples),
         "gate": _gate(metrics, week_rows, pooled=pooled),
+        "notes": [NOTE_NO_KICKOFFS] if kickoffs is not None and len(kickoffs) == 0 else [],
     }
 
 
@@ -150,29 +161,21 @@ def _scoped_facts(
     return scoped
 
 
-def _latest(
-    facts: list[dict[str, Any]], *, season: int, minimum_week: int | None = None
-) -> list[dict[str, Any]]:
-    latest: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
+def _scoreable(facts: list[dict[str, Any]], *, minimum_week: int) -> list[dict[str, Any]]:
+    """Labelled rows from an already-selected roster. Does not mix ledger runs."""
+    scored = []
     for fact in facts:
         fact_week = fact.get("week")
-        if type(fact_week) is not int or fact_week < 1:
-            continue
-        if minimum_week is not None and fact_week < minimum_week:
+        if type(fact_week) is not int or fact_week < minimum_week:
             continue
         if fact.get("actual_points") is None or fact.get("consensus") is None:
             continue
         if fact.get("position") not in FANTASY_POSITIONS:
             continue
-        native_id = str(fact.get("native_id") or "")
-        if not native_id:
+        if not str(fact.get("native_id") or ""):
             continue
-        key = (fact.get("league_key"), season, fact_week, native_id)
-        stamp = str(fact.get("generated_at") or "")
-        current = latest.get(key)
-        if current is None or stamp >= current[0]:
-            latest[key] = (stamp, fact)
-    return [item[1] for item in latest.values()]
+        scored.append(fact)
+    return scored
 
 
 def _annotate(fact: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:

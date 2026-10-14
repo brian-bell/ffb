@@ -318,7 +318,11 @@ depends on FFC's non-exhaustive ADP list for byes.
   DataFrame (272 regular-season games). Like the crosswalk, the frame never
   leaves the module: `select(_FETCH_COLS).to_dicts()` hands back plain
   `list[dict]`. Columns kept: `season`, `game_type`, `week`, `home_team`,
-  `away_team`. **No auth.**
+  `away_team`, and `gameday` / `gametime` when the frame has them. **No auth.**
+  `parse_games` turns that Eastern kickoff into `kickoff_at` (UTC, `Z`).
+  Older snapshots omit the time columns, so `kickoff_at` is null and ledger
+  scoring excludes that team-week rather than guessing a cutoff. The time is
+  read from the snapshot; it is not a `schedule_games` column.
 - **What we extract** (`parse_byes`, pure): only `game_type == "REG"` games
   count. Each team's bye is the **single missing week** in `1..max_week` across
   its games. A team missing zero or multiple weeks (incomplete schedule) is

@@ -9,6 +9,7 @@ from ffb.cli import _render_lineup, _render_shadow, app
 from ffb.predlog import build_prediction_ledger, prediction_ledger_key
 from ffb.retro import actuals_snapshot_key, build_lineup_snapshot, lineup_history_key
 from ffb.snapshot import SnapshotCache
+from ffb.sources.schedule import snapshot_key
 
 from .cli_plain import PlainCliRunner
 
@@ -28,6 +29,7 @@ def test_backtest_reads_flat_yahoo_and_nested_sleeper_without_writing(tmp_path):
             week,
             actual,
         )
+    _write_kickoffs(cache, [1, 3, 4])
     yahoo_key = prediction_ledger_key(2026, 3, STAMP, config.YAHOO_LEAGUE_KEY)
     sleeper_key = prediction_ledger_key(2026, 3, STAMP, config.SLEEPER_LEAGUE_KEY)
     assert yahoo_key == f"predlog/2026_week3/{STAMP.replace(':', '-')}"
@@ -149,6 +151,22 @@ def test_lineup_render_labels_p_win_as_starter_confidence(monkeypatch):
     text = buffer.getvalue()
     assert "start Alpha over Bravo: 58%" in text
     assert "to start" not in text
+
+
+def _write_kickoffs(cache, weeks):
+    games = [
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": week,
+            "home_team": "KC",
+            "away_team": "BUF",
+            "gameday": "2026-10-12",
+            "gametime": "13:00",
+        }
+        for week in weeks
+    ]
+    cache.put_json(snapshot_key(2026), games, mode=0o600)
 
 
 def _env(tmp_path):

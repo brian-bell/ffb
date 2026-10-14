@@ -129,6 +129,36 @@ def test_parse_games_empty_or_wrong_shape_returns_empty():
     assert schedule.parse_games(None, 2026) == []
 
 
+def test_parse_games_converts_eastern_kickoff_to_utc_and_keeps_untimed_games():
+    # 2026-09-10 is a Thursday. 20:20 America/New_York is 00:20 UTC Friday.
+    raw = [
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": "KC",
+            "away_team": "BAL",
+            "gameday": "2026-09-10",
+            "gametime": "20:20",
+        },
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": "BUF",
+            "away_team": "NYJ",
+            "gameday": "2026-09-13",
+            "gametime": "NA",
+        },
+    ]
+
+    rows = {row["home_team"]: row for row in schedule.parse_games(raw, 2026)}
+
+    assert rows["KCC"]["kickoff_at"] == "2026-09-11T00:20:00Z"
+    assert rows["KCC"]["away_team"] == "BAL"
+    assert rows["BUF"]["kickoff_at"] is None
+
+
 def test_snapshot_key():
     assert schedule.snapshot_key(2026) == "nflverse/schedule_2026"
 

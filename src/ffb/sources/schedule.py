@@ -1,9 +1,10 @@
 """nflverse season schedule source: team bye weeks and regular-season games.
 
 Pulled via ``nflreadpy.load_schedules`` (spike-verified 2026-07-23: 272 REG
-games, columns ``season/game_type/week/home_team/away_team``, team codes in
-nflverse style — ``KC``/``SF``/``LA`` — aliased to canonical MFL-style codes
-via :func:`ffb.identity.canonical_team`).
+games, columns ``season/game_type/week/home_team/away_team``, plus
+``gameday``/``gametime`` when the frame has them). Team codes are nflverse
+style — ``KC``/``SF``/``LA`` — aliased to canonical MFL-style codes via
+:func:`ffb.identity.canonical_team`).
 
 A team's bye is the single missing week in ``1..max_week`` across its
 regular-season games. Zero or multiple missing weeks (incomplete data) means
@@ -14,9 +15,13 @@ published schedule is. ``parse_byes`` is pure and never raises on a bad row.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, date, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ffb import config, identity
+
+_EASTERN = ZoneInfo("America/New_York")
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +44,9 @@ def snapshot_key(season: int) -> str:
 
 
 # Columns pulled from the wide schedules frame into the snapshot.
-_FETCH_COLS = ("season", "game_type", "week", "home_team", "away_team")
+# ``gameday``/``gametime`` are optional: older snapshots omit them, and
+# ``parse_games`` then leaves ``kickoff_at`` null.
+_FETCH_COLS = ("season", "game_type", "week", "home_team", "away_team", "gameday", "gametime")
 
 
 def fetch_schedule(season: int) -> list[dict[str, Any]]:
@@ -147,7 +154,61 @@ def parse_games(raw: Any, season: int) -> list[dict[str, Any]]:
                 "week": week,
                 "home_team": home,
                 "away_team": away,
+                "kickoff_at": _kickoff_at(game.get("gameday"), game.get("gametime")),
             }
         )
     rows.sort(key=lambda row: (row["week"], row["home_team"], row["away_team"]))
     return rows
+
+
+def _kickoff_at(gameday: object, gametime: object) -> str | None:
+    """UTC kickoff from nflverse ``gameday`` + ``gametime`` (US Eastern).
+
+    Missing, ``NA``, or unparsed times stay null. Scoring then excludes that
+    team-week instead of guessing a cutoff.
+    """
+    day = _day_text(gameday)
+    clock = _clock_text(gametime)
+    if day is None or clock is None:
+        return None
+    try:
+        local = datetime.strptime(f"{day} {clock}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+    aware = local.replace(tzinfo=_EASTERN)
+    return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _day_text(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        text = value.strip()
+        if len(text) >= 10 and text[:4].isdigit():
+            return text[:10]
+    return None
+
+
+def _clock_text(value: object) -> str | None:
+    if isinstance(value, datetime):
+        value = value.time()
+    if isinstance(value, time):
+        return f"{value.hour:02d}:{value.minute:02d}"
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or text.upper() in {"NA", "N/A", "TBD", "NULL", "NONE"}:
+        return None
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d}"

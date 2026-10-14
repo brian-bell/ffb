@@ -5,13 +5,17 @@ lineup advice in. Identity is ``native_id``, with Yahoo team-defense ids
 (``100014``) and ``def:<team>`` treated as the same defense. Names are never a
 join key.
 
-``hours_before_kickoff`` is always ``None``: neither the ledger nor the
-actuals bundle carries a kickoff time. ``calibrated_mean`` / ``calibrated_sd``
-are copied from the ledger when a v2 run stored them, and stay ``None`` on v1.
+``calibrated_mean`` / ``calibrated_sd`` are copied from the ledger when a v2
+run stored them, and stay ``None`` on v1. Kickoff times are not on the ledger
+or the actuals bundle. Callers pass them from the nflverse schedule snapshot
+(``gameday`` + ``gametime``, US Eastern). ``select_scoring_facts`` is the one
+roster rule shared with the walk-forward backtest.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from ffb.actuals import WeeklyActualsBundle, parse_actuals
@@ -131,23 +135,29 @@ def history_report(
     *,
     season: int,
     roster_slots: dict[tuple[str, int], dict[str, int]] | None = None,
+    kickoffs: Mapping[tuple[int, str], str] | None = None,
 ) -> dict[str, Any]:
-    """Cross-week metrics on the latest ledger of each league-week.
+    """Cross-week metrics on each league-week's pre-kickoff roster.
 
-    That run is the decision row. Kickoff times are not stored, so "latest
-    before kickoff" is the latest ledger for the week. Source accuracy bias
-    matches weekly retro: mean(projected − actual). Each accuracy row and the
-    hit rates are reported with the DNP proxy rows included and again without
-    them.
+    Source accuracy uses :func:`select_scoring_facts`. Decision metrics (hit
+    rate, Questionable hit rate, regret) use that roster only when every
+    scored user row comes from the roster run and that run has an exact-time
+    advice snapshot. Source accuracy bias matches weekly retro:
+    mean(projected − actual). Each accuracy row and the hit rates are reported
+    with the DNP proxy rows included and again without them.
     """
-    chosen = _latest_facts(facts)
-    decisions = decision_table(chosen)
+    chosen = select_scoring_facts(facts, kickoffs)
     slots = roster_slots or {}
+    decision_facts, notes = _decision_facts(chosen, slots)
+    if kickoffs is not None and len(kickoffs) == 0:
+        notes.insert(0, NOTE_NO_KICKOFFS)
+    decisions = decision_table(decision_facts)
     return {
         "season": season,
         "leagues": sorted({fact["league_key"] for fact in chosen}),
+        "notes": notes,
         "source_position_accuracy": _source_position_accuracy(chosen),
-        "regret_trend": _regret_trend(chosen, slots),
+        "regret_trend": _regret_trend(decision_facts, slots),
         "q_player_hit_rate": _hit_rate(
             [
                 row
@@ -349,18 +359,224 @@ def _unavailable(fact: dict[str, Any]) -> bool:
     return str(fact.get("injury_status") or "").upper() in UNAVAILABLE_STATUSES
 
 
-def _latest_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    latest: dict[tuple[Any, ...], str] = {}
+NOTE_NO_KICKOFFS = "no kickoff times available; predictions were not scored"
+NOTE_UNPAIRED = "no decision metrics: advice snapshot is not paired to the scored ledger"
+NOTE_MIXED = "no decision metrics: scored predictions do not share the advice ledger"
+
+
+def roster_generated_at(stamps: list[str]) -> str | None:
+    """Chronologically newest ledger timestamp, for pairing advice to a run."""
+    if not stamps:
+        return None
+    return max(stamps, key=_run_order_key)
+
+
+def paired_advice(advices: list[dict[str, Any]], generated_at: str) -> dict[str, Any] | None:
+    """Advice written by the same lineup run. An older snapshot is not reused."""
+    matches = [advice for advice in advices if advice.get("generated_at") == generated_at]
+    if not matches:
+        return None
+    return matches[-1]
+
+
+def select_scoring_facts(
+    facts: list[dict[str, Any]],
+    kickoffs: Mapping[tuple[int, str], str] | None = None,
+) -> list[dict[str, Any]]:
+    """Rows to score for one roster view per league-week.
+
+    The roster is the newest whole ledger run. A player who is absent from
+    that run is not scored, even when an older run still has them. When
+    ``kickoffs`` maps ``(week, team)`` to a UTC timestamp:
+
+    - the run's row is scored when its ``generated_at`` is strictly before
+      that player's kickoff;
+    - otherwise the player's row is taken from the newest earlier run that is
+      still before kickoff, and only because they are on the newest roster;
+    - no pre-kickoff row, or no kickoff for that team-week, drops the player.
+
+    ``kickoffs is None`` means the caller already limited the sample and did
+    not supply a schedule. The newest whole run is used with no time cutoff.
+    An empty map means kickoff times are unavailable, including the week's
+    first kickoff, so nothing is scored.
+    """
+    normalized = None if kickoffs is None else _normalize_kickoffs(kickoffs)
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
     for fact in facts:
-        key = (fact["league_key"], fact["season"], fact["week"])
-        stamp = fact["generated_at"]
-        if key not in latest or stamp > latest[key]:
-            latest[key] = stamp
-    return [
-        fact
-        for fact in facts
-        if fact["generated_at"] == latest[(fact["league_key"], fact["season"], fact["week"])]
-    ]
+        if not isinstance(fact, dict):
+            continue
+        week = fact.get("week")
+        if type(week) is not int:
+            continue
+        key = (fact.get("league_key"), fact.get("season"), week)
+        grouped.setdefault(key, []).append(fact)
+    chosen: list[dict[str, Any]] = []
+    for rows in grouped.values():
+        if normalized is None:
+            chosen.extend(_whole_run(rows))
+        else:
+            chosen.extend(_pre_kickoff_rows(rows, normalized))
+    chosen.sort(
+        key=lambda row: (
+            str(row.get("league_key") or ""),
+            row.get("season") or 0,
+            row.get("week") or 0,
+            str(row.get("native_id") or ""),
+            str(row.get("generated_at") or ""),
+        )
+    )
+    return chosen
+
+
+def _decision_facts(
+    facts: list[dict[str, Any]], roster_slots: dict[tuple[str, int], dict[str, int]]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for fact in facts:
+        key = (fact.get("league_key"), fact.get("season"), fact.get("week"))
+        grouped.setdefault(key, []).append(fact)
+    eligible: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for (league_key, _season, week), group in sorted(grouped.items(), key=_note_key):
+        user = [fact for fact in group if fact.get("is_user_team")]
+        if not user:
+            continue
+        if any(fact.get("generated_at") != fact.get("roster_generated_at") for fact in user):
+            notes.append(f"{league_key} week {week}: {NOTE_MIXED}")
+            continue
+        slots = roster_slots.get((league_key, week))
+        paired = bool(slots) and any(fact.get("recommended_slot") for fact in user)
+        if not paired:
+            notes.append(f"{league_key} week {week}: {NOTE_UNPAIRED}")
+            continue
+        eligible.extend(group)
+    return eligible, notes
+
+
+def _note_key(item: tuple[tuple[Any, ...], list[dict[str, Any]]]) -> tuple[Any, ...]:
+    league_key, season, week = item[0]
+    return (str(league_key or ""), season or 0, week or 0)
+
+
+def _whole_run(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    runs = _runs(rows)
+    stamp = max(runs, key=_run_order_key)
+    return [_with_roster(row, stamp) for row in runs[stamp]]
+
+
+def _pre_kickoff_rows(
+    rows: list[dict[str, Any]], kickoffs: dict[tuple[int, str], datetime]
+) -> list[dict[str, Any]]:
+    parsed: list[tuple[datetime, str, list[dict[str, Any]]]] = []
+    for stamp, run_rows in _runs(rows).items():
+        moment = _parse_utc(stamp)
+        if moment is None:
+            continue
+        parsed.append((moment, stamp, run_rows))
+    if not parsed:
+        return []
+    parsed.sort(key=lambda item: item[0])
+    roster_moment, roster_stamp, roster_rows = parsed[-1]
+    scored: list[dict[str, Any]] = []
+    for player in roster_rows:
+        kickoff = _player_kickoff(player, kickoffs)
+        if kickoff is None:
+            continue
+        if roster_moment < kickoff:
+            scored.append(_with_hours(player, roster_stamp, roster_moment, kickoff))
+            continue
+        earlier = [
+            item
+            for item in parsed
+            if item[0] < kickoff and _player_row(item[2], player) is not None
+        ]
+        if not earlier:
+            continue
+        moment, _stamp, run_rows = earlier[-1]
+        matched = _player_row(run_rows, player)
+        if matched is None:
+            continue
+        scored.append(_with_hours(matched, roster_stamp, moment, kickoff))
+    return scored
+
+
+def _runs(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    runs: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        runs.setdefault(str(row.get("generated_at") or ""), []).append(row)
+    return runs
+
+
+def _player_row(rows: list[dict[str, Any]], player: dict[str, Any]) -> dict[str, Any] | None:
+    native_id = str(player.get("native_id") or "")
+    if not native_id:
+        return None
+    for row in rows:
+        if str(row.get("native_id") or "") == native_id:
+            return row
+    return None
+
+
+def _player_kickoff(
+    player: dict[str, Any], kickoffs: dict[tuple[int, str], datetime]
+) -> datetime | None:
+    week = player.get("week")
+    if type(week) is not int:
+        return None
+    raw_team = player.get("nfl_team")
+    team = canonical_team(raw_team) if isinstance(raw_team, str) else None
+    if team is None:
+        return None
+    return kickoffs.get((week, team))
+
+
+def _normalize_kickoffs(
+    kickoffs: Mapping[tuple[int, str], str],
+) -> dict[tuple[int, str], datetime]:
+    normalized: dict[tuple[int, str], datetime] = {}
+    for key, stamp in kickoffs.items():
+        if not isinstance(key, tuple) or len(key) != 2:
+            continue
+        week, team = key
+        if type(week) is not int or not isinstance(team, str):
+            continue
+        canonical = canonical_team(team)
+        moment = _parse_utc(stamp)
+        if canonical is None or moment is None:
+            continue
+        normalized[(week, canonical)] = moment
+    return normalized
+
+
+def _with_roster(row: dict[str, Any], roster_stamp: str) -> dict[str, Any]:
+    return {**row, "roster_generated_at": roster_stamp}
+
+
+def _with_hours(
+    row: dict[str, Any], roster_stamp: str, generated: datetime, kickoff: datetime
+) -> dict[str, Any]:
+    hours = (kickoff - generated).total_seconds() / 3600
+    return {**row, "roster_generated_at": roster_stamp, "hours_before_kickoff": round(hours, 2)}
+
+
+def _run_order_key(stamp: str) -> tuple[int, datetime | str]:
+    moment = _parse_utc(stamp)
+    if moment is None:
+        return (0, stamp)
+    return (1, moment)
+
+
+def _parse_utc(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    text = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
 
 
 def _source_position_accuracy(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -435,6 +651,8 @@ def _regret_trend(
     for (league_key, season, week, generated_at), group in sorted(grouped.items()):
         slots = roster_slots.get((league_key, week))
         if not slots:
+            continue
+        if not any(fact.get("actual_points") is not None for fact in group):
             continue
         recommended = _recommended_total(group)
         hindsight = _hindsight_total(group, slots)

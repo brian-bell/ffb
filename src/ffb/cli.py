@@ -51,7 +51,7 @@ from ffb.lineup import (
     injury_badge,
     projection_key,
 )
-from ffb.outcomes import fact_table, history_report
+from ffb.outcomes import fact_table, history_report, paired_advice, roster_generated_at
 from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
     LINEUP_MODELS,
@@ -68,7 +68,7 @@ from ffb.retro import (
 )
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import espn, sleeper, sleeper_league, yahoo
+from ffb.sources import espn, schedule, sleeper, sleeper_league, yahoo
 from ffb.sources.sleeper_league import SleeperLeagueError
 from ffb.sources.tracker import (
     TrackerConfig,
@@ -1122,11 +1122,12 @@ def _calibrate_backtest_report(season: int, league: str | None) -> dict:
     grouped: dict[tuple[str, int], list[dict]] = {}
     for ledger in ledgers:
         grouped.setdefault((ledger["league_key"], ledger["week"]), []).append(ledger)
+    kickoffs = _schedule_kickoffs(cache, season)
     for (league_key, week), runs in grouped.items():
         bundle = _read_optional_actuals(cache, season, week, league_key)
         advices = _read_lineup_history(cache, season, league_key, week)
         for ledger in runs:
-            advice = _advice_as_of(advices, ledger["generated_at"])
+            advice = paired_advice(advices, ledger["generated_at"])
             try:
                 table = fact_table(ledger, bundle, advice)
             except ValueError as exc:
@@ -1135,8 +1136,7 @@ def _calibrate_backtest_report(season: int, league: str | None) -> dict:
                 )
                 continue
             facts.extend(table["facts"])
-        latest = max(runs, key=lambda row: row["generated_at"])
-        advice = _advice_as_of(advices, latest["generated_at"])
+        advice = _roster_advice(advices, runs)
         if advice is not None:
             roster_slots[(league_key, week)] = dict(advice["roster_slots"])
     fit_league = selected
@@ -1150,6 +1150,7 @@ def _calibrate_backtest_report(season: int, league: str | None) -> dict:
         roster_slots=roster_slots,
         league_key=fit_league,
         pooled=selected is None,
+        kickoffs=kickoffs,
     )
 
 
@@ -1161,6 +1162,8 @@ def _render_backtest(report: dict) -> None:
     leagues = ", ".join(report["leagues"])
     suffix = f" — {leagues}" if leagues else ""
     console.print(f"[yellow]{report['season']} calibration backtest[/yellow] — {scope}{suffix}")
+    for note in report.get("notes") or []:
+        console.print(f"[yellow]{note}[/yellow]")
     if not report["weeks"]:
         console.print("No scored weeks.")
     for row in report["weeks"]:
@@ -1242,7 +1245,7 @@ def _maybe(value: object) -> str:
 
 
 def _retro_history_report(season: int, league: str | None) -> dict:
-    """Load league-scoped ledgers and actuals, then score the latest run of each week."""
+    """Load league-scoped ledgers and actuals, then score each week's roster run."""
     selected = _history_league_filter(season, league)
     cache = SnapshotCache(paths.snapshot_dir())
     ledgers = _read_ledgers(cache, season, selected)
@@ -1255,11 +1258,12 @@ def _retro_history_report(season: int, league: str | None) -> dict:
     grouped: dict[tuple[str, int], list[dict]] = {}
     for ledger in ledgers:
         grouped.setdefault((ledger["league_key"], ledger["week"]), []).append(ledger)
+    kickoffs = _schedule_kickoffs(cache, season)
     for (league_key, week), runs in grouped.items():
         bundle = _read_week_actuals(cache, season, week, league_key)
         advices = _read_lineup_history(cache, season, league_key, week)
         for ledger in runs:
-            advice = _advice_as_of(advices, ledger["generated_at"])
+            advice = paired_advice(advices, ledger["generated_at"])
             try:
                 table = fact_table(ledger, bundle, advice)
             except ValueError as exc:
@@ -1268,11 +1272,10 @@ def _retro_history_report(season: int, league: str | None) -> dict:
                 )
                 raise typer.Exit(code=1) from exc
             facts.extend(table["facts"])
-        latest = max(runs, key=lambda row: row["generated_at"])
-        advice = _advice_as_of(advices, latest["generated_at"])
+        advice = _roster_advice(advices, runs)
         if advice is not None:
             roster_slots[(league_key, week)] = dict(advice["roster_slots"])
-    return history_report(facts, season=season, roster_slots=roster_slots)
+    return history_report(facts, season=season, roster_slots=roster_slots, kickoffs=kickoffs)
 
 
 def _history_league_filter(season: int, league: str | None) -> str | None:
@@ -1371,11 +1374,33 @@ def _lineup_league_key(key: str) -> str | None:
     return rest[0].replace("_", ":", 1)
 
 
-def _advice_as_of(advices: list[dict], generated_at: str) -> dict | None:
-    eligible = [advice for advice in advices if advice["generated_at"] <= generated_at]
-    if not eligible:
+def _roster_advice(advices: list[dict], runs: list[dict]) -> dict | None:
+    """Advice whose timestamp is the newest ledger run, or nothing."""
+    stamp = roster_generated_at([run["generated_at"] for run in runs])
+    if stamp is None:
         return None
-    return max(eligible, key=lambda advice: advice["generated_at"])
+    return paired_advice(advices, stamp)
+
+
+def _schedule_kickoffs(cache: SnapshotCache, season: int) -> dict[tuple[int, str], str]:
+    """Team kickoffs from the nflverse schedule snapshot. Empty when untimed."""
+    key = schedule.snapshot_key(season)
+    if not cache.has(key):
+        return {}
+    try:
+        raw = cache.read_json(key)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        console.print(f"[yellow]Skipping schedule kickoffs:[/yellow] {exc}")
+        return {}
+    kickoffs: dict[tuple[int, str], str] = {}
+    for game in schedule.parse_games(raw, season):
+        stamp = game.get("kickoff_at")
+        if not isinstance(stamp, str) or not stamp:
+            continue
+        week = game["week"]
+        for team in (game["home_team"], game["away_team"]):
+            kickoffs[(week, team)] = stamp
+    return kickoffs
 
 
 def _tracker_client() -> httpx.Client:
@@ -2427,6 +2452,8 @@ def _render_history(report: dict) -> None:
     """Print cross-week accuracy, regret, and Questionable decision hit rate."""
     leagues = ", ".join(report["leagues"]) or "no leagues"
     console.print(f"[yellow]{report['season']} retro history[/yellow] — {leagues}")
+    for note in report.get("notes") or []:
+        console.print(f"[yellow]{note}[/yellow]")
     accuracy = report["source_position_accuracy"]
     if accuracy:
         table = Table(title="Source × position")
@@ -2472,7 +2499,7 @@ def _render_history(report: dict) -> None:
                 f"{row['regret']:+.1f}",
             )
         console.print(table)
-    else:
+    elif not report["weeks_without_actuals"] and not report.get("notes"):
         console.print("[yellow]No sit/start snapshot to score regret against.[/yellow]")
     if report["weeks_without_actuals"]:
         weeks = ", ".join(

@@ -2,7 +2,15 @@
 
 import pytest
 
-from ffb.outcomes import decision_table, fact_table, history_report
+from ffb.outcomes import (
+    NOTE_NO_KICKOFFS,
+    NOTE_UNPAIRED,
+    decision_table,
+    fact_table,
+    history_report,
+    paired_advice,
+    select_scoring_facts,
+)
 from ffb.predlog import build_prediction_ledger
 from ffb.retro import build_lineup_snapshot, retro_report
 
@@ -738,6 +746,144 @@ def test_history_regret_matches_retro_hindsight_minus_recommended():
     # Weekly retro source_accuracy is a different report and stays on its own contract.
     assert {row["source"] for row in retro["source_accuracy"]} == {"sleeper"}
     assert retro["source_accuracy"][0]["bias"] == pytest.approx(((18.0 - 2.0) + (4.0 - 24.0)) / 2)
+
+
+def test_scoring_uses_the_newest_roster_and_each_players_pre_kickoff_row():
+    """Post-kickoff ledgers must not label Thursday players, and dropped players stay dropped."""
+    wednesday = "2026-10-07T11:00:00Z"
+    sunday_run = "2026-10-11T15:00:00Z"
+    kickoffs = {(1, "PHI"): "2026-10-08T00:20:00Z", (1, "KC"): "2026-10-11T17:00:00Z"}
+    thursday_early = _fact(
+        native_id="thu",
+        name="Thursday",
+        nfl_team="PHI",
+        generated_at=wednesday,
+        consensus=1.0,
+        actual_points=20.0,
+        source_points={"sleeper": 1.0},
+    )
+    thursday_late = _fact(
+        native_id="thu",
+        name="Thursday",
+        nfl_team="PHI",
+        generated_at=sunday_run,
+        consensus=20.0,
+        actual_points=20.0,
+        source_points={"sleeper": 20.0},
+    )
+    sunday_early = _fact(
+        native_id="sun",
+        nfl_team="KC",
+        generated_at=wednesday,
+        consensus=3.0,
+        actual_points=10.0,
+        source_points={"sleeper": 3.0},
+    )
+    sunday_late = _fact(
+        native_id="sun",
+        nfl_team="KC",
+        generated_at=sunday_run,
+        consensus=9.0,
+        actual_points=10.0,
+        source_points={"sleeper": 9.0},
+    )
+    dropped = _fact(
+        native_id="gone",
+        nfl_team="PHI",
+        generated_at=wednesday,
+        consensus=50.0,
+        actual_points=0.0,
+        source_points={"sleeper": 50.0},
+    )
+    only_after = _fact(
+        native_id="after",
+        nfl_team="PHI",
+        generated_at=sunday_run,
+        consensus=7.0,
+        actual_points=7.0,
+        source_points={"sleeper": 7.0},
+    )
+    no_kickoff = _fact(
+        native_id="bye",
+        nfl_team="DAL",
+        generated_at=sunday_run,
+        consensus=4.0,
+        actual_points=4.0,
+        source_points={"sleeper": 4.0},
+    )
+
+    chosen = select_scoring_facts(
+        [thursday_early, thursday_late, sunday_early, sunday_late, dropped, only_after, no_kickoff],
+        kickoffs,
+    )
+    by_id = {row["native_id"]: row for row in chosen}
+
+    assert set(by_id) == {"thu", "sun"}
+    assert by_id["thu"]["generated_at"] == wednesday
+    assert by_id["thu"]["consensus"] == 1.0
+    assert by_id["thu"]["hours_before_kickoff"] == 13.33
+    assert by_id["sun"]["generated_at"] == sunday_run
+    assert by_id["sun"]["consensus"] == 9.0
+    assert by_id["thu"]["roster_generated_at"] == sunday_run
+    report = history_report(
+        [thursday_early, thursday_late, sunday_early, sunday_late, dropped, only_after, no_kickoff],
+        season=2026,
+        kickoffs=kickoffs,
+    )
+    sleeper = next(row for row in report["source_position_accuracy"] if row["source"] == "sleeper")
+    assert sleeper["n"] == 2
+    assert sleeper["mae"] == 10.0  # |1-20| and |9-10|
+    assert sleeper["bias"] == -10.0
+    assert report["regret_trend"] == []
+    assert any("do not share the advice ledger" in note for note in report["notes"])
+
+
+def test_a_prediction_at_kickoff_is_not_scored():
+    kickoff = "2026-10-11T17:00:00Z"
+    rows = select_scoring_facts(
+        [_fact(generated_at=kickoff, nfl_team="KC")],
+        {(1, "KCC"): kickoff},
+    )
+
+    assert rows == []
+
+
+def test_missing_kickoff_times_score_nothing():
+    report = history_report([_fact()], season=2026, kickoffs={})
+
+    assert report["source_position_accuracy"] == []
+    assert report["regret_trend"] == []
+    assert report["notes"] == [NOTE_NO_KICKOFFS]
+
+
+def test_decision_metrics_require_an_exact_advice_timestamp():
+    report = history_report([_fact(recommended_slot=None)], season=2026, roster_slots={})
+
+    assert report["source_position_accuracy"]
+    assert report["regret_trend"] == []
+    assert report["decision_accuracy"]["n"] == 0
+    assert report["q_player_hit_rate"]["n"] == 0
+    assert any(NOTE_UNPAIRED in note for note in report["notes"])
+    assert paired_advice([{"generated_at": STAMP}], LATER) is None
+    assert (
+        paired_advice([{"generated_at": STAMP}, {"generated_at": LATER}], LATER)["generated_at"]
+        == LATER
+    )
+
+
+def test_regret_skips_weeks_with_no_joined_actuals():
+    empty = _fact(week=1, actual_points=None, residual=None, recommended_slot="RB")
+    scored = _fact(week=2, native_id="w2", actual_points=8.0, consensus=10.0, recommended_slot="RB")
+
+    report = history_report(
+        [empty, scored],
+        season=2026,
+        roster_slots={(YAHOO, 1): {"RB": 1, "BN": 1}, (YAHOO, 2): {"RB": 1, "BN": 1}},
+    )
+
+    assert [row["week"] for row in report["regret_trend"]] == [2]
+    assert report["regret_trend"][0]["regret"] == 0.0
+    assert report["weeks_without_actuals"] == [{"league_key": YAHOO, "week": 1}]
 
 
 def test_fact_table_rejects_an_actuals_league_mismatch():

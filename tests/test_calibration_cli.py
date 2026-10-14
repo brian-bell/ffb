@@ -161,6 +161,33 @@ def test_lineup_default_uses_calibrated_when_the_gate_passes(tmp_path, monkeypat
     assert stored["points"] == 19.0
 
 
+def test_null_priors_fall_back_to_raw_without_replacing_the_file(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    cache = SnapshotCache(tmp_path / "snapshots")
+    key = calibration_params_key(2024, 1, LEAGUE)
+    planted = _rb_params(bias=1.0)
+    planted["priors"] = None
+    cache.put_json(key, planted, mode=0o600)
+    original = (cache.root / f"{key}.json").read_bytes()
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert RAW_CONSENSUS_WARNING in result.output
+    assert (cache.root / f"{key}.json").read_bytes() == original
+    henry = next(
+        row
+        for row in _one_ledger(tmp_path, "predlog/yahoo_1.l.sit/2024_week1")["players"]
+        if row["native_id"] == "29279"
+    )
+    assert henry["calibrated_mean"] == henry["consensus"]
+    assert henry["calibrated_sd"] is None
+
+
 def test_unreadable_params_fall_back_to_raw_without_replacing_the_file(tmp_path):
     env = _seed_lineup_store(tmp_path)
     assert (
