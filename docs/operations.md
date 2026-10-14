@@ -177,7 +177,7 @@ Card-by-card recovery when a badge is not green:
 | --- | --- |
 | Lineup: roster changed | `ffb league sync S --from-tracker` → `ffb lineup S --week W --force --publish` |
 | Lineup: newer injury report | `ffb season sync S --source injuries --refresh` → `ffb lineup S --week W --force --publish` |
-| Lineup: N players have no projection | `ffb season sync S --week W --source projections --refresh` → republish lineup |
+| Lineup: N players have no projection | `ffb season sync S --week W --source projections --refresh` → republish lineup. The same sync refreshes the crosswalk and fills a null `sleeper_id` from the cached Sleeper player map when a unique external id links the row. That player-map snapshot comes from an injuries sync; a projections-only command does not refetch it. |
 | News: LLM skipped | set `ANTHROPIC_API_KEY` or `FFB_ANTHROPIC_API_KEY` → `ffb digest S --publish` |
 | News: stale | news/injury sync → `ffb digest S --publish` |
 | Retro: waiting for actuals | confirm Grok posted `/api/actuals` for week W-1, then `ffb retro S --week W-1 --publish` |

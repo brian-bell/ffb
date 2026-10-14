@@ -42,6 +42,40 @@ def test_resolve_skips_ambiguous_native_id(store):
     assert store.resolve_batch("sleeper", ["2295"]) == {}
 
 
+def test_assign_missing_sleeper_id_does_not_overwrite_or_steal(store):
+    store.replace_crosswalk(
+        [
+            {
+                "player_key": "12626",
+                "sleeper_id": "3198",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Derrick Henry",
+                "position": "RB",
+                "team": "BAL",
+            },
+            {
+                "player_key": "17668",
+                "sleeper_id": None,
+                "espn_id": "4869461",
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Trey Smack",
+                "position": "K",
+                "team": "GBP",
+            },
+        ]
+    )
+    written = store.assign_missing_sleeper_ids(
+        [("12626", "9999"), ("17668", "3198"), ("17668", "13545")]
+    )
+    assert written == 1
+    assert store.resolve("sleeper", "3198") == "12626"
+    assert store.resolve("sleeper", "13545") == "17668"
+    assert store.resolve("sleeper", "9999") is None
+
+
 def test_resolve_on_empty_crosswalk_returns_none(store):
     assert store.resolve("sleeper", "3198") is None
 

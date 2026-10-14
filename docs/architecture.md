@@ -142,6 +142,15 @@ board until a later crosswalk refresh lets cached snapshots self-heal. A native
 id that maps to more than one `player_key` stays unmatched the same way;
 guessing either key makes identity look stale forever.
 
+nflverse sometimes has the player and still leaves `sleeper_id` null. Parse
+fills that id from the cached Sleeper player map when `rotowire_id`,
+`espn_id`, `gsis_id`, and `sportradar_id` agree on one Sleeper player, the
+normalized names match, and known fantasy positions agree (`PK` counts as
+`K`). A collision or a disagreement stays unset, and an existing `sleeper_id`
+is never replaced. Projection ingest re-resolves the cached stat line onto
+that canonical key, so a Sleeper roster row and the Sleeper and ESPN
+projections meet on one `player_key`.
+
 FFC ADP is the exception to id resolution because `ff_playerids` has no FFC id.
 It matches by normalized name and position, drops free-agent candidates while
 disambiguating, then uses canonical team as a tiebreak. Ambiguity is retained as
