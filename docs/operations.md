@@ -250,9 +250,11 @@ uv run ffb calibrate waivers 2024 --week 1
 ```
 
 `--season` repeats (the default is 2024 and 2025, weeks 1–18). `--offline`
-replays the cache. `--refresh` fetches those keys again. A missing or rejected
-snapshot is printed and the command exits 1; other seasons still complete.
-Re-running without `--refresh` fetches only what is missing.
+replays the cache. `--refresh` fetches those keys again and replaces a file
+only when its parser returns at least one usable row. A nonempty payload that
+parses to nothing is rejected, the known-good snapshot stays, and the command
+prints that and exits 1. Other seasons still complete. Re-running without
+`--refresh` fetches only what is missing.
 
 Sleeper's past-week endpoint does return per-player weekly forecasts. Its
 `updated_at` is a later storage rewrite, often after kickoff, so prior rows

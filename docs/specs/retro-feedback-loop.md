@@ -359,11 +359,16 @@ free-agent grading. A third projection source was evaluated and not wired.
 - ESPN weekly projections are the existing second source, so two-source
   weights can leave identity. They are not a new third source. One snapshotted
   source still leaves weights at identity.
-- nflverse `def_tds` is a combined defensive-touchdown count. It maps only to
-  `pass_int_td`, not also to `def_fum_td`. `special_teams_tds` maps to
-  `def_ret_td` on the team row. A game with no score does not become a
-  shutout. Skill projections whose stat keys are absent from the scoring
-  config are omitted, so unscored kickers do not inflate `n` with zeros.
+- nflverse actuals include `pass_int` and `fum_lost` (sack, rush, and
+  receiving fumbles lost). Two-point conversions map to `pass_2pt`,
+  `rush_2pt`, and `rec_2pt`. `def_tds` excludes fumble-recovery touchdowns
+  and maps to `pass_int_td`. A skill player's `fumble_recovery_tds` maps to
+  `fum_rec_td`; any other position's maps to `def_fum_td` on the team row.
+  `special_teams_tds` maps to `def_ret_td` on the team row. A game with no
+  score does not become a shutout. Skill projections whose stat keys are
+  absent from the scoring config are omitted, so unscored kickers do not
+  inflate `n` with zeros. `--refresh` keeps a snapshot when its parser
+  returns no usable rows.
 - Free agents: `ffb calibrate waivers SEASON --week N` grades prior facts
   with no fantasy `team_key`, after the same kickoff selection. The default
   league is `sleeper:1395854363380965376`. It does not publish. Yahoo free

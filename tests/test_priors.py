@@ -3,10 +3,11 @@
 from ffb.backtest import walk_forward_backtest
 from ffb.calibration import _decision_rows, fit_calibration
 from ffb.cli import app
-from ffb.config import ScoringConfig
+from ffb.config import LEAGUE_SCORING, ScoringConfig
 from ffb.outcomes import PRIOR_GENERATED_AT, select_scoring_facts
 from ffb.prior_data import load_prior_facts, sync_priors
 from ffb.priors import build_prior_facts, grade_free_agents
+from ffb.scoring import ppr_points
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
 from ffb.sources.player_stats import parse_actuals, points_allowed_band
 from ffb.sources.sleeper import projection_as_of
@@ -15,6 +16,17 @@ from .cli_plain import PlainCliRunner
 
 runner = PlainCliRunner()
 
+SLEEPER_SCORING = ScoringConfig(
+    weights={
+        "pass_yd": 0.04,
+        "pass_td": 4.0,
+        "pass_int": -1.0,
+        "pass_2pt": 2.0,
+        "fum_lost": -2.0,
+        "fum_rec_td": 6.0,
+        "def_fum_td": 6.0,
+    }
+)
 HALF = ScoringConfig(weights={"rec": 0.5, "rec_yd": 0.1, "sack": 1.0, "pts_allow_14_20": 1.0})
 FULL = ScoringConfig(weights={"rec": 1.0, "rec_yd": 0.1, "sack": 1.0, "pts_allow_14_20": 1.0})
 YAHOO = "yahoo:470.l.928421"
@@ -415,6 +427,56 @@ def test_player_stats_score_skill_players_and_points_allowed_without_inventing_a
     assert points_allowed_band(35) == "pts_allow_35p"
 
 
+def test_player_stats_score_turnovers_with_yahoo_and_sleeper_weights():
+    raw = {
+        "players": [
+            {
+                "player_id": "00-qb",
+                "player_display_name": "QB",
+                "position": "QB",
+                "season": 2024,
+                "week": 1,
+                "season_type": "REG",
+                "team": "KC",
+                "passing_yards": 100,
+                "passing_tds": 1,
+                "passing_interceptions": 1,
+                "sack_fumbles_lost": 1,
+                "rushing_fumbles_lost": 1,
+                "receiving_fumbles_lost": 0,
+                "passing_2pt_conversions": 1,
+                "fumble_recovery_tds": 1,
+            },
+            {
+                "player_id": "00-lb",
+                "player_display_name": "LB",
+                "position": "LB",
+                "season": 2024,
+                "week": 1,
+                "season_type": "REG",
+                "team": "KC",
+                "fumble_recovery_tds": 1,
+            },
+        ],
+        "games": [],
+    }
+    rows = parse_actuals(raw, 2024)
+    quarterback = next(row for row in rows if row["gsis_id"] == "00-qb")
+    assert quarterback["stats"]["pass_int"] == 1.0
+    assert quarterback["stats"]["fum_lost"] == 2.0
+    assert quarterback["stats"]["pass_2pt"] == 1.0
+    assert quarterback["stats"]["fum_rec_td"] == 1.0
+    # Yahoo has no turnover weights, so the interception and lost fumbles stay
+    # on the line and do not change the total. 100 yards, a pass TD, a two-point
+    # conversion, and a fumble-recovery TD.
+    assert ppr_points(quarterback["stats"], LEAGUE_SCORING, position="QB") == 17.0
+    assert ppr_points(quarterback["stats"], SLEEPER_SCORING, position="QB") == 11.0
+    assert all(row.get("gsis_id") != "00-lb" for row in rows)
+    defense = next(row for row in rows if row["native_id"] == "def:KCC")
+    assert defense["stats"]["def_fum_td"] == 1.0
+    assert ppr_points(defense["stats"], LEAGUE_SCORING, position="DEF") == 6.0
+
+
 def test_loader_reads_snapshots_and_offline_sync_does_not_fetch(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "ffb.prior_data.sleeper.fetch_projections",
@@ -484,6 +546,42 @@ def test_loader_reads_snapshots_and_offline_sync_does_not_fetch(tmp_path, monkey
     misses = sync_priors(cache, [2025], policy=SnapshotPolicy.OFFLINE)
     assert misses
     assert any("offline snapshot missing" in note for note in misses)
+
+
+def test_refresh_keeps_a_snapshot_the_parser_cannot_use(tmp_path, monkeypatch):
+    cache = SnapshotCache(tmp_path)
+    key = "sleeper/projections_nfl_2024_regular_week1"
+    good = [
+        {
+            "player_id": "4046",
+            "company": "rotowire",
+            "player": {"position": "WR", "team": "KC", "first_name": "Pat", "last_name": "M"},
+            "stats": {"rec": 4, "rec_yd": 40},
+        }
+    ]
+    cache.put_json(key, good)
+
+    def _unusable(*_args, **_kwargs):
+        return [{"company": "rotowire", "player_id": "4046"}]
+
+    monkeypatch.setattr("ffb.prior_data.sleeper.fetch_projections", _unusable)
+    monkeypatch.setattr("ffb.prior_data.espn.fetch_projections", lambda *_a, **_k: [{"id": 1}])
+    monkeypatch.setattr(
+        "ffb.prior_data.schedule.fetch_schedule", lambda *_a, **_k: [{"nope": True}]
+    )
+    monkeypatch.setattr(
+        "ffb.prior_data.crosswalk.fetch_playerids", lambda *_a, **_k: [{"nope": True}]
+    )
+    monkeypatch.setattr(
+        "ffb.prior_data.player_stats.fetch_player_stats",
+        lambda *_a, **_k: {"players": [{}], "games": []},
+    )
+
+    notes = sync_priors(cache, [2024], policy=SnapshotPolicy.REFRESH)
+    assert cache.read_json(key) == good
+    assert f"{key} was rejected; kept the existing snapshot" in notes
+    assert "espn/projections_2024_week1 was rejected and not snapshotted" in notes
+    assert not cache.has("espn/projections_2024_week1")
 
 
 def test_priors_cli_replays_snapshots_and_waivers_stay_on_sleeper(tmp_path, monkeypatch):

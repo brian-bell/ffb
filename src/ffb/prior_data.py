@@ -28,7 +28,9 @@ def sync_priors(
     """Cache schedules, weekly projections, nflverse stats, and the crosswalk.
 
     A missing offline snapshot or a failed fetch is reported and does not stop
-    the other seasons. The caller decides whether those notes are fatal.
+    the other seasons. A refresh is stored only when its parser returns at
+    least one usable row; otherwise the known-good snapshot stays and the note
+    says so. The caller decides whether those notes are fatal.
     """
     notes: list[str] = []
     notes.extend(
@@ -37,7 +39,7 @@ def sync_priors(
             crosswalk.snapshot_key(),
             crosswalk.fetch_playerids,
             policy=policy,
-            valid=lambda raw: isinstance(raw, list) and bool(raw),
+            valid=_crosswalk_rows,
         )
     )
     for season in seasons:
@@ -47,7 +49,7 @@ def sync_priors(
                 schedule.snapshot_key(season),
                 lambda season=season: schedule.fetch_schedule(season),
                 policy=policy,
-                valid=lambda raw: isinstance(raw, list) and bool(raw),
+                valid=lambda raw, season=season: _schedule_rows(raw, season),
             )
         )
         notes.extend(
@@ -56,7 +58,7 @@ def sync_priors(
                 player_stats.snapshot_key(season),
                 lambda season=season: player_stats.fetch_player_stats(season),
                 policy=policy,
-                valid=_stats_valid,
+                valid=lambda raw, season=season: _stats_rows(raw, season),
             )
         )
         for week in PRIOR_WEEKS:
@@ -66,7 +68,7 @@ def sync_priors(
                     sleeper.snapshot_key(season, week=week),
                     lambda season=season, week=week: sleeper.fetch_projections(season, week=week),
                     policy=policy,
-                    valid=lambda raw: isinstance(raw, list) and bool(raw),
+                    valid=lambda raw, week=week: _sleeper_rows(raw, week),
                 )
             )
             notes.extend(
@@ -75,7 +77,7 @@ def sync_priors(
                     espn.snapshot_key(season, week=week),
                     lambda season=season, week=week: espn.fetch_projections(season, week=week),
                     policy=policy,
-                    valid=lambda raw: isinstance(raw, list) and bool(raw),
+                    valid=lambda raw, season=season, week=week: _espn_rows(raw, season, week),
                 )
             )
     return notes
@@ -137,26 +139,71 @@ def seasons_with_stats(
 
 
 def _sync_key(cache, key, fetch, *, policy: SnapshotPolicy, valid) -> list[str]:
+    had = cache.has(key)
     try:
-        cache.get_json(key, fetch, policy=policy, is_valid=valid)
+        fetched = cache.get_json(key, fetch, policy=policy, is_valid=valid)
     except FileNotFoundError as exc:
         return [str(exc)]
     except (OSError, ValueError, TypeError) as exc:
         return [f"{key}: {exc}"]
     except Exception as exc:  # noqa: BLE001 - one source must not abort the other seasons
         return [f"{key}: {exc}"]
-    if not cache.has(key):
-        return [f"{key} was rejected and not snapshotted"]
-    return []
+    # A cache hit is not re-parsed. A fetch is stored only when ``valid`` is true.
+    if policy is not SnapshotPolicy.REFRESH and had:
+        return []
+    if _usable(valid, fetched):
+        return []
+    if cache.has(key):
+        return [f"{key} was rejected; kept the existing snapshot"]
+    return [f"{key} was rejected and not snapshotted"]
 
 
-def _stats_valid(raw: Any) -> bool:
-    return (
-        isinstance(raw, dict)
-        and isinstance(raw.get("players"), list)
-        and bool(raw["players"])
-        and isinstance(raw.get("games"), list)
-    )
+def _usable(valid, raw: Any) -> bool:
+    try:
+        return bool(valid(raw))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _sleeper_rows(raw: Any, week: int) -> bool:
+    if not isinstance(raw, list):
+        return False
+    try:
+        return bool(sleeper.parse_projections(raw, week=week))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _espn_rows(raw: Any, season: int, week: int) -> bool:
+    if not isinstance(raw, list):
+        return False
+    try:
+        return bool(espn.parse_projections(raw, season, week=week))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _crosswalk_rows(raw: Any) -> bool:
+    if not isinstance(raw, list):
+        return False
+    try:
+        return bool(crosswalk.parse_crosswalk(raw))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _schedule_rows(raw: Any, season: int) -> bool:
+    try:
+        return bool(schedule.parse_games(raw, season))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _stats_rows(raw: Any, season: int) -> bool:
+    try:
+        return bool(player_stats.parse_actuals(raw, season))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
 
 
 def _identities(cache: SnapshotCache, notes: list[str]) -> list[dict[str, Any]]:

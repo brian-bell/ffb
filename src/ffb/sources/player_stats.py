@@ -5,11 +5,13 @@ trimmed frame. Parse is pure: offensive counting stats use the same keys as
 projection rows, and each team-week becomes one ``DEF`` row. Points are not
 stored. Each league's ``ScoringConfig`` scores the stat line at read time.
 
-``def_tds`` is nflverse's combined defensive-touchdown count. It is mapped to
-``pass_int_td`` and not also added as ``def_fum_td``, so a fumble-return
-touchdown is not double-counted. ``special_teams_tds`` maps to ``def_ret_td``.
-A league that weights those touchdowns differently still scores ``def_tds``
-once, on the interception-return key.
+``def_tds`` excludes fumble-recovery touchdowns (nflverse counts those only in
+``fumble_recovery_tds``). ``def_tds`` maps to ``pass_int_td``. A skill player's
+``fumble_recovery_tds`` maps to ``fum_rec_td``. The same stat on any other
+position maps to ``def_fum_td`` on that team-week, so it is scored once.
+``special_teams_tds`` maps to ``def_ret_td`` on the team row. Two-point
+conversions map to ``pass_2pt``, ``rush_2pt``, and ``rec_2pt``. Interceptions
+map to ``pass_int``. Sack, rush, and receiving fumbles lost sum to ``fum_lost``.
 """
 
 from __future__ import annotations
@@ -33,14 +35,19 @@ _PLAYER_COLS = (
     "team",
     "passing_yards",
     "passing_tds",
+    "passing_interceptions",
     "passing_2pt_conversions",
+    "sack_fumbles_lost",
     "rushing_yards",
     "rushing_tds",
+    "rushing_fumbles_lost",
     "rushing_2pt_conversions",
     "receptions",
     "receiving_yards",
     "receiving_tds",
+    "receiving_fumbles_lost",
     "receiving_2pt_conversions",
+    "fumble_recovery_tds",
     "special_teams_tds",
     "def_sacks",
     "def_interceptions",
@@ -72,6 +79,7 @@ _GAME_COLS = (
 _OFFENSE = {
     "passing_yards": "pass_yd",
     "passing_tds": "pass_td",
+    "passing_interceptions": "pass_int",
     "passing_2pt_conversions": "pass_2pt",
     "rushing_yards": "rush_yd",
     "rushing_tds": "rush_td",
@@ -88,6 +96,7 @@ _OFFENSE = {
 }
 _SKILL = {"QB", "RB", "WR", "TE", "K"}
 _POSITION = {"PK": "K"}
+_FUMBLES_LOST = ("sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_lost")
 
 
 def snapshot_key(season: int) -> str:
@@ -214,6 +223,10 @@ def _player_row(
                     "stats": stats,
                 }
     defense_stats = _defense_stats(item)
+    if position not in _SKILL:
+        recovery_td = _optional_number(item.get("fumble_recovery_tds"))
+        if recovery_td:
+            defense_stats["def_fum_td"] = defense_stats.get("def_fum_td", 0.0) + recovery_td
     team_defense = (week, team, defense_stats) if defense_stats else None
     if skill is None and team_defense is None:
         return None
@@ -226,6 +239,12 @@ def _offense_stats(item: dict[str, Any]) -> dict[str, float]:
         value = _optional_number(item.get(source))
         if value:
             stats[key] = value
+    fumbles_lost = sum(_number(item.get(source)) for source in _FUMBLES_LOST)
+    if fumbles_lost:
+        stats["fum_lost"] = fumbles_lost
+    recovery_td = _optional_number(item.get("fumble_recovery_tds"))
+    if recovery_td:
+        stats["fum_rec_td"] = recovery_td
     return stats
 
 

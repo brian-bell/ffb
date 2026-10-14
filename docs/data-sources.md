@@ -389,11 +389,17 @@ depends on FFC's non-exhaustive ADP list for byes.
 - **Parse** — offensive counting stats use the same keys as projection rows.
   Each played team-week with a numeric score becomes one `DEF` row
   (`def:<canonical team>`), including a team with no defender stat line.
-  `def_tds` maps only to `pass_int_td`. `special_teams_tds` maps to
-  `def_ret_td` on the team row, not the skill player. Points-allowed bands
-  come from the opponent's score; a missing score is omitted and is not a
-  shutout. Preseason rows are skipped. Points are scored later with each
-  league's `ScoringConfig`.
+  `passing_interceptions` maps to `pass_int`. Sack, rush, and receiving
+  fumbles lost sum to `fum_lost`. Two-point conversions map to `pass_2pt`,
+  `rush_2pt`, and `rec_2pt`. `def_tds` maps only to `pass_int_td` (nflverse
+  leaves fumble-recovery touchdowns out of that column). A skill player's
+  `fumble_recovery_tds` maps to `fum_rec_td`; any other position's maps to
+  `def_fum_td` on the team row. `special_teams_tds` maps to `def_ret_td` on
+  the team row, not the skill player. Points-allowed bands come from the
+  opponent's score; a missing score is omitted and is not a shutout.
+  Preseason rows are skipped. Points are scored later with each league's
+  `ScoringConfig`, so a league that weights turnovers scores them and one
+  that does not still keeps the counts on the stat line.
 
 ### 7. ESPN news / RSS — headlines for the digest
 
