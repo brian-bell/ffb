@@ -113,8 +113,9 @@ def walk_forward_backtest(
     Scored rows and the fit sample both come from :func:`select_scoring_facts`,
     so a league-week is one roster and a post-kickoff prediction is not
     labelled. Rows from more than one ledger run still train the fit and the
-    point metrics. Decision metrics for that league-week are omitted, with a
-    note, because no single lineup was advised that way.
+    point metrics. That league-week is omitted from regret, decision scores,
+    and league-wide Brier, with a note, because no single lineup was advised
+    that way.
     """
     if not pooled and not league_key:
         raise ValueError("per-league backtest needs a league_key")
@@ -219,6 +220,11 @@ def _score_week(
         if not uses_one_advice_ledger(group):
             notes.append(f"{league_key} week {week}: {NOTE_MIXED}")
             continue
+        if _mixes_runs(group):
+            notes.append(
+                f"{league_key} week {week}: no league Brier: "
+                "scored predictions do not share one ledger run"
+            )
         slots = roster_slots.get((league_key, week))
         regret = _league_regret(group, slots)
         if regret is not None:
@@ -431,12 +437,29 @@ def _accuracy(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _mixes_runs(players: list[dict[str, Any]]) -> bool:
+    """True when any selected row, user or not, comes from an earlier ledger run."""
+    return any(
+        player.get("roster_generated_at") not in (None, player.get("generated_at"))
+        for player in players
+    )
+
+
 def _league_events(players: list[dict[str, Any]], *, calibrated: bool) -> list[tuple[float, float]]:
-    grouped: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    by_week: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for player in players:
-        team = str(player.get("team_key") or "")
-        key = (str(player["league_key"]), int(player["week"]), team)
-        grouped.setdefault(key, []).append(player)
+        week = player.get("week")
+        if type(week) is not int:
+            continue
+        by_week.setdefault((str(player.get("league_key") or ""), week), []).append(player)
+    blocked = {key for key, group in by_week.items() if _mixes_runs(group)}
+    grouped: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for (league_key, week), group in by_week.items():
+        if (league_key, week) in blocked:
+            continue
+        for player in group:
+            team = str(player.get("team_key") or "")
+            grouped.setdefault((league_key, week, team), []).append(player)
     events = []
     for group in grouped.values():
         starters = [

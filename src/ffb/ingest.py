@@ -641,16 +641,36 @@ def ensure_schedule_ingested(
     """
     del rebuild  # re-parse happens every run; nothing extra to force
     fetch_fn = fetch or (lambda: schedule.fetch_schedule(season))
+    selected_policy = (
+        SnapshotPolicy(policy)
+        if policy is not None
+        else (SnapshotPolicy.REFRESH if refresh else SnapshotPolicy.MISSING_ONLY)
+    )
+    key = schedule.snapshot_key(season)
+    previous = cache.read_json(key) if cache.has(key) else None
+
+    def _schedule_payload_ok(data: Any) -> bool:
+        # A complete bye set is required before any write. A refresh must also
+        # keep kickoff coverage: missing gameday/gametime, or fewer timed games
+        # than the snapshot already cached, raises and leaves that file in place.
+        if schedule.missing_teams(schedule.parse_byes(data, season)):
+            return False
+        if selected_policy is SnapshotPolicy.REFRESH:
+            error = schedule.kickoff_refresh_error(previous, data, season)
+            if error:
+                raise ValueError(error)
+        return True
+
     # Gate the snapshot write on a COMPLETE pull — every canonical team derived
     # a bye — so a transient bad/truncated refresh can't overwrite the
     # known-good cache (stricter than the other sources' non-empty gates,
     # because the schedule's full universe is known).
     raw = cache.get_json(
-        schedule.snapshot_key(season),
+        key,
         fetch_fn,
         refresh=refresh,
-        policy=policy,
-        is_valid=lambda data: not schedule.missing_teams(schedule.parse_byes(data, season)),
+        policy=selected_policy,
+        is_valid=_schedule_payload_ok,
     )
     rows = schedule.parse_byes(raw, season)
     missing = schedule.missing_teams(rows)

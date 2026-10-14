@@ -450,8 +450,94 @@ def test_mixed_run_week_trains_and_scores_points_but_not_decisions(monkeypatch):
     assert report["metrics"]["model_position"][0]["n"] == 4
     assert report["metrics"]["decision_accuracy"]["raw"]["n"] == 1
     assert report["metrics"]["brier"]["decisions"]["raw"]["n"] == 1
+    assert report["metrics"]["brier"]["league"]["raw"]["n"] == 1
     assert any(f"{YAHOO} week 3: {NOTE_MIXED}" == note for note in report["notes"])
     assert not any("week 4" in note and NOTE_MIXED in note for note in report["notes"])
+
+
+def test_opponent_mixed_run_drops_league_brier_and_keeps_user_regret():
+    wednesday = "2026-10-07T15:00:00Z"
+    sunday = "2026-10-11T15:00:00Z"
+    kickoffs = {(3, "PHI"): "2026-10-08T00:20:00Z", (3, "KCC"): "2026-10-11T17:00:00Z"}
+    facts = [
+        _fact(
+            YAHOO,
+            3,
+            "user-a",
+            consensus=12,
+            actual=0,
+            generated_at=sunday,
+            nfl_team="KC",
+            user=True,
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "user-b",
+            consensus=10,
+            actual=14,
+            generated_at=sunday,
+            nfl_team="KC",
+            user=True,
+            selected="BN",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "opp-thu",
+            consensus=8,
+            actual=1,
+            generated_at=wednesday,
+            nfl_team="PHI",
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "opp-thu",
+            consensus=9,
+            actual=1,
+            generated_at=sunday,
+            nfl_team="PHI",
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "opp-sun",
+            consensus=6,
+            actual=9,
+            generated_at=wednesday,
+            nfl_team="KC",
+            selected="BN",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "opp-sun",
+            consensus=7,
+            actual=9,
+            generated_at=sunday,
+            nfl_team="KC",
+            selected="BN",
+        ),
+    ]
+    for fact in facts:
+        if not fact["is_user_team"]:
+            fact["team_key"] = "t.2"
+
+    report = walk_forward_backtest(
+        facts,
+        season=2026,
+        roster_slots=_slots((YAHOO,), weeks=[3]),
+        kickoffs=kickoffs,
+    )
+
+    assert report["weeks"][0]["league_regret"]
+    assert report["metrics"]["brier"]["decisions"]["raw"]["n"] == 1
+    assert report["metrics"]["brier"]["league"]["raw"]["n"] == 0
+    assert any("no league Brier" in note for note in report["notes"])
 
 
 def test_mae_delta_of_0_3_is_allowed_and_0_31_is_not():

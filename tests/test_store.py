@@ -15,7 +15,7 @@ def test_init_schema_is_idempotent(tmp_path):
     s.close()
 
 
-def test_init_schema_adds_schedule_kickoff_columns_on_an_existing_database(tmp_path):
+def test_init_schema_rejects_a_schedule_table_without_kickoff_columns(tmp_path):
     path = tmp_path / "db.duckdb"
     old = Store(path)
     old.init_schema()
@@ -24,8 +24,8 @@ def test_init_schema_adds_schedule_kickoff_columns_on_an_existing_database(tmp_p
     old.close()
 
     store = Store(path)
-    store.init_schema()
-    store.init_schema()
+    with pytest.raises(SchemaMismatchError) as excinfo:
+        store.init_schema()
     columns = {
         column
         for table, column in store.conn.execute(
@@ -35,7 +35,11 @@ def test_init_schema_adds_schedule_kickoff_columns_on_an_existing_database(tmp_p
     }
     store.close()
 
-    assert {"gameday", "gametime"} <= columns
+    message = str(excinfo.value)
+    assert "schedule_games is missing gameday, gametime" in message
+    assert "--offline --rebuild" in message
+    assert "gameday" not in columns
+    assert "gametime" not in columns
 
 
 def test_init_schema_reports_a_database_predating_a_column(tmp_path):

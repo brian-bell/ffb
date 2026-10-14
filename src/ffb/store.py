@@ -254,21 +254,12 @@ class Store:
 
     def init_schema(self) -> None:
         # No cross-version migration by design: the DB is a disposable local
-        # cache rebuilt offline from snapshots (see AGENTS.md). Delete the file
-        # after a schema change rather than migrating it. The one exception is
-        # nullable schedule kickoff columns, added in place so an existing file
-        # can keep its rows and pick up times on the next schedule sync.
+        # cache rebuilt offline from snapshots (see AGENTS.md). ``CREATE TABLE
+        # IF NOT EXISTS`` does not add columns, so a file from before
+        # ``schedule_games.gameday`` / ``gametime`` fails ``_verify_schema``
+        # and the operator moves it aside and replays the snapshots.
         self.conn.execute(SCHEMA)
-        self._add_schedule_time_columns()
         self._verify_schema()
-
-    def _add_schedule_time_columns(self) -> None:
-        """Idempotent ``ADD COLUMN`` for kickoff fields on a pre-existing file."""
-        present = _table_columns(self.conn).get("schedule_games", frozenset())
-        for name in ("gameday", "gametime"):
-            if name in present:
-                continue
-            self.conn.execute(f"ALTER TABLE schedule_games ADD COLUMN {name} VARCHAR")
 
     def _verify_schema(self) -> None:
         """Fail with a directed error when an existing file lacks a column.

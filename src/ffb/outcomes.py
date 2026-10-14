@@ -361,7 +361,9 @@ def _unavailable(fact: dict[str, Any]) -> bool:
 
 NOTE_NO_KICKOFFS = "no kickoff times available; predictions were not scored"
 NOTE_UNPAIRED = "no decision metrics: advice snapshot is not paired to the scored ledger"
-NOTE_MIXED = "no decision metrics: scored predictions do not share the advice ledger"
+NOTE_MIXED = (
+    "no decision metrics or league Brier: scored predictions do not share the advice ledger"
+)
 
 
 def uses_one_advice_ledger(facts: list[dict[str, Any]]) -> bool:

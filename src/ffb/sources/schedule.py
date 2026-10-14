@@ -177,6 +177,39 @@ def parse_games(raw: Any, season: int) -> list[dict[str, Any]]:
     return rows
 
 
+def timed_game_count(raw: Any, season: int) -> int:
+    """Regular-season games in ``raw`` with a parseable kickoff."""
+    return sum(1 for game in parse_games(raw, season) if game.get("kickoff_at"))
+
+
+def kickoff_refresh_error(previous: Any, fresh: Any, season: int) -> str | None:
+    """Why a refresh must not replace the cached schedule, or None to accept it.
+
+    A payload with no ``gameday``/``gametime`` keys, or fewer parseable kickoffs
+    than the snapshot already on disk, is rejected. Reading an older snapshot
+    that omits the keys is a separate path and stays valid.
+    """
+    if not _has_kickoff_keys(fresh):
+        return (
+            f"schedule refresh for {season} is missing gameday/gametime; "
+            "keeping the cached snapshot"
+        )
+    fresh_timed = timed_game_count(fresh, season)
+    previous_timed = timed_game_count(previous, season)
+    if fresh_timed < previous_timed:
+        return (
+            f"schedule refresh for {season} has {fresh_timed} games with kickoff times, "
+            f"fewer than the cached snapshot's {previous_timed}; keeping the cached snapshot"
+        )
+    return None
+
+
+def _has_kickoff_keys(raw: Any) -> bool:
+    if not isinstance(raw, list):
+        return False
+    return any(isinstance(row, dict) and ("gameday" in row or "gametime" in row) for row in raw)
+
+
 def team_kickoffs(games: list[dict[str, Any]]) -> dict[tuple[int, str], str]:
     """UTC kickoff for each ``(week, canonical team)`` that has a clock time.
 

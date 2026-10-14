@@ -337,12 +337,14 @@ depends on FFC's non-exhaustive ADP list for byes.
   `schedule_games`, keyed `(season, source, week, home_team, away_team)`, with
   nullable `gameday` (`YYYY-MM-DD`) and `gametime` (`HH:MM` Eastern). Both
   tables are **source values, so they are stored** (like ADP, unlike computed
-  points). An existing database gains the two columns on `init_schema`
-  (`ADD COLUMN` when they are absent). `ffb ros` uses the games for
-  playoff-week slates; byes still feed the board. Retro history and the
-  calibration backtest read kickoffs from the schedule snapshot's
-  `gameday`/`gametime` (the same columns `schedule_games` stores) and drop a
-  player when the time is null.
+  points). A database created before those columns fails `init_schema` with
+  the move-aside-and-replay error; nothing alters the file in place. `ffb ros`
+  uses the games for playoff-week slates; byes still feed the board. Retro
+  history and the calibration backtest read kickoffs from the schedule
+  snapshot's `gameday`/`gametime` (the same columns `schedule_games` stores)
+  and drop a player when the time is null. A refresh that omits the time keys,
+  or that has fewer parseable kickoffs than the cached snapshot, is rejected
+  and the cached file stays. An older snapshot that omits the keys still loads.
 - **Ingest** (`ensure_schedule_ingested`) — re-parses + re-resolves from the
   cached snapshot on **every** run (atomic delete-then-insert mirror): parsing
   ~272 games is trivial, and a `TEAM_ALIASES` tuning change reaches the DB

@@ -112,6 +112,46 @@ def test_schedule_ingest_populates_gameday_and_gametime(store, tmp_path):
     assert other["gametime"] is None
 
 
+def test_schedule_refresh_rejects_a_payload_missing_kickoff_times(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(snapshot_key(2024), lambda: _with_week1_kickoff())
+    ensure_schedule_ingested(store, cache, season=2024, fetch=_no_network)
+    before = cache.read_json(snapshot_key(2024))
+    stored = store.schedule_game_rows(2024)
+
+    with pytest.raises(ValueError, match="missing gameday/gametime"):
+        ensure_schedule_ingested(
+            store,
+            cache,
+            season=2024,
+            refresh=True,
+            fetch=lambda: json.loads(SCHEDULE.read_text()),
+        )
+
+    assert cache.read_json(snapshot_key(2024)) == before
+    assert store.schedule_game_rows(2024) == stored
+
+
+def test_schedule_refresh_rejects_fewer_kickoff_times(store, tmp_path):
+    timed = _with_week1_kickoff()
+    for game in timed:
+        if isinstance(game, dict) and game.get("week") == 1 and game.get("home_team") == "BAL":
+            game["gameday"] = "2024-09-08"
+            game["gametime"] = "13:00"
+    cache = SnapshotCache(tmp_path / "snap")
+    cache.get_json(snapshot_key(2024), lambda: timed)
+    ensure_schedule_ingested(store, cache, season=2024, fetch=_no_network)
+    before = cache.read_json(snapshot_key(2024))
+    stored = store.schedule_game_rows(2024)
+    fewer = _with_week1_kickoff()
+
+    with pytest.raises(ValueError, match="fewer than the cached snapshot"):
+        ensure_schedule_ingested(store, cache, season=2024, refresh=True, fetch=lambda: fewer)
+
+    assert cache.read_json(snapshot_key(2024)) == before
+    assert store.schedule_game_rows(2024) == stored
+
+
 def test_stored_kickoffs_score_the_pre_kickoff_ledger(store, tmp_path):
     # Thursday 2024-09-05 20:20 ET is 2024-09-06T00:20:00Z. The newest run is
     # after that kickoff; the earlier run is the one that may be scored.
