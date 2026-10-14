@@ -5,7 +5,7 @@ from io import StringIO
 from rich.console import Console
 
 from ffb import config
-from ffb.cli import _render_shadow, app
+from ffb.cli import _render_lineup, _render_shadow, app
 from ffb.predlog import build_prediction_ledger, prediction_ledger_key
 from ffb.retro import actuals_snapshot_key, build_lineup_snapshot, lineup_history_key
 from ffb.snapshot import SnapshotCache
@@ -66,11 +66,12 @@ def test_empty_backtest_fails_closed(tmp_path):
     assert not (tmp_path / "snapshots").exists()
 
 
-def test_lineup_stays_on_raw_consensus_without_a_model_switch():
+def test_lineup_help_names_the_model_switch():
     result = runner.invoke(app, ["lineup", "--help"])
 
     assert result.exit_code == 0, result.output
-    assert "--model" not in result.output
+    assert "--model" in result.output
+    assert "calibrated" in result.output
 
 
 def test_backtest_help_names_the_league_variant():
@@ -112,6 +113,42 @@ def test_shadow_render_prints_both_close_call_rules(monkeypatch):
     assert "Shadow matches the advice snapshot." in text
     assert "Close call (1.5) Bravo vs Alpha RB (1.0)" in text
     assert "Close call (p) Charlie vs Alpha RB (55% to be right, gap 3.0)" in text
+
+
+def test_lineup_render_labels_p_win_as_starter_confidence(monkeypatch):
+    import ffb.cli as cli_mod
+
+    buffer = StringIO()
+    monkeypatch.setattr(cli_mod, "console", Console(file=buffer, force_terminal=False, width=120))
+    _render_lineup(
+        {
+            "model": "calibrated",
+            "current_total": 10,
+            "optimal_total": 10,
+            "delta": 0,
+            "aligned": [],
+            "start": [],
+            "sit": [],
+            "undecidable": [],
+            "missing_projections": [],
+            "close_calls": [
+                {
+                    "name": "Bravo",
+                    "points": 9.0,
+                    "versus": "Alpha",
+                    "slot": "RB",
+                    "delta": 1.0,
+                    "p_win": 0.58,
+                }
+            ],
+        },
+        week=3,
+        team_name="Brian",
+    )
+
+    text = buffer.getvalue()
+    assert "start Alpha over Bravo: 58%" in text
+    assert "to start" not in text
 
 
 def _env(tmp_path):

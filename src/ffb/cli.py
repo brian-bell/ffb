@@ -20,10 +20,12 @@ from ffb import digest as digest_mod
 from ffb import ros as ros_mod
 from ffb import waivers as waivers_mod
 from ffb.actuals import parse_actuals
-from ffb.backtest import walk_forward_backtest
+from ffb.backtest import resolve_advice_model, walk_forward_backtest
 from ffb.calibration import (
     annotate_players,
+    apply_advice_points,
     calibration_params_key,
+    decorate_advice_report,
     fit_calibration,
     parse_calibration_params,
 )
@@ -52,6 +54,7 @@ from ffb.lineup import (
 from ffb.outcomes import fact_table, history_report
 from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
+    LINEUP_MODELS,
     RAW_CONSENSUS_WARNING,
     actuals_snapshot_key,
     build_lineup_snapshot,
@@ -606,10 +609,17 @@ def lineup(
         False, "--publish", help="POST the rendered report to the tracker command center."
     ),
     league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help="raw or calibrated. Omit to use calibrated only when the promotion gate passes.",
+    ),
 ) -> None:
     """Compare the user team's stored lineup to optimal weekly starters."""
     if week is not None and week < 1:
         raise typer.BadParameter("week must be a positive integer")
+    if model is not None and model not in LINEUP_MODELS:
+        raise typer.BadParameter("model must be raw or calibrated")
     store = _open_store()
     league_key = _select_league(store, season, league)
     context = store.league_context(season, league_key)
@@ -675,13 +685,35 @@ def lineup(
             f"Run: ffb season sync {season}[/yellow]"
         )
     league_players = attach_injuries(attach_weekly_points(league_roster_rows, consensus), injuries)
-    players = [row for row in league_players if row["team_key"] == user["team_key"]]
-    report = compare_lineup(players, league_ctx.roster_slots)
     cache = SnapshotCache(paths.snapshot_dir())
     generated_at = snapshot_now()
     advice_key = lineup_snapshot_key(season, chosen_week, league_key)
     exists = cache.has(advice_key)
     post_hoc = chosen_week < current_week
+    params_key = calibration_params_key(season, chosen_week, league_key)
+    if post_hoc:
+        params, warning = _read_existing_calibration(cache, params_key)
+    else:
+        params, warning = _load_or_fit_calibration(
+            cache, season=season, week=chosen_week, league_key=league_key, params_key=params_key
+        )
+    if warning:
+        console.print(f"[yellow]{warning}[/yellow]")
+    annotated = annotate_players(league_players, params)
+    gate_passed = False
+    if model is None and params is not None:
+        gate_passed = _promotion_gate_passed(season)
+    chosen_model, model_warning = resolve_advice_model(
+        model, params=params, gate_passed=gate_passed
+    )
+    if model_warning and model_warning != warning:
+        console.print(f"[yellow]{model_warning}[/yellow]")
+    players = apply_advice_points(
+        [row for row in annotated if row["team_key"] == user["team_key"]], chosen_model
+    )
+    report = decorate_advice_report(
+        compare_lineup(players, league_ctx.roster_slots), players, chosen_model
+    )
     if exists and not force:
         console.print(
             f"[dim]Sit/start snapshot already exists for week {chosen_week}; left unchanged. "
@@ -709,6 +741,7 @@ def lineup(
             roster_slots=league_ctx.roster_slots,
             players=players,
             report=report,
+            model=chosen_model,
         )
         cache.put_json(advice_key, advice, mode=0o600)
         cache.put_json(
@@ -719,14 +752,6 @@ def lineup(
     if not post_hoc:
         # Every pre-game run is kept, even when the advice snapshot is left
         # unchanged, so retro history can see what the model believed and when.
-        # Calibrated mean/sd land on this ledger only. Advice, the v1 snapshot,
-        # and the published report stay on raw consensus.
-        params_key = calibration_params_key(season, chosen_week, league_key)
-        params, warning = _load_or_fit_calibration(
-            cache, season=season, week=chosen_week, league_key=league_key, params_key=params_key
-        )
-        if warning:
-            console.print(f"[yellow]{warning}[/yellow]")
         cache.put_json(
             prediction_ledger_key(season, chosen_week, generated_at, league_key),
             build_prediction_ledger(
@@ -739,7 +764,7 @@ def lineup(
                 projection_sources=_projection_snapshot_metadata(
                     cache, season, chosen_week, active_sources
                 ),
-                players=annotate_players(league_players, params),
+                players=annotated,
                 calibration=(
                     None
                     if params is None
@@ -770,6 +795,23 @@ def lineup(
             ),
             league_key=league_key,
         )
+
+
+def _read_existing_calibration(
+    cache: SnapshotCache, params_key: str
+) -> tuple[dict | None, str | None]:
+    """Read a params file already written for this week. Never fit or replace."""
+    if not cache.has(params_key):
+        return None, None
+    try:
+        return parse_calibration_params(cache.read_json(params_key)), None
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None, RAW_CONSENSUS_WARNING
+
+
+def _promotion_gate_passed(season: int) -> bool:
+    """Re-run the pooled walk-forward gate. Thin history stays on raw."""
+    return bool(_calibrate_backtest_report(season, None)["gate"]["passed"])
 
 
 def _load_or_fit_calibration(
@@ -1063,8 +1105,8 @@ def calibrate_backtest(
 ) -> None:
     """Walk-forward raw vs calibrated sit/start, and whether the gate would pass.
 
-    Week W is fit on earlier weeks only. The gate is printed and not applied:
-    lineup advice, snapshots, and published reports stay on raw consensus.
+    Week W is fit on earlier weeks only. ``ffb lineup`` follows this gate when
+    ``--model`` is omitted; this command only prints it.
     """
     report = _calibrate_backtest_report(season, league)
     _render_backtest(report)
@@ -2187,7 +2229,8 @@ def _render_digest(report: dict) -> None:
 
 def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
     """Print current vs optimal starters, sit/start swaps, and close calls."""
-    console.print(f"[yellow]Week {week} sit/start[/yellow] — {team_name}")
+    model = report.get("model") or "raw"
+    console.print(f"[yellow]Week {week} sit/start[/yellow] ({model}) — {team_name}")
     console.print(
         f"Current {report['current_total']:.1f}   "
         f"Optimal {report['optimal_total']:.1f}   "
@@ -2229,6 +2272,12 @@ def _render_lineup(report: dict, *, week: int, team_name: str) -> None:
     else:
         console.print("[green]Stored lineup matches the weekly optimum.[/green]")
     for row in report["close_calls"]:
+        if row.get("p_win") is not None:
+            console.print(
+                f"[yellow]Close[/yellow] start {row['versus']} over {row['name']}: "
+                f"{row['p_win']:.0%}"
+            )
+            continue
         console.print(
             f"[yellow]Close[/yellow] {row['name']} {_num(row['points'])} vs "
             f"{row['versus']} ({row['slot']}, Δ {row['delta']:.1f})"

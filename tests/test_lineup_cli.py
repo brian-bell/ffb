@@ -164,6 +164,12 @@ def test_lineup_rejects_non_positive_week(tmp_path):
     assert "week" in result.output.lower()
 
 
+def test_lineup_rejects_unknown_model(tmp_path):
+    result = runner.invoke(app, ["lineup", "2024", "--model", "shadow"], env=_env(tmp_path))
+    assert result.exit_code != 0
+    assert "raw or calibrated" in result.output
+
+
 def test_lineup_reresolves_roster_after_late_crosswalk(tmp_path):
     env = _env(tmp_path)
     store = Store(env["FFB_DB_PATH"])
@@ -517,6 +523,8 @@ def test_lineup_keeps_a_history_copy_of_every_snapshot_it_writes(tmp_path):
     assert len(history) == 2
     latest = json.loads((tmp_path / "snapshots/lineup/yahoo_1.l.sit/2024_week1.json").read_text())
     assert json.loads(history[-1].read_text()) == latest
+    assert latest["schema_version"] == 2
+    assert latest["model"] == "raw"
 
 
 def test_lineup_logs_no_predictions_for_a_past_week(tmp_path):

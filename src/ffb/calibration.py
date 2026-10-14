@@ -294,6 +294,128 @@ def probability_close_calls(
     return flagged
 
 
+def apply_advice_points(players: list[dict[str, Any]], model: str) -> list[dict[str, Any]]:
+    """Copy roster rows so ``points`` are the values ``compare_lineup`` should use.
+
+    Raw keeps stored consensus. Calibrated swaps in ``calibrated_mean`` when
+    present and carries ``calibrated_sd`` as ``sd``. Missing means stay on
+    consensus, the same fallback missing sources already use.
+    """
+    applied = []
+    for player in players:
+        row = dict(player)
+        if model == "calibrated":
+            mean = player.get("calibrated_mean")
+            if mean is not None:
+                row["points"] = mean
+            row["sd"] = player.get("calibrated_sd")
+        else:
+            row["sd"] = None
+        applied.append(row)
+    return applied
+
+
+def start_probabilities(
+    players: list[dict[str, Any]], optimal: list[dict[str, Any]]
+) -> dict[str, float | None]:
+    """P(this player belongs in the starting lineup) versus the closest alternative.
+
+    Starters get ``min P(starter beats eligible bench)``, or 1 when nobody
+    comparable sits. Bench players get ``max P(bench beats an eligible starter)``,
+    or 0 when they cannot fill a starter slot. A missing sd is null.
+    """
+    optimal_ids = {str(row.get("native_id") or "") for row in optimal}
+    by_id = {str(player.get("native_id") or ""): player for player in players}
+    starters = list(optimal)
+    out: dict[str, float | None] = {}
+    for player in players:
+        ident = str(player.get("native_id") or "")
+        if player.get("points") is None or player.get("sd") is None:
+            out[ident] = None
+            continue
+        if ident in optimal_ids:
+            starter = next(
+                (row for row in starters if str(row.get("native_id") or "") == ident),
+                None,
+            )
+            slot = None if starter is None else starter.get("slot")
+            probs = []
+            for bench in players:
+                bench_id = str(bench.get("native_id") or "")
+                if (
+                    bench_id in optimal_ids
+                    or bench.get("points") is None
+                    or is_unavailable(bench)
+                    or (slot is not None and not can_fill(bench, slot))
+                ):
+                    continue
+                probability = win_probability(
+                    player.get("points"), player.get("sd"), bench.get("points"), bench.get("sd")
+                )
+                if probability is not None:
+                    probs.append(probability)
+            out[ident] = 1.0 if not probs else round(min(probs), 4)
+            continue
+        if is_unavailable(player):
+            out[ident] = None
+            continue
+        probs = []
+        for starter in starters:
+            if starter.get("points") is None or not can_fill(player, starter.get("slot")):
+                continue
+            source = by_id.get(str(starter.get("native_id") or ""), starter)
+            probability = win_probability(
+                player.get("points"),
+                player.get("sd"),
+                source.get("points"),
+                source.get("sd"),
+            )
+            if probability is not None:
+                probs.append(probability)
+        out[ident] = 0.0 if not probs else round(max(probs), 4)
+    return out
+
+
+def decorate_advice_report(
+    report: dict[str, Any], players: list[dict[str, Any]], model: str
+) -> dict[str, Any]:
+    """Attach ``model``, ``sd`` / ``p_start``, and the close-call rule for ``model``.
+
+    Raw keeps the 1.5-point list from ``compare_lineup``. Calibrated replaces it
+    with win-probability close calls. Null sd / p_start are omitted so a raw
+    publish stays additive versus already-stored v1 cards.
+    """
+    probs = start_probabilities(players, report["optimal"])
+    for player in players:
+        player["p_start"] = probs.get(str(player.get("native_id") or ""))
+    by_id = {str(player.get("native_id") or ""): player for player in players}
+
+    def enrich(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        ident = str(row.get("native_id") or "")
+        source = by_id.get(ident, row)
+        extra: dict[str, Any] = {}
+        sd = source.get("sd")
+        p_start = probs.get(ident)
+        if sd is not None:
+            extra["sd"] = sd
+        if p_start is not None:
+            extra["p_start"] = p_start
+        return {**row, **extra} if extra else dict(row)
+
+    decorated = {**report, "model": model}
+    for key in ("current", "optimal", "start", "sit", "undecidable", "missing_projections"):
+        decorated[key] = [enrich(row) for row in report[key]]
+    decorated["aligned"] = [
+        {**pair, "current": enrich(pair["current"]), "optimal": enrich(pair["optimal"])}
+        for pair in report["aligned"]
+    ]
+    if model == "calibrated":
+        decorated["close_calls"] = probability_close_calls(players, report["optimal"])
+    return decorated
+
+
 def _annotated(player: dict[str, Any], params: dict[str, Any] | None) -> dict[str, Any]:
     consensus = _raw_consensus(player)
     sources = _sources(player)

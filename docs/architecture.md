@@ -83,12 +83,16 @@ input to the retro feedback loop in
 [specs/retro-feedback-loop.md](specs/retro-feedback-loop.md). For the current or
 a future week it also writes `snapshots/calibration/` once, fit walk-forward on
 earlier weeks pooled across leagues, and stores that run's calibrated mean and
-sd on the ledger only. Advice, the lineup snapshot, and published reports stay
-on raw consensus. `ffb retro` prints a shadow section for the lineup those
-calibrated means would have started, including 1.5-point close calls and
-win-probability close calls. `ffb calibrate backtest` refits each week from
-earlier weeks only, compares raw and calibrated advice, and prints whether the
-promotion gate would pass. It does not change the advice. `ffb retro history`
+sd on the ledger. `ffb lineup --model raw|calibrated` chooses the advice
+points; omitting `--model` uses calibrated only when the pooled promotion gate
+passes, and otherwise stays on raw consensus. A missing params file or empty
+history falls back to raw and reproduces today's sit/start. New lineup
+snapshots are schema v2 (`model`, per-row `sd` / `p_start`); `parse_lineup_snapshot`
+upgrades v1 files in place. Published `/command` cards add those fields
+additively, so already-stored v1 payloads still render. `ffb retro` still
+prints a shadow section for the lineup calibrated means would have started.
+`ffb calibrate backtest` refits each week from earlier weeks only, compares raw
+and calibrated advice, and prints whether the promotion gate passes. `ffb retro history`
 joins those ledgers to league-scoped actuals at read time and reports
 cross-week source-by-position accuracy, sit/start regret, and the hit rate of
 Questionable starts. A weekly

@@ -40,6 +40,7 @@ from ffb.calibration import calibrated_projection, fit_calibration, win_probabil
 from ffb.config import FANTASY_POSITIONS
 from ffb.lineup import BENCH_SLOT, UNAVAILABLE_STATUSES, can_fill, compare_lineup, is_starter
 from ffb.outcomes import decision_table, hindsight_total
+from ffb.retro import LINEUP_MODELS, RAW_CONSENSUS_WARNING
 
 MIN_BACKTEST_WEEK = 3
 MIN_GATE_WEEKS = 6
@@ -62,6 +63,30 @@ _DECISION_STAMP = "backtest"
 
 def mae_reason(position: str) -> str:
     return f"{position} MAE worse by more than 0.3"
+
+
+def resolve_advice_model(
+    requested: str | None,
+    *,
+    params: dict[str, Any] | None,
+    gate_passed: bool,
+) -> tuple[str, str | None]:
+    """Choose raw vs calibrated sit/start advice.
+
+    ``None`` follows the promotion gate. ``calibrated`` is opt-in even when the
+    gate has not passed, and falls back to raw when params are missing.
+    """
+    if requested is not None and requested not in LINEUP_MODELS:
+        raise ValueError("model must be raw or calibrated")
+    if requested == "raw":
+        return "raw", None
+    if requested == "calibrated":
+        if params is None:
+            return "raw", RAW_CONSENSUS_WARNING
+        return "calibrated", None
+    if params is None or not gate_passed:
+        return "raw", None
+    return "calibrated", None
 
 
 def walk_forward_backtest(

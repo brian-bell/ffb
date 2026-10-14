@@ -240,7 +240,13 @@ def test_sleeper_lineup_snapshots_under_its_own_league_not_yahoos(tmp_path):
     result = runner.invoke(app, LINEUP, env=env)
     assert result.exit_code == 0, result.output
     cache = SnapshotCache(tmp_path / "snapshots")
-    assert cache.has(lineup_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY))
+    key = lineup_snapshot_key(2026, 2, config.SLEEPER_LEAGUE_KEY)
+    assert cache.has(key)
+    snapshot = cache.read_json(key)
+    assert snapshot["schema_version"] == 2
+    assert snapshot["model"] in ("raw", "calibrated")
+    assert "sd" in snapshot["players"][0]
+    assert "p_start" in snapshot["players"][0]
     # The configured Yahoo league's flat path stays untouched.
     assert not cache.has(lineup_snapshot_key(2026, 2))
 

@@ -40,6 +40,16 @@ export interface LineupRow {
   points: number | null;
   selected_position: string | null;
   injury?: { status: string; fetched_at?: string | null } | null;
+  sd?: number | null;
+  p_start?: number | null;
+}
+export interface LineupCloseCall {
+  name: string;
+  points: number;
+  versus: string;
+  slot: string;
+  delta: number;
+  p_win?: number;
 }
 export interface LineupReport {
   start: LineupRow[];
@@ -47,11 +57,12 @@ export interface LineupReport {
   undecidable: LineupRow[];
   missing_projections: LineupRow[];
   aligned: Array<{ slot: string; current: LineupRow | null; optimal: LineupRow | null }>;
-  close_calls: Array<{ name: string; points: number; versus: string; slot: string; delta: number }>;
+  close_calls: LineupCloseCall[];
   current_total: number;
   optimal_total: number;
   delta: number;
   injury_as_of: string | null;
+  model?: "raw" | "calibrated";
 }
 
 export interface Headline {
@@ -333,6 +344,11 @@ function injury(value: unknown, label: string): void {
   str(row.status, `${label}.status`);
 }
 
+function optionalNullableNum(row: Record<string, unknown>, key: string, label: string): void {
+  if (!(key in row)) return;
+  nullableNum(row[key], `${label}.${key}`);
+}
+
 function lineupRow(value: unknown, label: string): void {
   const row = obj(value, label);
   str(row.name, `${label}.name`);
@@ -342,6 +358,8 @@ function lineupRow(value: unknown, label: string): void {
   nullableNum(row.points ?? null, `${label}.points`);
   nullableStr(row.selected_position ?? null, `${label}.selected_position`);
   injury(row.injury, `${label}.injury`);
+  optionalNullableNum(row, "sd", label);
+  optionalNullableNum(row, "p_start", label);
 }
 
 function lineupReport(value: unknown): void {
@@ -367,11 +385,15 @@ function lineupReport(value: unknown): void {
     str(call.versus, `report.close_calls[${i}].versus`);
     str(call.slot, `report.close_calls[${i}].slot`);
     num(call.delta, `report.close_calls[${i}].delta`);
+    if ("p_win" in call) num(call.p_win, `report.close_calls[${i}].p_win`);
   });
   num(report.current_total, "report.current_total");
   num(report.optimal_total, "report.optimal_total");
   num(report.delta, "report.delta");
   nullableUtcTimestamp(report.injury_as_of, "report.injury_as_of");
+  if ("model" in report && report.model !== "raw" && report.model !== "calibrated") {
+    fail("report.model must be raw or calibrated");
+  }
 }
 
 function headline(value: unknown, label: string): void {

@@ -54,10 +54,15 @@ def test_lineup_writes_identity_params_once_and_leaves_advice_on_raw_consensus(t
     assert henry["calibrated_sd"] == 0.0
 
     snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
-    assert snapshot["schema_version"] == 1
+    assert snapshot["schema_version"] == 2
+    assert snapshot["model"] == "raw"
     assert "calibration" not in snapshot
     assert "calibrated_mean" not in snapshot["players"][0]
+    henry_snap = next(row for row in snapshot["players"] if row["native_id"] == "29279")
+    assert henry_snap["points"] == 18.0
+    assert henry_snap["sd"] is None
     assert "19.0" not in first.output
+    assert "(raw)" in first.output
 
 
 def test_existing_params_are_not_rewritten_and_shift_only_the_ledger(tmp_path):
@@ -86,8 +91,74 @@ def test_existing_params_are_not_rewritten_and_shift_only_the_ledger(tmp_path):
     assert henry["calibrated_mean"] == 19.0
     snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
     stored = next(row for row in snapshot["players"] if row["native_id"] == "29279")
+    assert snapshot["model"] == "raw"
     assert stored["points"] == 18.0
     assert "19.0" not in result.output
+
+
+def test_lineup_model_calibrated_is_opt_in_even_when_the_gate_fails(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    cache = SnapshotCache(tmp_path / "snapshots")
+    cache.put_json(calibration_params_key(2024, 1, LEAGUE), _rb_params(bias=1.0), mode=0o600)
+
+    result = runner.invoke(app, ["lineup", "2024", "--model", "calibrated"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "(calibrated)" in result.output
+    assert "19.0" in " ".join(result.output.split())
+    snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
+    stored = next(row for row in snapshot["players"] if row["native_id"] == "29279")
+    assert snapshot["schema_version"] == 2
+    assert snapshot["model"] == "calibrated"
+    assert stored["points"] == 19.0
+    assert stored["sd"] == 0.0
+    assert stored["p_start"] is not None
+
+
+def test_lineup_model_raw_keeps_consensus_when_params_would_shift(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    cache = SnapshotCache(tmp_path / "snapshots")
+    cache.put_json(calibration_params_key(2024, 1, LEAGUE), _rb_params(bias=1.0), mode=0o600)
+
+    result = runner.invoke(app, ["lineup", "2024", "--model", "raw"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "(raw)" in result.output
+    snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
+    stored = next(row for row in snapshot["players"] if row["native_id"] == "29279")
+    assert snapshot["model"] == "raw"
+    assert stored["points"] == 18.0
+    assert "19.0" not in result.output
+
+
+def test_lineup_default_uses_calibrated_when_the_gate_passes(tmp_path, monkeypatch):
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    cache = SnapshotCache(tmp_path / "snapshots")
+    cache.put_json(calibration_params_key(2024, 1, LEAGUE), _rb_params(bias=1.0), mode=0o600)
+    import ffb.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_promotion_gate_passed", lambda season: True)
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "(calibrated)" in result.output
+    snapshot = cache.read_json(lineup_snapshot_key(2024, 1, LEAGUE))
+    stored = next(row for row in snapshot["players"] if row["native_id"] == "29279")
+    assert snapshot["model"] == "calibrated"
+    assert stored["points"] == 19.0
 
 
 def test_unreadable_params_fall_back_to_raw_without_replacing_the_file(tmp_path):

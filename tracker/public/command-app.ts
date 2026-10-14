@@ -149,10 +149,17 @@ function emptyBody(kind: InseasonKind, freshness: Freshness, current: InseasonVi
   return el("div", { class: "empty" }, el("div", {}, message, freshness.state === "missing" ? el("code", { text: runCommand(kind, current.season, current.week) }) : null));
 }
 
+function pct(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return `${Math.round(value * 100)}%`;
+}
+
 function lineupSub(player: LineupRow, showCurrent: boolean): string {
   const bits = [player.position ?? "—", player.slot ?? "—"];
   if (showCurrent && player.selected_position) bits.push(`now ${player.selected_position}`);
   if (player.injury?.status) bits.push(player.injury.status);
+  const chance = pct(player.p_start);
+  if (chance) bits.push(chance);
   return bits.join(" · ");
 }
 
@@ -168,19 +175,21 @@ function renderLineup(current: InseasonView, now: number): HTMLElement {
   for (const player of card.sit) rows.appendChild(row("sit", "sit", player.name, lineupSub(player, false), pts(player.points), "bad"));
   for (const player of report.undecidable) rows.appendChild(row("?", "close", player.name, player.position ?? "", "no proj"));
   for (const call of card.close) {
-    const gap = `−${call.delta.toFixed(1)}`;
+    const chance = pct(call.p_win);
+    const gap = chance ? `−${call.delta.toFixed(1)} · ${chance}` : `−${call.delta.toFixed(1)}`;
     rows.appendChild(call.swap
       ? row("close call", "close", `Start ${call.versus}`, `vs. ${call.name} at ${call.slot}`, gap)
       : row("close call", "close", call.name, `vs ${call.versus} at ${call.slot}`, gap));
   }
   if (!rows.childElementCount) rows.appendChild(row("ok", "start", "Stored lineup matches the weekly optimum.", null, ""));
+  const model = report.model === "calibrated" ? "calibrated" : "raw";
   const headline = el("div", { class: "head" },
     el("b", { class: report.delta > 0 ? "good" : "plain", "data-headline": "", text: report.delta > 0 ? `+${report.delta.toFixed(1)}` : "0.0" }),
     el("span", { text: `to optimal · ${pts(report.current_total)} now → ${pts(report.optimal_total)} optimal` }),
   );
   const snapshot = envelope.context.snapshot_generated_at;
   const foot = el("div", { class: "cfoot" },
-    el("span", { text: snapshot ? `Retro grades the ${fmtTime(snapshot)} snapshot` : "No sit/start snapshot written" }),
+    el("span", { text: snapshot ? `${model} · Retro grades the ${fmtTime(snapshot)} snapshot` : `${model} · No sit/start snapshot written` }),
     el("span", { class: "more", text: `${count(report.close_calls.length, "close call")} ›` }),
   );
   return cardShell("lineup", freshness, envelope, now, headline, rows, foot);
@@ -374,6 +383,7 @@ function panelLineup(envelope: Lineup): HTMLElement[] {
     ["league synced", fmtTime(envelope.context.league_synced_at)],
     ["injuries", fmtTime(report.injury_as_of)],
     ["sources", envelope.context.projection_sources.join(", ") || "—"],
+    ["model", report.model === "calibrated" ? "calibrated" : "raw"],
   ]));
   body.push(el("h3", { text: "Slots" }));
   body.push(table(
@@ -391,8 +401,14 @@ function panelLineup(envelope: Lineup): HTMLElement[] {
   ));
   body.push(el("p", { class: "note", text: `Current ${pts(report.current_total)} · optimal ${pts(report.optimal_total)} · delta ${signed(report.delta)}` }));
   body.push(el("h3", { text: "Close calls" }));
+  const showP = report.close_calls.some((call) => call.p_win != null);
+  const closeHeaders = [{ h: "Bench" }, { h: "Pts", num: true }, { h: "Versus" }, { h: "Slot" }, { h: "Gap", num: true }, ...(showP ? [{ h: "P", num: true }] : [])];
   body.push(report.close_calls.length
-    ? table([{ h: "Bench" }, { h: "Pts", num: true }, { h: "Versus" }, { h: "Slot" }, { h: "Gap", num: true }], report.close_calls.map((call) => [call.name, pts(call.points), call.versus, call.slot, call.delta.toFixed(1)]))
+    ? table(closeHeaders, report.close_calls.map((call) => {
+      const cells: Cell[] = [call.name, pts(call.points), call.versus, call.slot, call.delta.toFixed(1)];
+      if (showP) cells.push(pct(call.p_win) ?? "—");
+      return cells;
+    }))
     : el("p", { class: "note", text: "None within the close-call window." }));
   body.push(el("h3", { text: "Missing projections" }));
   const missing = [...report.missing_projections, ...report.undecidable];

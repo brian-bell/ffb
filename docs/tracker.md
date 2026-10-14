@@ -188,7 +188,9 @@ snapshot, no network). When none of those exist, the CLI pulls
 reports. The Python CLI stays the only place a report is computed: `ffb lineup`,
 `ffb digest`, `ffb retro`, `ffb ros`, and `ffb waivers` each accept `--publish`, which POSTs
 the exact dict the command just rendered inside a closed, versioned envelope
-(`src/ffb/inseason.py`). The Worker validates the envelope plus the minimal
+(`src/ffb/inseason.py`). Lineup reports may add `model`, per-row `sd` / `p_start`,
+and close-call `p_win`; the Worker treats those as optional so v1 cards already
+in KV still parse. The Worker validates the envelope plus the minimal
 report shape the page renders (`src/inseason.ts`), stores the body verbatim in
 KV, and composes one dashboard view per week. No DuckDB, D1, scoring, or LLM
 work happens in the Worker. The design record is
