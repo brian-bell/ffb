@@ -1,0 +1,76 @@
+{
+  "crosswalk": [
+    {
+      "mfl_id": 17668,
+      "name": "Trey Smack",
+      "position": "PK",
+      "team": "GBP",
+      "sleeper_id": null,
+      "espn_id": 4869461,
+      "gsis_id": "00-0040899",
+      "yahoo_id": null,
+      "rotowire_id": 19511,
+      "sportradar_id": null,
+      "stats_id": 42838
+    }
+  ],
+  "players": {
+    "13545": {
+      "player_id": "13545",
+      "first_name": "Trey",
+      "last_name": "Smack",
+      "position": "K",
+      "team": "GB",
+      "rotowire_id": 19511,
+      "espn_id": null,
+      "gsis_id": null,
+      "sportradar_id": "fc5890c6-b22d-4b5b-8ca5-2722b077bc8b"
+    }
+  },
+  "sleeper_week": [
+    {
+      "company": "rotowire",
+      "player_id": "13545",
+      "season": "2026",
+      "week": 6,
+      "player": {
+        "first_name": "Trey",
+        "last_name": "Smack",
+        "position": "K",
+        "team": "GB",
+        "fantasy_positions": ["K"]
+      },
+      "stats": {
+        "fgm_20_29": 0.41,
+        "fgm_30_39": 0.55,
+        "fgm_40_49": 0.55,
+        "fgm_50p": 0.28,
+        "xpm": 2.75,
+        "xpmiss": 0.14,
+        "pts_ppr": 9.08
+      }
+    }
+  ],
+  "espn_week": [
+    {
+      "id": 4869461,
+      "fullName": "Trey Smack",
+      "active": true,
+      "defaultPositionId": 5,
+      "proTeamId": 9,
+      "stats": [
+        {
+          "statSourceId": 1,
+          "scoringPeriodId": 6,
+          "appliedTotal": null,
+          "stats": {
+            "74": 0.321852433,
+            "77": 0.4270278,
+            "80": 0.916269201,
+            "86": 2.831773743
+          }
+        }
+      ]
+    }
+  ]
+}

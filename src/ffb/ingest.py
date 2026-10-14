@@ -55,6 +55,7 @@ def ensure_crosswalk(
     present and not refreshing)."""
     if store.has_crosswalk() and not refresh and not rebuild:
         log.info("processing source=crosswalk step=skip reason=already-loaded")
+        relink_sleeper_crosswalk(store, cache)
         return 0
 
     fetch_fn = fetch or crosswalk.fetch_playerids
@@ -68,7 +69,17 @@ def ensure_crosswalk(
         policy=policy,
         is_valid=lambda data: bool(crosswalk.parse_crosswalk(data)),
     )
-    rows = crosswalk.parse_crosswalk(raw)
+    players = _cached_sleeper_players(cache)
+    rows = crosswalk.parse_crosswalk(raw, sleeper_players=players)
+    if players is not None:
+        unlinked = crosswalk.parse_crosswalk(raw)
+        filled = sum(
+            1
+            for before, after in zip(unlinked, rows, strict=True)
+            if not before.get("sleeper_id") and after.get("sleeper_id")
+        )
+        if filled:
+            log.info("linked %d crosswalk sleeper ids from the Sleeper player map", filled)
     if not rows:
         raise ValueError("crosswalk pull returned no usable rows")
     log.info("processing source=crosswalk step=parse usable_rows=%s", len(rows))
@@ -79,6 +90,60 @@ def ensure_crosswalk(
     log.info("processing source=crosswalk step=store action=replace rows=%s", len(rows))
     log.info("loaded %d crosswalk rows", len(rows))
     return len(rows)
+
+
+def _cached_sleeper_players(cache: SnapshotCache) -> dict[str, Any] | None:
+    """Return the cached Sleeper player map, or ``None`` when it cannot be read."""
+    key = sleeper_players.snapshot_key()
+    if not cache.has(key):
+        return None
+    try:
+        data = cache.read_json(key)
+    except (OSError, json.JSONDecodeError, ValueError):
+        log.warning("skip sleeper-id link; unreadable snapshot %s", key)
+        return None
+    if not isinstance(data, dict):
+        log.warning("skip sleeper-id link; snapshot %s is not an object", key)
+        return None
+    return data
+
+
+def relink_sleeper_crosswalk(store: Store, cache: SnapshotCache) -> int:
+    """Fill null ``sleeper_id`` values from cached snapshots. Does not fetch.
+
+    No-ops when the crosswalk is empty or either snapshot is missing. A later
+    projection ingest sees ``has_stale_resolution`` and re-resolves the cached
+    stat lines onto the canonical key.
+    """
+    if not store.has_crosswalk() or not cache.has(crosswalk.snapshot_key()):
+        return 0
+    players = _cached_sleeper_players(cache)
+    if players is None:
+        return 0
+    try:
+        raw = cache.read_json(crosswalk.snapshot_key())
+    except (OSError, json.JSONDecodeError, ValueError):
+        log.warning("skip sleeper-id link; unreadable crosswalk snapshot")
+        return 0
+    if not isinstance(raw, list):
+        return 0
+    rows = crosswalk.parse_crosswalk(raw, sleeper_players=players)
+    existing = store.crosswalk_native_keys("sleeper")
+    keys_with_id = {key for keys in existing.values() for key in keys}
+    assignments: list[tuple[str, str]] = []
+    for row in rows:
+        sleeper_id = row.get("sleeper_id")
+        player_key = row.get("player_key")
+        if not sleeper_id or not player_key:
+            continue
+        owners = existing.get(sleeper_id, set())
+        if owners or player_key in keys_with_id:
+            continue
+        assignments.append((player_key, sleeper_id))
+    written = store.assign_missing_sleeper_ids(assignments)
+    if written:
+        log.info("linked %d crosswalk sleeper ids from the Sleeper player map", written)
+    return written
 
 
 def resolve_rows(
@@ -220,6 +285,7 @@ def ensure_ingested(
     skipped).
     """
     scope = config.projection_scope(week)
+    relink_sleeper_crosswalk(store, cache)
     if _can_skip(store, season, "sleeper", refresh, scope=scope) and not rebuild:
         log.info(
             "processing source=sleeper step=skip reason=already-ingested season=%s scope=%s",
@@ -324,6 +390,9 @@ def ensure_injuries_ingested(
     snapshot_time = fetched_at or (metadata.modified_at if metadata else None)
     if snapshot_time is None:
         raise ValueError("Sleeper player snapshot has no fetched timestamp")
+    # The player map is on disk now. Fill null sleeper ids before this resolve
+    # so a newly cached link matches in the same injuries pass.
+    relink_sleeper_crosswalk(store, cache)
     lookup = store.resolve_batch("sleeper", [row["native_id"] for row in rows])
     resolved = []
     recon = Reconciliation(source="injuries", n_rows=len(rows))
@@ -483,6 +552,7 @@ def ensure_espn_ingested(
     ``week=None`` is the season slice; a positive ``week`` is ``week{{N}}``.
     """
     scope = config.projection_scope(week)
+    relink_sleeper_crosswalk(store, cache)
     if _can_skip(store, season, "espn", refresh, scope=scope) and not rebuild:
         log.info(
             "processing source=espn step=skip reason=already-ingested season=%s scope=%s",

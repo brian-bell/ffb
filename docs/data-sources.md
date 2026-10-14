@@ -224,8 +224,9 @@ Yahoo roster identities.
   leaves the module: we `select(_FETCH_COLS).to_dicts()` and hand back plain
   `list[dict]`. **No auth.**
 - **Columns kept** (`_FETCH_COLS`): `mfl_id`, `sleeper_id`, `espn_id`, `yahoo_id`,
-  `gsis_id`, `stats_id`, `name`, `position`, `team`. `stats_id` is parse-only and
-  is not stored on the spine.
+  `gsis_id`, `stats_id`, `rotowire_id`, `sportradar_id`, `name`, `position`,
+  `team`. `stats_id`, `rotowire_id`, and `sportradar_id` are parse-only and are
+  not stored on the spine.
 - **What we extract** (`parse_crosswalk`): `player_key = mfl_id` (the canonical
   id). Every id is **stringified and null-guarded** (nflverse ids are polars
   `Int64`, so joins must be string-to-string). Position is normalized **`PK` → `K`**
@@ -235,6 +236,16 @@ Yahoo roster identities.
   `stats_id` when that `stats_id` maps to exactly one canonical player and is not
   already used as `yahoo_id` on another row; an ambiguous or claimed `stats_id`
   is left unset rather than guessed. Existing `yahoo_id` values are never replaced.
+  A null `sleeper_id` is filled from the cached Sleeper `/players/nfl` map when
+  that map is available. `rotowire_id`, `espn_id`, `gsis_id`, and `sportradar_id`
+  must agree on a single Sleeper player. An id Sleeper does not publish is
+  not a disagreement. An id shared by two Sleeper records rejects the link
+  even when another id on the row is unique. The normalized names must match,
+  and if both sides are a fantasy position they must match (`PK` counts as
+  `K`). An id already stored on another row, or two canonicals proposing one
+  id, stays unset. Existing `sleeper_id` values are never
+  replaced. Projection ingest then re-resolves cached snapshots whose fallback
+  key is now canonical, without another provider fetch.
 - **How it's used** — `store.upsert_crosswalk`/`replace_crosswalk` load the spine;
   `store.resolve` / `resolve_batch` map a source's native id (`sleeper_id`,
   `espn_id`, or `yahoo_id`) to `player_key`. A native id that maps to more than
@@ -255,6 +266,19 @@ Yahoo roster identities.
     sports/fantasy id (Kyle Monangai: canonical `17066`, `stats_id` `42025`).
     Parse copies that id only when it uniquely identifies one `mfl_id` and is
     not already claimed as `yahoo_id`.
+  - nflverse can list a player, including a kicker, with `espn_id` set and
+    `sleeper_id` null (Trey Smack, canonical `17668`, Sleeper `13545`,
+    Rotowire `19511`, checked 2026-10-14). Sleeper's own player record may
+    also lack `espn_id` and `gsis_id`, so those columns cannot bridge the gap.
+    The link uses the cached player map. A crosswalk snapshot written before
+    `rotowire_id` / `sportradar_id` were fetched does not contain those keys;
+    the next `ffb season sync SEASON --refresh` rewrites it. `season sync`
+    always refreshes the crosswalk when the refresh policy is on, including
+    `ffb season sync SEASON --week W --source projections --refresh`. The
+    player-map snapshot itself comes from an injuries sync and is not
+    refetched by a projections-only command. After the ids land, the same
+    sync re-resolves stored projections onto the canonical key, and the next
+    lineup re-resolves roster identity. No manual crosswalk edit.
 
 ### 5. Fantasy Football Calculator — ADP
 

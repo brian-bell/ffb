@@ -320,6 +320,53 @@ class Store:
             raise
         self.conn.execute("COMMIT")
 
+    def crosswalk_native_keys(self, source: str) -> dict[str, set[str]]:
+        """Map a source's native id to the canonical keys that carry it."""
+        column = self._source_column(source)
+        grouped: dict[str, set[str]] = {}
+        for native_id, player_key in self.conn.execute(
+            f"SELECT {column}, player_key FROM crosswalk WHERE {column} IS NOT NULL"
+        ).fetchall():
+            grouped.setdefault(str(native_id), set()).add(player_key)
+        return grouped
+
+    def assign_missing_sleeper_ids(self, assignments: list[tuple[str, str]]) -> int:
+        """Set ``sleeper_id`` only on rows that do not already have one.
+
+        An id already stored on any row is not written again. Returns the
+        number of rows updated.
+        """
+        if not assignments:
+            return 0
+        existing = self.crosswalk_native_keys("sleeper")
+        keys_with_id = {key for keys in existing.values() for key in keys}
+        updated = 0
+        self.conn.execute("BEGIN TRANSACTION")
+        try:
+            for player_key, sleeper_id in assignments:
+                if sleeper_id in existing or player_key in keys_with_id:
+                    continue
+                self.conn.execute(
+                    """
+                    UPDATE crosswalk SET sleeper_id = ?
+                    WHERE player_key = ? AND sleeper_id IS NULL
+                    """,
+                    [sleeper_id, player_key],
+                )
+                current = self.conn.execute(
+                    "SELECT sleeper_id FROM crosswalk WHERE player_key = ?",
+                    [player_key],
+                ).fetchone()
+                if current is not None and current[0] == sleeper_id:
+                    existing[sleeper_id] = {player_key}
+                    keys_with_id.add(player_key)
+                    updated += 1
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        return updated
+
     def _insert_crosswalk_rows(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             self.conn.execute(
