@@ -51,7 +51,13 @@ from ffb.lineup import (
     injury_badge,
     projection_key,
 )
-from ffb.outcomes import fact_table, history_report, paired_advice, roster_generated_at
+from ffb.outcomes import (
+    fact_table,
+    history_report,
+    paired_advice,
+    roster_generated_at,
+    select_scoring_facts,
+)
 from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
 from ffb.retro import (
     LINEUP_MODELS,
@@ -825,8 +831,8 @@ def _load_or_fit_calibration(
     """Return this week's params, writing them once. A miss or bad file is raw.
 
     An existing file is never replaced, so a later refit cannot rewrite the
-    model a ledger already recorded. Fit uses every league's decision rows
-    from weeks before ``week``.
+    model a ledger already recorded. Fit uses the same pre-kickoff roster rows
+    the backtest fits, from weeks before ``week``.
     """
     if cache.has(params_key):
         try:
@@ -847,7 +853,11 @@ def _load_or_fit_calibration(
 
 
 def _calibration_training_facts(cache: SnapshotCache, season: int, week: int) -> list[dict]:
-    """Labelled outcomes for every stored league, from weeks before ``week``."""
+    """Pre-kickoff roster rows for every stored league, from weeks before ``week``.
+
+    The same :func:`select_scoring_facts` call the backtest fits on, so the
+    promotion gate checks the model ``ffb lineup`` writes.
+    """
     facts: list[dict] = []
     grouped: dict[tuple[str, int], list[dict]] = {}
     for ledger in _read_ledgers(cache, season, None):
@@ -868,7 +878,7 @@ def _calibration_training_facts(cache: SnapshotCache, season: int, week: int) ->
                 )
                 continue
             facts.extend(table["facts"])
-    return facts
+    return select_scoring_facts(facts, _schedule_kickoffs(cache, season))
 
 
 def _read_optional_actuals(cache: SnapshotCache, season: int, week: int, league_key: str):

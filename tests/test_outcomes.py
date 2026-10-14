@@ -3,6 +3,7 @@
 import pytest
 
 from ffb.outcomes import (
+    NOTE_MIXED,
     NOTE_NO_KICKOFFS,
     NOTE_UNPAIRED,
     decision_table,
@@ -836,6 +837,64 @@ def test_scoring_uses_the_newest_roster_and_each_players_pre_kickoff_row():
     assert sleeper["bias"] == -10.0
     assert report["regret_trend"] == []
     assert any("do not share the advice ledger" in note for note in report["notes"])
+
+
+def test_mixed_run_keeps_source_accuracy_and_skips_decision_metrics():
+    wednesday = "2026-10-07T11:00:00Z"
+    sunday_run = "2026-10-11T15:00:00Z"
+    kickoffs = {(1, "PHI"): "2026-10-08T00:20:00Z", (1, "KC"): "2026-10-11T17:00:00Z"}
+    facts = [
+        _fact(
+            native_id="thu",
+            nfl_team="PHI",
+            generated_at=wednesday,
+            consensus=1.0,
+            actual_points=20.0,
+            recommended_slot="RB",
+            source_points={"sleeper": 1.0},
+        ),
+        _fact(
+            native_id="thu",
+            nfl_team="PHI",
+            generated_at=sunday_run,
+            consensus=20.0,
+            actual_points=20.0,
+            recommended_slot="RB",
+            source_points={"sleeper": 20.0},
+        ),
+        _fact(
+            native_id="sun",
+            nfl_team="KC",
+            generated_at=wednesday,
+            consensus=12.0,
+            actual_points=0.0,
+            recommended_slot="BN",
+            source_points={"sleeper": 12.0},
+        ),
+        _fact(
+            native_id="sun",
+            nfl_team="KC",
+            generated_at=sunday_run,
+            consensus=10.0,
+            actual_points=14.0,
+            recommended_slot="BN",
+            source_points={"sleeper": 10.0},
+        ),
+    ]
+
+    report = history_report(
+        facts,
+        season=2026,
+        roster_slots={(YAHOO, 1): {"RB": 1, "BN": 2}},
+        kickoffs=kickoffs,
+    )
+
+    sleeper = next(row for row in report["source_position_accuracy"] if row["source"] == "sleeper")
+    assert sleeper["n"] == 2
+    assert report["regret_trend"] == []
+    assert report["decision_accuracy"]["n"] == 0
+    assert report["q_player_hit_rate"]["n"] == 0
+    assert f"{YAHOO} week 1: {NOTE_MIXED}" in report["notes"]
 
 
 def test_a_prediction_at_kickoff_is_not_scored():

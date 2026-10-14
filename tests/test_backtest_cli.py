@@ -58,6 +58,58 @@ def test_backtest_reads_flat_yahoo_and_nested_sleeper_without_writing(tmp_path):
     assert _files(tmp_path) == before
 
 
+def test_live_training_facts_equal_the_backtest_selected_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv("FFB_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+    monkeypatch.setenv("FFB_DB_PATH", str(tmp_path / "ffb.duckdb"))
+    cache = SnapshotCache(tmp_path / "snapshots")
+    wednesday = "2026-10-07T15:00:00Z"
+    sunday = "2026-10-11T15:00:00Z"
+    _write_wednesday_sunday(cache, wednesday, sunday)
+    cache.put_json(
+        snapshot_key(2026),
+        [
+            {
+                "season": 2026,
+                "game_type": "REG",
+                "week": 3,
+                "home_team": "PHI",
+                "away_team": "DAL",
+                "gameday": "2026-10-07",
+                "gametime": "20:20",
+            },
+            {
+                "season": 2026,
+                "game_type": "REG",
+                "week": 3,
+                "home_team": "KC",
+                "away_team": "BUF",
+                "gameday": "2026-10-11",
+                "gametime": "13:00",
+            },
+        ],
+        mode=0o600,
+    )
+    from ffb.calibration import fit_calibration
+    from ffb.cli import _calibrate_backtest_report, _calibration_training_facts
+
+    training = _calibration_training_facts(cache, 2026, 4)
+    seen = []
+    real = fit_calibration
+
+    def spy(rows, *, season, week, league_key):
+        seen.append(rows)
+        return real(rows, season=season, week=week, league_key=league_key)
+
+    monkeypatch.setattr("ffb.backtest.fit_calibration", spy)
+    _calibrate_backtest_report(2026, None)
+
+    def ident(rows):
+        return sorted((row["native_id"], row["generated_at"], row["consensus"]) for row in rows)
+
+    assert ident(training) == ident(seen[0])
+    assert ident(training) == [("sun", sunday, 9.0), ("thu", wednesday, 1.0)]
+
+
 def test_empty_backtest_fails_closed(tmp_path):
     result = runner.invoke(app, ["calibrate", "backtest", "2026"], env=_env(tmp_path))
 
@@ -186,6 +238,86 @@ def _files(tmp_path):
 def _fit_token(output, week):
     line = next(line for line in output.splitlines() if line.startswith(f"Week {week} "))
     return line.split("fit=", 1)[1].split()[0]
+
+
+def _write_wednesday_sunday(cache, wednesday, sunday):
+    league_key = config.YAHOO_LEAGUE_KEY
+    players = {
+        wednesday: [("thu", "PHI", 1.0), ("sun", "KC", 3.0)],
+        sunday: [("thu", "PHI", 20.0), ("sun", "KC", 9.0)],
+    }
+    for stamp, roster in players.items():
+        cache.put_json(
+            prediction_ledger_key(2026, 3, stamp, league_key),
+            build_prediction_ledger(
+                season=2026,
+                week=3,
+                league_key=league_key,
+                user_team_key="t.1",
+                generated_at=stamp,
+                scoring_weights={"rec": 1.0},
+                projection_sources={},
+                players=[_roster_player(*player) for player in roster],
+            ),
+            mode=0o600,
+        )
+    cache.put_json(
+        actuals_snapshot_key(2026, 3, league_key),
+        {
+            "schema_version": 2,
+            "source": "yahoo",
+            "synced_at": "2026-10-14T12:00:00Z",
+            "league": {
+                "league_id": "1",
+                "league_key": "470.l.928421",
+                "name": "Test",
+                "season": 2026,
+                "week": 3,
+                "num_teams": 2,
+            },
+            "matchups": [
+                {
+                    "matchup_id": "1",
+                    "week": 3,
+                    "teams": [
+                        {"team_key": "t.1", "points": 20.0},
+                        {"team_key": "t.2", "points": 0.0},
+                    ],
+                }
+            ],
+            "players": [
+                {
+                    "native_id": native_id,
+                    "native_player_key": f"p.{native_id}",
+                    "name": native_id,
+                    "team_key": "t.1",
+                    "selected_position": "RB",
+                    "points": 20.0 if native_id == "thu" else 10.0,
+                }
+                for native_id in ("thu", "sun")
+            ],
+        },
+        mode=0o600,
+    )
+
+
+def _roster_player(native_id, team, points):
+    return {
+        "team_key": "t.1",
+        "native_id": native_id,
+        "native_player_key": f"p.{native_id}",
+        "player_key": f"mfl:{native_id}",
+        "projection_key": f"mfl:{native_id}",
+        "matched": True,
+        "name": native_id,
+        "position": "RB",
+        "team": team,
+        "selected_position": "RB",
+        "eligible_positions": ["RB"],
+        "points": points,
+        "n": 1,
+        "source_points": {"sleeper": points, "espn": points},
+    }
 
 
 def _write_week(cache, league_key, source, raw_league_key, week, actual):

@@ -242,6 +242,23 @@ def test_fit_pools_other_leagues_and_ignores_the_target_week(tmp_path):
     cache = SnapshotCache(tmp_path / "snapshots")
     _plant_sleeper_week(cache, week=1, native_id="rb-early", actual=10.0)
     _plant_sleeper_week(cache, week=2, native_id="rb-leak", actual=99.0)
+    from ffb.sources.schedule import snapshot_key
+
+    cache.put_json(
+        snapshot_key(2024),
+        [
+            {
+                "season": 2024,
+                "game_type": "REG",
+                "week": 1,
+                "home_team": "KC",
+                "away_team": "BUF",
+                "gameday": "2026-10-12",
+                "gametime": "13:00",
+            }
+        ],
+        mode=0o600,
+    )
 
     result = runner.invoke(app, ["lineup", "2024"], env=env)
 

@@ -24,6 +24,7 @@ from ffb.calibration import (
     win_probability,
 )
 from ffb.lineup import compare_lineup
+from ffb.outcomes import NOTE_MIXED
 from ffb.predlog import build_prediction_ledger
 from ffb.retro import build_lineup_snapshot, retro_report, shadow_report
 
@@ -333,7 +334,124 @@ def test_backtest_keeps_one_roster_and_drops_post_kickoff_predictions():
             "bias_calibrated": 0.0,
         }
     ]
-    assert report["weeks"][0]["league_regret"][0]["raw"] == 0
+    assert report["weeks"][0]["league_regret"] == []
+    assert any(NOTE_MIXED in note for note in report["notes"])
+
+
+def test_mixed_run_week_trains_and_scores_points_but_not_decisions(monkeypatch):
+    wednesday = "2026-10-07T15:00:00Z"
+    sunday = "2026-10-11T15:00:00Z"
+    later = "2026-10-18T15:00:00Z"
+    kickoffs = {
+        (3, "PHI"): "2026-10-08T00:20:00Z",
+        (3, "KCC"): "2026-10-11T17:00:00Z",
+        (4, "KCC"): "2026-10-18T17:00:00Z",
+    }
+    facts = [
+        _fact(
+            YAHOO,
+            3,
+            "thu",
+            consensus=1,
+            actual=20,
+            generated_at=wednesday,
+            nfl_team="PHI",
+            user=True,
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "thu",
+            consensus=20,
+            actual=20,
+            generated_at=sunday,
+            nfl_team="PHI",
+            user=True,
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "sun",
+            consensus=12,
+            actual=0,
+            generated_at=wednesday,
+            nfl_team="KC",
+            user=True,
+            selected="BN",
+        ),
+        _fact(
+            YAHOO,
+            3,
+            "sun",
+            consensus=10,
+            actual=14,
+            generated_at=sunday,
+            nfl_team="KC",
+            user=True,
+            selected="BN",
+        ),
+        _fact(
+            YAHOO,
+            4,
+            "later-a",
+            consensus=12,
+            actual=0,
+            generated_at=later,
+            nfl_team="KC",
+            user=True,
+            selected="RB",
+        ),
+        _fact(
+            YAHOO,
+            4,
+            "later-b",
+            consensus=10,
+            actual=14,
+            generated_at=later,
+            nfl_team="KC",
+            user=True,
+            selected="BN",
+        ),
+    ]
+
+    seen = []
+    real = fit_calibration
+
+    def spy(rows, *, season, week, league_key):
+        seen.append(
+            (week, [(row["native_id"], row["generated_at"], row["consensus"]) for row in rows])
+        )
+        return real(rows, season=season, week=week, league_key=league_key)
+
+    monkeypatch.setattr("ffb.backtest.fit_calibration", spy)
+    report = walk_forward_backtest(
+        facts,
+        season=2026,
+        roster_slots=_slots((YAHOO,), weeks=[3, 4]),
+        kickoffs=kickoffs,
+    )
+    trained = next(rows for week, rows in seen if week == 4)
+    week3 = _week(report, 3)
+    week4 = _week(report, 4)
+    assert sorted(trained) == [
+        ("later-a", later, 12),
+        ("later-b", later, 10),
+        ("sun", sunday, 10),
+        ("thu", wednesday, 1),
+    ]
+
+    assert week3["league_regret"] == []
+    assert week3["n_by_position"] == {}
+    assert week4["n_by_position"] == {"RB": 2}
+    assert week4["parameters"]["RB"]["n"] == 2
+    assert week4["league_regret"]
+    assert report["metrics"]["model_position"][0]["n"] == 4
+    assert report["metrics"]["decision_accuracy"]["raw"]["n"] == 1
+    assert report["metrics"]["brier"]["decisions"]["raw"]["n"] == 1
+    assert any(f"{YAHOO} week 3: {NOTE_MIXED}" == note for note in report["notes"])
+    assert not any("week 4" in note and NOTE_MIXED in note for note in report["notes"])
 
 
 def test_mae_delta_of_0_3_is_allowed_and_0_31_is_not():

@@ -42,7 +42,14 @@ from typing import Any
 from ffb.calibration import calibrated_projection, fit_calibration, win_probability
 from ffb.config import FANTASY_POSITIONS
 from ffb.lineup import BENCH_SLOT, UNAVAILABLE_STATUSES, can_fill, compare_lineup, is_starter
-from ffb.outcomes import NOTE_NO_KICKOFFS, decision_table, hindsight_total, select_scoring_facts
+from ffb.outcomes import (
+    NOTE_MIXED,
+    NOTE_NO_KICKOFFS,
+    decision_table,
+    hindsight_total,
+    select_scoring_facts,
+    uses_one_advice_ledger,
+)
 from ffb.retro import LINEUP_MODELS, RAW_CONSENSUS_WARNING
 
 MIN_BACKTEST_WEEK = 3
@@ -104,8 +111,10 @@ def walk_forward_backtest(
     """Score each week ``W >= 3`` with a fit that cannot see week ``W`` or later.
 
     Scored rows and the fit sample both come from :func:`select_scoring_facts`,
-    so a league-week is one roster run and a post-kickoff prediction is not
-    labelled.
+    so a league-week is one roster and a post-kickoff prediction is not
+    labelled. Rows from more than one ledger run still train the fit and the
+    point metrics. Decision metrics for that league-week are omitted, with a
+    note, because no single lineup was advised that way.
     """
     if not pooled and not league_key:
         raise ValueError("per-league backtest needs a league_key")
@@ -117,13 +126,15 @@ def walk_forward_backtest(
     scored: list[dict[str, Any]] = []
     week_rows: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
+    notes = [NOTE_NO_KICKOFFS] if kickoffs is not None and len(kickoffs) == 0 else []
     for week in weeks:
         params = fit_calibration(
             selected, season=season, week=week, league_key=league_key or "pooled"
         )
         players = [_annotate(fact, params) for fact in labelled if int(fact["week"]) == week]
         scored.extend(players)
-        summary, sample = _score_week(players, slots)
+        summary, sample, week_notes = _score_week(players, slots)
+        notes.extend(week_notes)
         week_rows.append(
             {
                 "week": week,
@@ -144,7 +155,7 @@ def walk_forward_backtest(
         "metrics": metrics,
         "bootstrap": _bootstrap(samples),
         "gate": _gate(metrics, week_rows, pooled=pooled),
-        "notes": [NOTE_NO_KICKOFFS] if kickoffs is not None and len(kickoffs) == 0 else [],
+        "notes": notes,
     }
 
 
@@ -190,7 +201,7 @@ def _annotate(fact: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
 
 def _score_week(
     players: list[dict[str, Any]], roster_slots: dict[tuple[str, int], dict[str, int]]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for player in players:
         grouped.setdefault(str(player["league_key"]), []).append(player)
@@ -201,9 +212,13 @@ def _score_week(
     brier_cal: list[tuple[float, float]] = []
     accuracy_raw: list[dict[str, Any]] = []
     accuracy_cal: list[dict[str, Any]] = []
+    notes: list[str] = []
     for league_key in sorted(grouped):
         group = grouped[league_key]
         week = int(group[0]["week"])
+        if not uses_one_advice_ledger(group):
+            notes.append(f"{league_key} week {week}: {NOTE_MIXED}")
+            continue
         slots = roster_slots.get((league_key, week))
         regret = _league_regret(group, slots)
         if regret is not None:
@@ -230,7 +245,7 @@ def _score_week(
         "accuracy_raw": accuracy_raw,
         "accuracy_cal": accuracy_cal,
     }
-    return summary, sample
+    return summary, sample, notes
 
 
 def _league_regret(

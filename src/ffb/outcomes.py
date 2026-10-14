@@ -364,6 +364,16 @@ NOTE_UNPAIRED = "no decision metrics: advice snapshot is not paired to the score
 NOTE_MIXED = "no decision metrics: scored predictions do not share the advice ledger"
 
 
+def uses_one_advice_ledger(facts: list[dict[str, Any]]) -> bool:
+    """True when every user row was predicted by the roster run.
+
+    A Thursday row taken from Wednesday and a Sunday row taken from Sunday do
+    not describe one lineup, so decision metrics for that week are omitted.
+    """
+    user = [fact for fact in facts if fact.get("is_user_team")]
+    return all(fact.get("generated_at") == fact.get("roster_generated_at") for fact in user)
+
+
 def roster_generated_at(stamps: list[str]) -> str | None:
     """Chronologically newest ledger timestamp, for pairing advice to a run."""
     if not stamps:
@@ -441,7 +451,7 @@ def _decision_facts(
         user = [fact for fact in group if fact.get("is_user_team")]
         if not user:
             continue
-        if any(fact.get("generated_at") != fact.get("roster_generated_at") for fact in user):
+        if not uses_one_advice_ledger(group):
             notes.append(f"{league_key} week {week}: {NOTE_MIXED}")
             continue
         slots = roster_slots.get((league_key, week))
