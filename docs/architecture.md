@@ -93,7 +93,11 @@ additively, so already-stored v1 payloads still render. `ffb retro` still
 prints a shadow section for the lineup calibrated means would have started.
 `ffb calibrate backtest` refits each week from earlier weeks only, compares raw
 and calibrated advice, and prints whether the promotion gate passes. The fit
-uses the same pre-kickoff roster rows as `ffb retro history`. Both drop a
+uses the same pre-kickoff roster rows as `ffb retro history`. When
+`snapshots/nflverse/player_stats_{year}.json` exists for a year before the
+target season, the fit and the backtest also train on those prior facts.
+Prior rows use `generated_at` `prior`, require that season's kickoff, and are
+not scored as sit/start decisions. Both drop a
 prediction at or after kickoff, a player with no known kickoff, an advice
 week that is not paired to the scored ledger, and a mixed-run week, and the
 report notes each skip. `ffb retro history`

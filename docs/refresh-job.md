@@ -255,6 +255,22 @@ players with no kickoff, unpaired advice weeks, and mixed-run weeks, and each
 report notes those skips. Details are in
 [operations.md](operations.md#rebuilding-duckdb).
 
+## One-time prior backfill
+
+Do not add this to `make refresh` or the twice-weekly job. It is a snapshot
+backfill for 2024 and 2025, and a later `--refresh` would rewrite those
+historical files. Run it once from an authenticated shell when the calibration
+fit should see earlier seasons:
+
+```sh
+uv run ffb league sync 2026 --league sleeper
+uv run ffb calibrate priors
+```
+
+`ffb calibrate waivers 2024 --week 1` grades that week's Sleeper free agents
+from the snapshots. Neither command publishes or writes Yahoo. See
+[operations.md](operations.md#one-time-20242025-prior-backfill).
+
 ## Manual steps
 
 Use these when `make refresh` fails partway and a single step needs a rerun.

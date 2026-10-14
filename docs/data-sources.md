@@ -107,6 +107,13 @@ implementation reality — for the product rationale see [`DESIGN.md`](../DESIGN
     (`tests/test_scoring_validation.py` cross-checks our points against
     Sleeper's own `pts_ppr` for QB/RB/WR/TE only, under `DEFAULT_PPR`.)
   - D/ST lines are sparse (only `pts_allow_0` among the points-allowed bands).
+  - Past seasons on `/{season}/{week}` are real weekly Rotowire forecasts, not
+    season totals and not box scores (verified 2026-10-14 for 2024 and 2025,
+    weeks 1–18). `updated_at` is a storage rewrite and is often after kickoff
+    (2024 week 1 Mahomes `2024-09-10T03:45:16Z`; 2025 week 1
+    `2025-10-06T15:45:02Z`). `ffb calibrate priors` records it as
+    `projection_updated_at` and does not treat it as a ledger time. The checked
+    payloads contain `company=rotowire` only.
 
 ### 2. Sleeper — player injury/status map
 
@@ -371,6 +378,30 @@ depends on FFC's non-exhaustive ADP list for byes.
     that team's bye at parse time; the completeness gate then rejects the whole
     pull, keeping the last complete mirror in place.
 
+### 6b. nflverse weekly player stats — prior actuals
+
+`src/ffb/sources/player_stats.py`. Used only by `ffb calibrate priors` and
+`ffb calibrate waivers`. Not a `season sync` source and not stored in DuckDB.
+
+- **Fetch** — `nflreadpy.load_player_stats` plus that season's schedule scores.
+  No auth. The snapshot keeps a trimmed `{players, games}` object.
+- **Snapshot key** — `nflverse/player_stats_{season}`.
+- **Parse** — offensive counting stats use the same keys as projection rows.
+  Each played team-week with a numeric score becomes one `DEF` row
+  (`def:<canonical team>`), including a team with no defender stat line.
+  `passing_interceptions` maps to `pass_int`. Sack, rush, and receiving
+  fumbles lost sum to `fum_lost`. Two-point conversions map to `pass_2pt`,
+  `rush_2pt`, and `rec_2pt`. `def_tds` maps only to `pass_int_td` (nflverse
+  leaves fumble-recovery touchdowns out of that column). A skill player's
+  `fumble_recovery_tds` maps to `fum_rec_td`; any other position's maps to
+  `def_fum_td` on the team row.   `special_teams_tds` maps to `def_ret_td` on
+  the team row, not the skill player. `def_fumbles_forced` maps to `ff`
+  (Sleeper's `def_st_ff` alias). Points-allowed bands come from the
+  opponent's score; a missing score is omitted and is not a shutout.
+  Preseason rows are skipped. Points are scored later with each league's
+  `ScoringConfig`, so a league that weights turnovers scores them and one
+  that does not still keeps the counts on the stat line.
+
 ### 7. ESPN news / RSS — headlines for the digest
 
 `src/ffb/sources/espn_news.py`. Narrative only. Headlines never enter scoring,
@@ -523,7 +554,9 @@ are not ingested today.
   draft results, and actual weekly points.
 - **nflverse stats / injuries / depth charts** via `nflreadpy` (in-season) —
   usage (snaps, targets), injury designations, practice participation, depth
-  charts. Same access pattern as the crosswalk.
+  charts. Weekly player stats for the 2024–2025 calibration backfill are
+  already snapshotted by `ffb calibrate priors` (see below). Same access
+  pattern as the crosswalk.
 - **Sleeper player status + trending adds/drops** (slice 11) — waiver signal.
 
 ### Sleeper league (second-league lineup spike)

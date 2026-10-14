@@ -1,6 +1,6 @@
 # Retro → sit/start feedback loop: design
 
-Status: Phases 0–4 implemented; Phase 5 optional (2026-10-13)
+Status: Phases 0–5 implemented (2026-10-14). Phase 5 backfills 2024–2025 priors. A third projection source was evaluated and not wired.
 
 ## TL;DR
 
@@ -315,12 +315,79 @@ until Phase 4.
   `tracker/` (additive fields only).
 - Re-run the gate weekly; it auto-reverts to raw if it stops passing.
 
-**Optional Phase 5: more history and features.**
-- Backfill 2024–2025 priors: Sleeper's projections endpoint takes a past
-  season/week (inferred, not yet verified), and nflverse weekly player stats can
-  be scored with each league's `ScoringConfig`. That would give thousands of
-  rows for priors and also cover free agents for waiver grading.
-- A third projection source makes source weighting materially more valuable.
+**Phase 5: more history.** Implemented for the 2024–2025 backfill and Sleeper
+free-agent grading. A third projection source was evaluated and not wired.
+
+- `ffb calibrate priors` snapshots 2024 and 2025, weeks 1–18, of Sleeper and
+  ESPN weekly projections, the nflverse schedule, nflverse weekly player
+  stats, and the crosswalk. It writes snapshots only. It does not write
+  DuckDB, call Yahoo, or publish. The daily refresh job does not run it.
+  Repeat without `--refresh` fetches only missing keys. `--offline` replays
+  the cache. A failed key is noted and does not abort the other seasons; the
+  command exits 1 when any sync note remains.
+- Verified 2026-10-14: `GET https://api.sleeper.com/projections/nfl/{season}/{week}`
+  returns per-player weekly Rotowire forecasts for 2024 and 2025. The lines
+  are fractional counting stats (`gp` near 1), not season totals and not box
+  scores. 2024 week 1 Mahomes projects 274.28 pass yards and 2.06 pass TDs;
+  the nflverse actual that week is 291 yards and 1 TD. `updated_at` is a
+  later storage rewrite: 2024 week 1 Mahomes is `2024-09-10T03:45:16Z`, after
+  that Thursday kickoff and the Sunday slate, and 2025 week 1 is
+  `2025-10-06T15:45:02Z`. The live payload's only `company` is `rotowire`.
+  Those stamps are copied to `projection_updated_at` and are never
+  `generated_at`.
+- Kickoff safety. Every prior fact uses `generated_at` `"prior"`
+  (`outcomes.PRIOR_GENERATED_AT`). `select_scoring_facts` keeps it only when
+  that team-week has a kickoff in the same season's schedule, and leaves
+  `hours_before_kickoff` null. An empty kickoff map drops every prior row.
+  `fit_calibration` trains on prior rows from seasons before the target (all
+  of those weeks) and on earlier weeks of the target season. `fit_weeks`
+  lists only target-season weeks, so a 2024 week 18 cannot look like it was
+  inside a 2026 week-3 fit. A non-prior row from another season stays out.
+  For the same `(league, season, week, native_id)`, a real ledger stamp
+  replaces `"prior"` and `"prior"` never replaces a real stamp.
+- The lineup fit and `ffb calibrate backtest` load prior seasons only, not
+  the target season's prior rows. Ledger native ids and Sleeper ids would
+  otherwise count the same player twice. Prior rows train the fit. They are
+  not sit/start decisions, regret, Brier, or gate MAE. Each season uses its
+  own kickoff map; a missing map is empty and drops that season.
+- Points are scored at read time with each league's present `ScoringConfig`,
+  not a reconstructed 2024 ruleset. Yahoo uses the synced league for 2026,
+  then 2025, then 2024, and otherwise `config.LEAGUE_SCORING`. Sleeper is
+  omitted until `ffb league sync SEASON --league sleeper` has stored its own
+  rules. Sleeper never borrows Yahoo weights. League keys stay
+  `yahoo:470.l.928421` and `sleeper:1395854363380965376`.
+- ESPN weekly projections are the existing second source, so two-source
+  weights can leave identity. They are not a new third source. One snapshotted
+  source still leaves weights at identity.
+- nflverse actuals include `pass_int` and `fum_lost` (sack, rush, and
+  receiving fumbles lost). Two-point conversions map to `pass_2pt`,
+  `rush_2pt`, and `rec_2pt`. `def_tds` excludes fumble-recovery touchdowns
+  and maps to `pass_int_td`. A skill player's `fumble_recovery_tds` maps to
+  `fum_rec_td`; any other position's maps to `def_fum_td` on the team row.
+  `special_teams_tds` maps to `def_ret_td` on the team row.
+  `def_fumbles_forced` maps to `ff`. A game with no
+  score does not become a shutout. Skill projections whose stat keys are
+  absent from the scoring config are omitted, so unscored kickers do not
+  inflate `n` with zeros. `--refresh` keeps a snapshot when its parser
+  returns no usable rows.
+- Free agents: `ffb calibrate waivers SEASON --week N` grades prior facts
+  with no fantasy `team_key`, after the same kickoff selection. The default
+  league is `sleeper:1395854363380965376`. It does not publish. Yahoo free
+  agents are not graded. Rostered ledger rows are not graded.
+
+Third projection source, evaluated 2026-10-14 and not wired:
+
+- FantasyPros `https://api.fantasypros.com/public/v2/json/nfl/2024/consensus-rankings`
+  and `.../nfl/2024/projections` returned HTTP 403 without an API key.
+- Sleeper's historical weekly payload does not include a second `company`.
+  The docs mention `sportradar`; it was absent from the pulls checked.
+- nflverse has player stats and schedules, not projections.
+- Yahoo projections need OAuth. This phase does not call or write Yahoo.
+- NumberFire, CBS, PFF, and 4for4 do not offer a stable free JSON stat line
+  that matches `{native_id, position, team, stats}`. HTML scraping is out of
+  scope.
+
+Source weighting stays on Sleeper plus ESPN.
 
 ## 7. Decisions
 

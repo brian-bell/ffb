@@ -1,10 +1,14 @@
 """Walk-forward sit/start calibration. Pure: facts in, params and projections out.
 
 Fits on decision rows from ``outcomes.fact_table`` (the caller joins ledgers to
-actuals). Weeks at or after the target week are ignored. Both leagues' rows are
-pooled. Empty or thin history is the identity model: equal source weights, no
-bias, no Questionable haircut, and no residual spread, so calibrated means
-equal the stored consensus.
+actuals) plus prior facts from earlier seasons. Weeks at or after the target
+week of the target season are ignored. A prior row (``generated_at == "prior"``)
+from an earlier season is included at every week of that season. A non-prior
+row from another season is ignored. ``fit_weeks`` lists only the target
+season's weeks, so a 2024 week 18 cannot look like it was inside a 2026 week-3
+fit. Both leagues' rows are pooled. Empty or thin history is the identity
+model: equal source weights, no bias, no Questionable haircut, and no residual
+spread, so calibrated means equal the stored consensus.
 
 Readings the spec leaves open, chosen as the smallest defensible rule:
 
@@ -39,6 +43,7 @@ from typing import Any
 
 from ffb.config import FANTASY_POSITIONS
 from ffb.lineup import can_fill, is_unavailable
+from ffb.outcomes import PRIOR_GENERATED_AT
 from ffb.retro import league_snapshot_segment
 
 PARAMS_KIND = "calibration_params"
@@ -142,7 +147,7 @@ def fit_calibration(
         "week": week,
         "league_key": league_key,
         "pooled": True,
-        "fit_weeks": sorted({int(row["week"]) for row in rows}),
+        "fit_weeks": sorted({int(row["week"]) for row in rows if row.get("season") == season}),
         "n_by_position": {position: len(by_position[position]) for position in sorted(by_position)},
         "priors": dict(PRIORS),
         "parameters": parameters,
@@ -441,10 +446,19 @@ def _annotated(player: dict[str, Any], params: dict[str, Any] | None) -> dict[st
 def _decision_rows(facts: list[dict[str, Any]], *, season: int, week: int) -> list[dict[str, Any]]:
     latest: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
     for fact in facts:
-        if not isinstance(fact, dict) or fact.get("season") != season:
+        if not isinstance(fact, dict):
             continue
+        fact_season = fact.get("season")
         fact_week = fact.get("week")
-        if type(fact_week) is not int or fact_week < 1 or fact_week >= week:
+        if type(fact_season) is not int or type(fact_week) is not int or fact_week < 1:
+            continue
+        prior = str(fact.get("generated_at") or "") == PRIOR_GENERATED_AT
+        if fact_season == season:
+            if fact_week >= week:
+                continue
+        elif prior and fact_season < season:
+            pass
+        else:
             continue
         if fact.get("actual_points") is None or fact.get("consensus") is None:
             continue
@@ -454,10 +468,15 @@ def _decision_rows(facts: list[dict[str, Any]], *, season: int, week: int) -> li
         native_id = str(fact.get("native_id") or "")
         if not native_id:
             continue
-        key = (fact.get("league_key"), season, fact_week, native_id)
+        key = (fact.get("league_key"), fact_season, fact_week, native_id)
         stamp = str(fact.get("generated_at") or "")
         current = latest.get(key)
-        if current is None or stamp >= current[0]:
+        if current is None:
+            latest[key] = (stamp, fact)
+            continue
+        if stamp == PRIOR_GENERATED_AT:
+            continue
+        if current[0] == PRIOR_GENERATED_AT or stamp >= current[0]:
             latest[key] = (stamp, fact)
     return [item[1] for item in latest.values()]
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -140,3 +141,39 @@ def parse_projections(
     if skipped_positions:
         log.debug("skipped %d Sleeper rows outside position allowlist", skipped_positions)
     return rows
+
+
+def projection_as_of(
+    raw: list[dict[str, Any]], company: str = config.SLEEPER_COMPANY
+) -> dict[str, str]:
+    """UTC ``updated_at`` for the pinned company, keyed by ``player_id``.
+
+    Verified 2026-10-14: this is a storage rewrite, not a ledger publish time.
+    2024 week 1 Mahomes is ``2024-09-10T03:45:16Z``, after that Thursday kickoff
+    and the Sunday slate. 2025 week 1 is ``2025-10-06T15:45:02Z``, about a
+    month later. Callers record the stamp and do not use it as ``generated_at``.
+    """
+    stamps: dict[str, str] = {}
+    if not isinstance(raw, list):
+        return stamps
+    for item in raw:
+        if not isinstance(item, dict) or item.get("company") != company:
+            continue
+        player_id = item.get("player_id")
+        stamp = _utc_millis(item.get("updated_at"))
+        if not player_id or stamp is None:
+            continue
+        stamps[str(player_id)] = stamp
+    return stamps
+
+
+def _utc_millis(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    millis = int(value)
+    if millis < 1_000_000_000_000:
+        return None
+    moment = datetime.fromtimestamp(millis / 1000, UTC)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")

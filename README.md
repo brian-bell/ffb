@@ -49,6 +49,12 @@ and replayed; the one-time kickoff backfill is
 `uv run ffb season sync 2026 --source schedule --refresh`. See
 [Operations](docs/operations.md#rebuilding-duckdb).
 
+`uv run ffb calibrate priors` is a separate one-time snapshot of 2024–2025
+weekly projections and nflverse stats for calibration. It does not write
+DuckDB or publish. `uv run ffb calibrate waivers 2024 --week 1` grades
+Sleeper free agents from those snapshots. See
+[Operations](docs/operations.md#one-time-20242025-prior-backfill).
+
 Read commands never fetch. They warn about missing, failed, stale, or untracked
 inputs and use whatever valid projection sources are persisted. Inspect misses
 with:

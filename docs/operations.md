@@ -235,6 +235,38 @@ They drop, and the report notes:
 Source accuracy and the calibration fit still use the pre-kickoff rows. The
 live lineup fit uses that same selection.
 
+## One-time 2024–2025 prior backfill
+
+`ffb calibrate priors` snapshots past-season weekly projections and nflverse
+player stats so the lineup fit and `ffb calibrate backtest` can train on them.
+It writes snapshots only. It does not write DuckDB, call Yahoo, or publish.
+The daily refresh job does not run it. Run it once, after a Sleeper league
+sync if Sleeper priors should be scored:
+
+```sh
+uv run ffb league sync 2026 --league sleeper
+uv run ffb calibrate priors
+uv run ffb calibrate waivers 2024 --week 1
+```
+
+`--season` repeats (the default is 2024 and 2025, weeks 1–18). `--offline`
+replays the cache. `--refresh` fetches those keys again and replaces a file
+only when its parser returns at least one usable row. A nonempty payload that
+parses to nothing is rejected, the known-good snapshot stays, and the command
+prints that and exits 1. Other seasons still complete. Re-running without
+`--refresh` fetches only what is missing.
+
+Sleeper's past-week endpoint does return per-player weekly forecasts. Its
+`updated_at` is a later storage rewrite, often after kickoff, so prior rows
+use `generated_at` `prior` and are kept only when that season's schedule has
+a kickoff for the team-week. `hours_before_kickoff` stays null. Details and
+the third-source evaluation are in
+[retro-feedback-loop.md](specs/retro-feedback-loop.md).
+
+`ffb calibrate waivers SEASON --week N` grades free agents from those priors.
+It defaults to `sleeper:1395854363380965376` and exits 1 for Yahoo. It needs
+that season's snapshots and Sleeper scoring in the store.
+
 ## Local tracker
 
 ```sh

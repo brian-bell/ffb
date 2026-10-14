@@ -43,7 +43,7 @@ from ffb.claude import (
 from ffb.consensus import consensus_rows
 from ffb.inseason import build_envelope, utc_now
 from ffb.league import FixtureLeagueSource, parse_bundle
-from ffb.league_context import load_league_context
+from ffb.league_context import LeagueSettingsUnavailable, load_league_context
 from ffb.lineup import (
     attach_injuries,
     attach_weekly_points,
@@ -59,6 +59,8 @@ from ffb.outcomes import (
     select_scoring_facts,
 )
 from ffb.predlog import build_prediction_ledger, parse_prediction_ledger, prediction_ledger_key
+from ffb.prior_data import PRIOR_SEASONS, load_prior_facts, seasons_with_stats, sync_priors
+from ffb.priors import grade_free_agents
 from ffb.retro import (
     LINEUP_MODELS,
     RAW_CONSENSUS_WARNING,
@@ -115,7 +117,8 @@ retro_app = typer.Typer(
 app.add_typer(retro_app, name="retro")
 calibrate_app = typer.Typer(
     help="Walk-forward sit/start calibration. "
-    "ffb calibrate backtest SEASON compares raw and calibrated advice.",
+    "ffb calibrate backtest SEASON compares raw and calibrated advice. "
+    "ffb calibrate priors backfills 2024–2025 training rows.",
     no_args_is_help=True,
 )
 app.add_typer(calibrate_app, name="calibrate")
@@ -878,7 +881,132 @@ def _calibration_training_facts(cache: SnapshotCache, season: int, week: int) ->
                 )
                 continue
             facts.extend(table["facts"])
-    return select_scoring_facts(facts, _schedule_kickoffs(cache, season))
+    prior_facts, prior_kickoffs, notes = _load_prior_inputs(cache, season)
+    for note in notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    grouped: dict[int, list[dict]] = {}
+    for fact in facts:
+        grouped.setdefault(int(fact["season"]), []).append(fact)
+    for fact in prior_facts:
+        grouped.setdefault(int(fact["season"]), []).append(fact)
+    target_kickoffs = _schedule_kickoffs(cache, season)
+    selected: list[dict] = []
+    for year, rows in grouped.items():
+        kickoffs = prior_kickoffs.get(year)
+        if kickoffs is None:
+            kickoffs = target_kickoffs if year == season else {}
+        selected.extend(select_scoring_facts(rows, kickoffs))
+    return selected
+
+
+def _load_prior_inputs(
+    cache: SnapshotCache, season: int
+) -> tuple[list[dict], dict[int, dict[tuple[int, str], str]], list[str]]:
+    """Prior facts from seasons before ``season``.
+
+    The target season's own ledgers already cover rostered players. Mixing
+    prior rows into that season would count the same player twice under
+    different native ids. Kickoff maps stay per season. An empty map drops
+    that season's rows.
+    """
+    years = seasons_with_stats(cache, before=season)
+    if not years:
+        return [], {}, []
+    scoring = _prior_scoring_by_league()
+    facts, notes = load_prior_facts(cache, seasons=years, scoring_by_league=scoring)
+    kickoffs = {year: _schedule_kickoffs(cache, year) for year in years}
+    if config.SLEEPER_LEAGUE_KEY not in scoring:
+        notes.append(
+            f"{config.SLEEPER_LEAGUE_KEY} has no stored scoring rules; "
+            "Sleeper priors were not built"
+        )
+    return facts, kickoffs, notes
+
+
+def _prior_scoring_by_league() -> dict[str, config.ScoringConfig]:
+    """Current scoring for each league. Sleeper is omitted until it is synced.
+
+    Priors are scored with the league's present rules, including when the
+    stat season is 2024 or 2025. Yahoo falls back to the configured weights.
+    Sleeper never borrows those weights.
+    """
+    store = _open_store()
+    try:
+        scoring: dict[str, config.ScoringConfig] = {}
+        for year in (config.DEFAULT_SEASON, 2025, 2024):
+            if store.league_context(year, config.YAHOO_LEAGUE_KEY) is None:
+                continue
+            context = load_league_context(store, year, config.YAHOO_LEAGUE_KEY)
+            if context.league_key == config.YAHOO_LEAGUE_KEY:
+                scoring[config.YAHOO_LEAGUE_KEY] = context.scoring
+                break
+        if config.YAHOO_LEAGUE_KEY not in scoring:
+            scoring[config.YAHOO_LEAGUE_KEY] = config.LEAGUE_SCORING
+        for year in (config.DEFAULT_SEASON, 2025, 2024):
+            if store.league_context(year, config.SLEEPER_LEAGUE_KEY) is None:
+                continue
+            try:
+                context = load_league_context(store, year, config.SLEEPER_LEAGUE_KEY)
+            except LeagueSettingsUnavailable:
+                break
+            if context.league_key == config.SLEEPER_LEAGUE_KEY:
+                scoring[config.SLEEPER_LEAGUE_KEY] = context.scoring
+            break
+        return scoring
+    finally:
+        store.close()
+
+
+def _prior_grade_league(league: str | None) -> str:
+    """Free-agent grading defaults to the configured Sleeper league."""
+    token = config.SLEEPER_LEAGUE_KEY if league is None else league.strip().lower()
+    if token in {"sleeper", config.SLEEPER_LEAGUE_KEY}:
+        return config.SLEEPER_LEAGUE_KEY
+    if token in {"yahoo", config.YAHOO_LEAGUE_KEY}:
+        return config.YAHOO_LEAGUE_KEY
+    if ":" in token:
+        return token
+    raise typer.BadParameter("league must be yahoo, sleeper, or a full league key")
+
+
+def _render_prior_counts(facts: list[dict], scoring: dict[str, config.ScoringConfig]) -> None:
+    leagues = ", ".join(sorted(scoring))
+    console.print(f"[yellow]Prior facts[/yellow] — {leagues}")
+    if not facts:
+        console.print("No prior facts were built.")
+        return
+    counts: dict[tuple[str, int, int], int] = {}
+    labelled = 0
+    for fact in facts:
+        key = (str(fact["league_key"]), int(fact["season"]), int(fact["week"]))
+        counts[key] = counts.get(key, 0) + 1
+        if fact.get("actual_points") is not None:
+            labelled += 1
+    for key in sorted(counts):
+        league_key, season, week = key
+        console.print(f"{season} week {week} {league_key}: {counts[key]} facts")
+    console.print(f"{len(facts)} facts, {labelled} with nflverse actuals")
+
+
+def _render_waiver_grade(report: dict, *, season: int, week: int, league_key: str) -> None:
+    rows = report["rows"]
+    labelled = [row for row in rows if row["actual"] is not None]
+    console.print(
+        f"[yellow]{season} week {week} free-agent grade[/yellow] — {league_key} "
+        f"({len(labelled)} labelled, {len(rows) - len(labelled)} without an actual)"
+    )
+    if report["missing"]:
+        console.print(f"Unmatched candidates: {', '.join(report['missing'])}")
+    if not report["by_position"]:
+        console.print("No labelled free-agent rows.")
+        return
+    table = Table(title="Free-agent projection error")
+    table.add_column("Pos")
+    table.add_column("n", justify="right")
+    table.add_column("MAE", justify="right")
+    for row in report["by_position"]:
+        table.add_row(row["position"], str(row["n"]), f"{row['mae']:.2f}")
+    console.print(table)
 
 
 def _read_optional_actuals(cache: SnapshotCache, season: int, week: int, league_key: str):
@@ -1122,6 +1250,90 @@ def calibrate_backtest(
     _render_backtest(report)
 
 
+@calibrate_app.command("priors")
+def calibrate_priors(
+    season: list[int] | None = typer.Option(  # noqa: B008
+        None,
+        "--season",
+        help="Season to snapshot. Repeat for more than one. Defaults to 2024 and 2025.",
+    ),
+    offline: bool = typer.Option(False, "--offline", help="Replay cached snapshots. Do not fetch."),
+    refresh: bool = typer.Option(False, "--refresh", help="Fetch the prior snapshots again."),
+) -> None:
+    """Snapshot past-season projections and nflverse stats for calibration priors.
+
+    Writes snapshots only. Does not touch DuckDB, Yahoo, or the tracker.
+    ``ffb lineup`` and ``ffb calibrate backtest`` read the snapshots on the
+    next run. Re-running without ``--refresh`` fetches only what is missing.
+    """
+    if offline and refresh:
+        raise typer.BadParameter("--offline cannot be combined with --refresh")
+    chosen = list(season or PRIOR_SEASONS)
+    if not chosen or any(type(year) is not int or year < 1 for year in chosen):
+        raise typer.BadParameter("season must be a positive integer")
+    if offline:
+        policy = SnapshotPolicy.OFFLINE
+    elif refresh:
+        policy = SnapshotPolicy.REFRESH
+    else:
+        policy = SnapshotPolicy.MISSING_ONLY
+    cache = SnapshotCache(paths.snapshot_dir())
+    notes = sync_priors(cache, chosen, policy=policy)
+    for note in notes:
+        console.print(f"[red]{note}[/red]")
+    scoring = _prior_scoring_by_league()
+    facts, load_notes = load_prior_facts(cache, seasons=chosen, scoring_by_league=scoring)
+    for note in load_notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    _render_prior_counts(facts, scoring)
+    if notes:
+        raise typer.Exit(code=1)
+
+
+@calibrate_app.command("waivers")
+def calibrate_waivers(
+    season: int = typer.Argument(..., help="Season whose prior facts to grade."),
+    week: int = typer.Option(..., "--week", help="NFL week to grade."),
+    league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
+) -> None:
+    """Grade free agents from backfilled priors. Sleeper leagues only.
+
+    League matchup actuals omit players who were not rostered. This reads the
+    prior fact table for the week, after the same kickoff selection as
+    calibration, and reports projected versus nflverse actual points.
+    """
+    if week < 1:
+        raise typer.BadParameter("week must be a positive integer")
+    league_key = _prior_grade_league(league)
+    if not league_key.startswith("sleeper:"):
+        console.print(
+            f"[yellow]Free-agent grading covers Sleeper leagues only; {league_key} free agents "
+            f"need Yahoo live authorization (ffb-1ct.2).[/yellow]"
+        )
+        raise typer.Exit(code=1)
+    cache = SnapshotCache(paths.snapshot_dir())
+    scoring = _prior_scoring_by_league()
+    if league_key not in scoring:
+        console.print(
+            f"[red]{league_key} has no stored scoring rules, so its priors were not scored. "
+            f"Run: ffb league sync {season} --league sleeper[/red]"
+        )
+        raise typer.Exit(code=1)
+    facts, notes = load_prior_facts(
+        cache,
+        seasons=[season],
+        scoring_by_league={league_key: scoring[league_key]},
+        weeks=(week,),
+    )
+    for note in notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    selected = select_scoring_facts(facts, _schedule_kickoffs(cache, season))
+    report = grade_free_agents(selected)
+    _render_waiver_grade(report, season=season, week=week, league_key=league_key)
+    if not report["rows"] and notes:
+        raise typer.Exit(code=1)
+
+
 def _calibrate_backtest_report(season: int, league: str | None) -> dict:
     """Load every league's ledgers unless ``--league`` selects the per-league variant."""
     selected = None if league is None else _history_league_filter(season, league)
@@ -1154,6 +1366,11 @@ def _calibrate_backtest_report(season: int, league: str | None) -> dict:
         keys = sorted({fact["league_key"] for fact in facts})
         if len(keys) == 1:
             fit_league = keys[0]
+    prior_facts, prior_kickoffs, notes = _load_prior_inputs(cache, season)
+    for note in notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    facts.extend(prior_facts)
+    prior_kickoffs.setdefault(season, kickoffs)
     return walk_forward_backtest(
         facts,
         season=season,
@@ -1161,6 +1378,7 @@ def _calibrate_backtest_report(season: int, league: str | None) -> dict:
         league_key=fit_league,
         pooled=selected is None,
         kickoffs=kickoffs,
+        kickoffs_by_season=prior_kickoffs,
     )
 
 
@@ -1171,6 +1389,9 @@ def _render_backtest(report: dict) -> None:
         scope = f"per-league {report['league_key']}"
     leagues = ", ".join(report["leagues"])
     suffix = f" — {leagues}" if leagues else ""
+    prior_rows = report.get("prior_rows") or 0
+    if prior_rows:
+        suffix = f"{suffix} — {prior_rows} prior rows in the fit"
     console.print(f"[yellow]{report['season']} calibration backtest[/yellow] — {scope}{suffix}")
     for note in report.get("notes") or []:
         console.print(f"[yellow]{note}[/yellow]")
