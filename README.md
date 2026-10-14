@@ -44,6 +44,10 @@ ones. Use `--refresh` to fetch selected sources again, `--offline` to prohibit
 network access, `--rebuild` to force cached data back through parsing and
 atomic replacement, and `--week N` to also ingest that week's Sleeper/ESPN
 projections (stored as `scope=week{N}`; rankings and the board stay season-only).
+A database from before `schedule_games.gameday` / `gametime` is moved aside
+and replayed; the one-time kickoff backfill is
+`uv run ffb season sync 2026 --source schedule --refresh`. See
+[Operations](docs/operations.md#rebuilding-duckdb).
 
 Read commands never fetch. They warn about missing, failed, stale, or untracked
 inputs and use whatever valid projection sources are persisted. Inspect misses

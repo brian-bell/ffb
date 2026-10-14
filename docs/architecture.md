@@ -92,7 +92,11 @@ upgrades v1 files in place. Published `/command` cards add those fields
 additively, so already-stored v1 payloads still render. `ffb retro` still
 prints a shadow section for the lineup calibrated means would have started.
 `ffb calibrate backtest` refits each week from earlier weeks only, compares raw
-and calibrated advice, and prints whether the promotion gate passes. `ffb retro history`
+and calibrated advice, and prints whether the promotion gate passes. The fit
+uses the same pre-kickoff roster rows as `ffb retro history`. Both drop a
+prediction at or after kickoff, a player with no known kickoff, an advice
+week that is not paired to the scored ledger, and a mixed-run week, and the
+report notes each skip. `ffb retro history`
 joins those ledgers to league-scoped actuals at read time and reports
 cross-week source-by-position accuracy, sit/start regret, and the hit rate of
 Questionable starts. A weekly

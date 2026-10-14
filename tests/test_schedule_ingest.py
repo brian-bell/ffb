@@ -132,6 +132,59 @@ def test_schedule_refresh_rejects_a_payload_missing_kickoff_times(store, tmp_pat
     assert store.schedule_game_rows(2024) == stored
 
 
+def test_schedule_refresh_rejects_one_kickoff_field_or_zero_timed_games(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    untimed = json.loads(SCHEDULE.read_text())
+    cache.get_json(snapshot_key(2024), lambda: untimed)
+    ensure_schedule_ingested(store, cache, season=2024, fetch=_no_network)
+    before = cache.read_json(snapshot_key(2024))
+    day_only = [
+        dict(game, gameday="2024-09-05") if isinstance(game, dict) else game for game in untimed
+    ]
+    both_untimed = [
+        dict(game, gameday="2024-09-05", gametime="NA") if isinstance(game, dict) else game
+        for game in untimed
+    ]
+
+    for payload in (day_only, both_untimed):
+        with pytest.raises(ValueError, match="missing gameday/gametime"):
+            ensure_schedule_ingested(
+                store,
+                cache,
+                season=2024,
+                refresh=True,
+                fetch=lambda payload=payload: payload,
+            )
+        assert cache.read_json(snapshot_key(2024)) == before
+
+
+def test_schedule_refresh_replaces_a_malformed_snapshot(store, tmp_path):
+    cache = SnapshotCache(tmp_path / "snap")
+    path = cache.root / f"{snapshot_key(2024)}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{", encoding="utf-8")
+    called = {"n": 0}
+
+    def fetch():
+        called["n"] += 1
+        return _with_week1_kickoff()
+
+    with pytest.raises(json.JSONDecodeError):
+        ensure_schedule_ingested(store, cache, season=2024, fetch=fetch)
+    assert called["n"] == 0
+
+    ensure_schedule_ingested(store, cache, season=2024, refresh=True, fetch=fetch)
+
+    assert called["n"] == 1
+    kc = next(
+        row
+        for row in store.schedule_game_rows(2024)
+        if row["week"] == 1 and row["away_team"] == "KCC"
+    )
+    assert kc["gameday"] == "2024-09-05"
+    assert kc["gametime"] == "20:20"
+
+
 def test_schedule_refresh_rejects_fewer_kickoff_times(store, tmp_path):
     timed = _with_week1_kickoff()
     for game in timed:

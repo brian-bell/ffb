@@ -234,6 +234,27 @@ POST the locked file
 User-Agent. Confirm `GET /api/actuals` for the Sleeper key returns
 `source: "sleeper"` and that Yahoo's same-week actuals are intact.
 
+## Schedule kickoffs
+
+`schedule_games` now has `gameday` and `gametime`. An older DuckDB file fails
+open and must be moved aside; the error names the commands. Kickoff times
+still need one refresh after that, because `--offline --rebuild` replays the
+untimed 2026 snapshot. Do this once before the next retro or backtest:
+
+```sh
+mv data/ffb.duckdb data/ffb.duckdb.bak
+uv run ffb season sync 2026 --offline --rebuild
+uv run ffb season sync 2026 --source schedule --refresh
+```
+
+A schedule refresh that drops `gameday` or `gametime`, or that has no timed
+games or fewer than the cache, is rejected and the old snapshot stays.
+`--refresh` replaces a truncated schedule file; without it, that file errors.
+`retro history` and `calibrate backtest` then drop post-kickoff predictions,
+players with no kickoff, unpaired advice weeks, and mixed-run weeks, and each
+report notes those skips. Details are in
+[operations.md](operations.md#rebuilding-duckdb).
+
 ## Manual steps
 
 Use these when `make refresh` fails partway and a single step needs a rerun.

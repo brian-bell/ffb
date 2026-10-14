@@ -185,16 +185,17 @@ def timed_game_count(raw: Any, season: int) -> int:
 def kickoff_refresh_error(previous: Any, fresh: Any, season: int) -> str | None:
     """Why a refresh must not replace the cached schedule, or None to accept it.
 
-    A payload with no ``gameday``/``gametime`` keys, or fewer parseable kickoffs
-    than the snapshot already on disk, is rejected. Reading an older snapshot
-    that omits the keys is a separate path and stays valid.
+    The payload must include both ``gameday`` and ``gametime`` and at least one
+    parseable kickoff, and it must not have fewer timed games than the snapshot
+    already on disk. Reading an older snapshot that omits the keys is a
+    separate path and stays valid.
     """
-    if not _has_kickoff_keys(fresh):
-        return (
-            f"schedule refresh for {season} is missing gameday/gametime; "
-            "keeping the cached snapshot"
-        )
     fresh_timed = timed_game_count(fresh, season)
+    if not _has_kickoff_keys(fresh) or fresh_timed == 0:
+        return (
+            f"schedule refresh for {season} is missing gameday/gametime "
+            "or has no games with kickoff times; keeping the cached snapshot"
+        )
     previous_timed = timed_game_count(previous, season)
     if fresh_timed < previous_timed:
         return (
@@ -207,7 +208,8 @@ def kickoff_refresh_error(previous: Any, fresh: Any, season: int) -> str | None:
 def _has_kickoff_keys(raw: Any) -> bool:
     if not isinstance(raw, list):
         return False
-    return any(isinstance(row, dict) and ("gameday" in row or "gametime" in row) for row in raw)
+    rows = [row for row in raw if isinstance(row, dict)]
+    return any("gameday" in row for row in rows) and any("gametime" in row for row in rows)
 
 
 def team_kickoffs(games: list[dict[str, Any]]) -> dict[tuple[int, str], str]:

@@ -619,6 +619,23 @@ def ensure_adp_ingested(
     return recon
 
 
+def _readable_schedule_snapshot(cache: SnapshotCache, key: str, *, refreshing: bool) -> Any:
+    """Cached schedule used to compare kickoff coverage, or None when absent.
+
+    ``--refresh`` treats a truncated or malformed file as missing so the fetch
+    can replace it. Any other policy leaves the parse error unchanged.
+    """
+    if not cache.has(key):
+        return None
+    try:
+        return cache.read_json(key)
+    except (OSError, json.JSONDecodeError, ValueError):
+        if not refreshing:
+            raise
+        log.warning("schedule snapshot %s is unreadable; refresh will replace it", key)
+        return None
+
+
 def ensure_schedule_ingested(
     store: Store,
     cache: SnapshotCache,
@@ -647,7 +664,9 @@ def ensure_schedule_ingested(
         else (SnapshotPolicy.REFRESH if refresh else SnapshotPolicy.MISSING_ONLY)
     )
     key = schedule.snapshot_key(season)
-    previous = cache.read_json(key) if cache.has(key) else None
+    previous = _readable_schedule_snapshot(
+        cache, key, refreshing=selected_policy is SnapshotPolicy.REFRESH
+    )
 
     def _schedule_payload_ok(data: Any) -> bool:
         # A complete bye set is required before any write. A refresh must also
