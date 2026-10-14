@@ -15,6 +15,29 @@ def test_init_schema_is_idempotent(tmp_path):
     s.close()
 
 
+def test_init_schema_adds_schedule_kickoff_columns_on_an_existing_database(tmp_path):
+    path = tmp_path / "db.duckdb"
+    old = Store(path)
+    old.init_schema()
+    old.conn.execute("ALTER TABLE schedule_games DROP COLUMN gameday")
+    old.conn.execute("ALTER TABLE schedule_games DROP COLUMN gametime")
+    old.close()
+
+    store = Store(path)
+    store.init_schema()
+    store.init_schema()
+    columns = {
+        column
+        for table, column in store.conn.execute(
+            "SELECT table_name, column_name FROM duckdb_columns() "
+            "WHERE table_name = 'schedule_games'"
+        ).fetchall()
+    }
+    store.close()
+
+    assert {"gameday", "gametime"} <= columns
+
+
 def test_init_schema_reports_a_database_predating_a_column(tmp_path):
     path = tmp_path / "db.duckdb"
     old = Store(path)

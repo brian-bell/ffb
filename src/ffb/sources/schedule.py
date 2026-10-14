@@ -60,9 +60,21 @@ def fetch_schedule(season: int) -> list[dict[str, Any]]:
     log.info("api request provider=nflverse operation=load_schedules seasons=%s", season)
     df = nfl.load_schedules(seasons=[season])
     cols = [c for c in _FETCH_COLS if c in df.columns]
-    rows = df.select(cols).to_dicts()
+    rows = [_json_schedule_row(row) for row in df.select(cols).to_dicts()]
     log.info("api response provider=nflverse operation=load_schedules items=%s", len(rows))
     return rows
+
+
+def _json_schedule_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Snapshot row. Dates and clock times are JSON strings, never date objects."""
+    if not isinstance(row, dict):
+        return row
+    out = dict(row)
+    if "gameday" in out:
+        out["gameday"] = _day_text(out["gameday"])
+    if "gametime" in out:
+        out["gametime"] = _clock_text(out["gametime"])
+    return out
 
 
 def parse_byes(raw: Any, season: int) -> list[dict[str, Any]]:
@@ -147,6 +159,8 @@ def parse_games(raw: Any, season: int) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
+        gameday = _day_text(game.get("gameday"))
+        gametime = _clock_text(game.get("gametime"))
         rows.append(
             {
                 "season": season,
@@ -154,11 +168,39 @@ def parse_games(raw: Any, season: int) -> list[dict[str, Any]]:
                 "week": week,
                 "home_team": home,
                 "away_team": away,
-                "kickoff_at": _kickoff_at(game.get("gameday"), game.get("gametime")),
+                "gameday": gameday,
+                "gametime": gametime,
+                "kickoff_at": _kickoff_at(gameday, gametime),
             }
         )
     rows.sort(key=lambda row: (row["week"], row["home_team"], row["away_team"]))
     return rows
+
+
+def team_kickoffs(games: list[dict[str, Any]]) -> dict[tuple[int, str], str]:
+    """UTC kickoff for each ``(week, canonical team)`` that has a clock time.
+
+    Accepts parsed games (``kickoff_at`` or ``gameday``/``gametime``) and rows
+    read back from ``schedule_games``. A missing or unparsed time is omitted;
+    scoring then drops that team-week instead of guessing.
+    """
+    kickoffs: dict[tuple[int, str], str] = {}
+    for game in games:
+        if not isinstance(game, dict):
+            continue
+        week = game.get("week")
+        if type(week) is not int:
+            continue
+        stamp = game.get("kickoff_at")
+        if not isinstance(stamp, str) or not stamp:
+            stamp = _kickoff_at(game.get("gameday"), game.get("gametime"))
+        if not stamp:
+            continue
+        for side in ("home_team", "away_team"):
+            team = identity.canonical_team(game.get(side))
+            if team is not None:
+                kickoffs[(week, team)] = stamp
+    return kickoffs
 
 
 def _kickoff_at(gameday: object, gametime: object) -> str | None:

@@ -1392,15 +1392,7 @@ def _schedule_kickoffs(cache: SnapshotCache, season: int) -> dict[tuple[int, str
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         console.print(f"[yellow]Skipping schedule kickoffs:[/yellow] {exc}")
         return {}
-    kickoffs: dict[tuple[int, str], str] = {}
-    for game in schedule.parse_games(raw, season):
-        stamp = game.get("kickoff_at")
-        if not isinstance(stamp, str) or not stamp:
-            continue
-        week = game["week"]
-        for team in (game["home_team"], game["away_team"]):
-            kickoffs[(week, team)] = stamp
-    return kickoffs
+    return schedule.team_kickoffs(schedule.parse_games(raw, season))
 
 
 def _tracker_client() -> httpx.Client:
