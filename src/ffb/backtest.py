@@ -2,8 +2,12 @@
 
 Pure. The CLI loads ledgers and actuals and passes fact rows in. Week ``W`` is
 fit with ``fit_calibration`` on the selected roster rows, which keeps only
-weeks ``< W``. Selection is ``outcomes.select_scoring_facts``: one whole ledger
-run per league-week, then each player's last prediction from before kickoff.
+weeks ``< W`` of the target season, plus prior rows from earlier seasons.
+Selection is ``outcomes.select_scoring_facts``: one whole ledger run per
+league-week, then each player's last prediction from before kickoff. Prior
+rows from another season need that season's kickoff map
+(``kickoffs_by_season``); a single ``(week, team)`` map is not shared across
+seasons. Prior rows train the fit and are not scored as sit/start decisions.
 
 Readings §5 leaves open:
 
@@ -45,6 +49,7 @@ from ffb.lineup import BENCH_SLOT, UNAVAILABLE_STATUSES, can_fill, compare_lineu
 from ffb.outcomes import (
     NOTE_MIXED,
     NOTE_NO_KICKOFFS,
+    PRIOR_GENERATED_AT,
     decision_table,
     hindsight_total,
     select_scoring_facts,
@@ -107,6 +112,7 @@ def walk_forward_backtest(
     league_key: str | None = None,
     pooled: bool = True,
     kickoffs: Mapping[tuple[int, str], str] | None = None,
+    kickoffs_by_season: Mapping[int, Mapping[tuple[int, str], str]] | None = None,
 ) -> dict[str, Any]:
     """Score each week ``W >= 3`` with a fit that cannot see week ``W`` or later.
 
@@ -121,8 +127,10 @@ def walk_forward_backtest(
         raise ValueError("per-league backtest needs a league_key")
     slots = roster_slots or {}
     scoped = _scoped_facts(facts, season=season, league_key=league_key, pooled=pooled)
-    selected = select_scoring_facts(scoped, kickoffs)
-    labelled = _scoreable(selected, minimum_week=MIN_BACKTEST_WEEK)
+    selected = _select_by_season(
+        scoped, season=season, kickoffs=kickoffs, by_season=kickoffs_by_season
+    )
+    labelled = _scoreable(selected, season=season, minimum_week=MIN_BACKTEST_WEEK)
     weeks = sorted({int(fact["week"]) for fact in labelled})
     scored: list[dict[str, Any]] = []
     week_rows: list[dict[str, Any]] = []
@@ -157,7 +165,40 @@ def walk_forward_backtest(
         "bootstrap": _bootstrap(samples),
         "gate": _gate(metrics, week_rows, pooled=pooled),
         "notes": notes,
+        "prior_rows": sum(
+            1 for fact in selected if str(fact.get("generated_at") or "") == PRIOR_GENERATED_AT
+        ),
     }
+
+
+def _select_by_season(
+    facts: list[dict[str, Any]],
+    *,
+    season: int,
+    kickoffs: Mapping[tuple[int, str], str] | None,
+    by_season: Mapping[int, Mapping[tuple[int, str], str]] | None,
+) -> list[dict[str, Any]]:
+    """Select each season with its own kickoff map when one is supplied."""
+    if by_season is None:
+        return select_scoring_facts(facts, kickoffs)
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for fact in facts:
+        fact_season = fact.get("season")
+        if type(fact_season) is not int:
+            continue
+        grouped.setdefault(fact_season, []).append(fact)
+    selected: list[dict[str, Any]] = []
+    for fact_season, rows in grouped.items():
+        if fact_season in by_season:
+            season_kickoffs = by_season[fact_season]
+        elif fact_season == season:
+            season_kickoffs = kickoffs
+        else:
+            # Another season with no kickoff map is not scored. An empty map
+            # drops every row, which is the same rule as a missing schedule.
+            season_kickoffs = {}
+        selected.extend(select_scoring_facts(rows, season_kickoffs))
+    return selected
 
 
 def _scoped_facts(
@@ -165,7 +206,15 @@ def _scoped_facts(
 ) -> list[dict[str, Any]]:
     scoped = []
     for fact in facts:
-        if not isinstance(fact, dict) or fact.get("season") != season:
+        if not isinstance(fact, dict):
+            continue
+        fact_season = fact.get("season")
+        prior = str(fact.get("generated_at") or "") == PRIOR_GENERATED_AT
+        if fact_season == season:
+            pass
+        elif prior and type(fact_season) is int and fact_season < season:
+            pass
+        else:
             continue
         if not pooled and fact.get("league_key") != league_key:
             continue
@@ -173,10 +222,16 @@ def _scoped_facts(
     return scoped
 
 
-def _scoreable(facts: list[dict[str, Any]], *, minimum_week: int) -> list[dict[str, Any]]:
-    """Labelled rows from an already-selected roster. Does not mix ledger runs."""
+def _scoreable(
+    facts: list[dict[str, Any]], *, season: int, minimum_week: int
+) -> list[dict[str, Any]]:
+    """Labelled target-season ledger rows. Prior rows train the fit only."""
     scored = []
     for fact in facts:
+        if fact.get("season") != season:
+            continue
+        if str(fact.get("generated_at") or "") == PRIOR_GENERATED_AT:
+            continue
         fact_week = fact.get("week")
         if type(fact_week) is not int or fact_week < minimum_week:
             continue

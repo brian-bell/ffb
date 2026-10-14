@@ -10,6 +10,11 @@ run stored them, and stay ``None`` on v1. Kickoff times are not on the ledger
 or the actuals bundle. Callers pass them from the nflverse schedule snapshot
 (``gameday`` + ``gametime``, US Eastern). ``select_scoring_facts`` is the one
 roster rule shared with the walk-forward backtest.
+
+Historical projection rows are not ledger runs. They use
+``PRIOR_GENERATED_AT`` because Sleeper's ``updated_at`` is a storage rewrite
+that is often after kickoff. A prior row is kept only when that team-week has
+a kickoff, and ``hours_before_kickoff`` stays null.
 """
 
 from __future__ import annotations
@@ -38,6 +43,10 @@ from ffb.predlog import parse_prediction_ledger
 from ffb.retro import parse_lineup_snapshot
 
 _UNSTARTABLE_SLOTS = NON_STARTING_SLOTS - {BENCH_SLOT}
+
+# Not a timestamp. Prior projections have no pre-kickoff ledger time; see the
+# module docstring. ``select_scoring_facts`` keeps these rows only with a kickoff.
+PRIOR_GENERATED_AT = "prior"
 
 
 def fact_table(
@@ -411,6 +420,14 @@ def select_scoring_facts(
     not supply a schedule. The newest whole run is used with no time cutoff.
     An empty map means kickoff times are unavailable, including the week's
     first kickoff, so nothing is scored.
+
+    A row whose ``generated_at`` is :data:`PRIOR_GENERATED_AT` is a backfilled
+    weekly projection. It is not ordered against ledger timestamps. It is kept
+    when that player's team-week has a kickoff, with ``hours_before_kickoff``
+    left null. It does not replace a ledger row for the same player; a prior
+    player who is absent from the ledger roster is added, which is how free
+    agents enter the sample. Kickoff maps are per season: week 1 of 2024 and
+    week 1 of 2026 are different clocks, so callers select one season at a time.
     """
     normalized = None if kickoffs is None else _normalize_kickoffs(kickoffs)
     grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -480,36 +497,61 @@ def _pre_kickoff_rows(
     rows: list[dict[str, Any]], kickoffs: dict[tuple[int, str], datetime]
 ) -> list[dict[str, Any]]:
     parsed: list[tuple[datetime, str, list[dict[str, Any]]]] = []
+    prior: list[dict[str, Any]] = []
     for stamp, run_rows in _runs(rows).items():
+        if stamp == PRIOR_GENERATED_AT:
+            prior.extend(run_rows)
+            continue
         moment = _parse_utc(stamp)
         if moment is None:
             continue
         parsed.append((moment, stamp, run_rows))
-    if not parsed:
-        return []
-    parsed.sort(key=lambda item: item[0])
-    roster_moment, roster_stamp, roster_rows = parsed[-1]
     scored: list[dict[str, Any]] = []
-    for player in roster_rows:
-        kickoff = _player_kickoff(player, kickoffs)
-        if kickoff is None:
-            continue
-        if roster_moment < kickoff:
-            scored.append(_with_hours(player, roster_stamp, roster_moment, kickoff))
-            continue
-        earlier = [
-            item
-            for item in parsed
-            if item[0] < kickoff and _player_row(item[2], player) is not None
-        ]
-        if not earlier:
-            continue
-        moment, _stamp, run_rows = earlier[-1]
-        matched = _player_row(run_rows, player)
-        if matched is None:
-            continue
-        scored.append(_with_hours(matched, roster_stamp, moment, kickoff))
+    if parsed:
+        parsed.sort(key=lambda item: item[0])
+        roster_moment, roster_stamp, roster_rows = parsed[-1]
+        for player in roster_rows:
+            kickoff = _player_kickoff(player, kickoffs)
+            if kickoff is None:
+                continue
+            if roster_moment < kickoff:
+                scored.append(_with_hours(player, roster_stamp, roster_moment, kickoff))
+                continue
+            earlier = [
+                item
+                for item in parsed
+                if item[0] < kickoff and _player_row(item[2], player) is not None
+            ]
+            if not earlier:
+                continue
+            moment, _stamp, run_rows = earlier[-1]
+            matched = _player_row(run_rows, player)
+            if matched is None:
+                continue
+            scored.append(_with_hours(matched, roster_stamp, moment, kickoff))
+    have = {str(row.get("native_id") or "") for row in scored}
+    for player in _prior_kept(prior, kickoffs):
+        native_id = str(player.get("native_id") or "")
+        if native_id and native_id not in have:
+            scored.append(player)
     return scored
+
+
+def _prior_kept(
+    rows: list[dict[str, Any]], kickoffs: dict[tuple[int, str], datetime]
+) -> list[dict[str, Any]]:
+    """Prior rows with a known kickoff. No synthetic hours-before-kickoff."""
+    kept: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for player in rows:
+        native_id = str(player.get("native_id") or "")
+        if not native_id or native_id in seen:
+            continue
+        if _player_kickoff(player, kickoffs) is None:
+            continue
+        seen.add(native_id)
+        kept.append(_with_roster(player, PRIOR_GENERATED_AT))
+    return kept
 
 
 def _runs(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
