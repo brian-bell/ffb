@@ -5,11 +5,107 @@ from ffb.cli import app
 from ffb.predlog import build_prediction_ledger, prediction_ledger_key
 from ffb.retro import actuals_snapshot_key, build_lineup_snapshot, lineup_history_key
 from ffb.snapshot import SnapshotCache
+from ffb.sources.schedule import snapshot_key
 
 from .cli_plain import PlainCliRunner
 
 runner = PlainCliRunner()
 STAMP = "2026-10-10T11:00:00Z"
+
+
+def _write_kickoffs(cache, weeks):
+    games = [
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": week,
+            "home_team": "KC",
+            "away_team": "BUF",
+            "gameday": "2026-10-12",
+            "gametime": "13:00",
+        }
+        for week in weeks
+    ]
+    cache.put_json(snapshot_key(2026), games, mode=0o600)
+
+
+def _put_ledger(cache, league_key, generated_at, players):
+    cache.put_json(
+        prediction_ledger_key(2026, 1, generated_at, league_key),
+        build_prediction_ledger(
+            season=2026,
+            week=1,
+            league_key=league_key,
+            user_team_key="t.1",
+            generated_at=generated_at,
+            scoring_weights={"rec": 1.0},
+            projection_sources={},
+            players=players,
+        ),
+        mode=0o600,
+    )
+
+
+def _actual_player(native_id, points, selected):
+    return {
+        "native_id": native_id,
+        "native_player_key": f"p.{native_id}",
+        "name": native_id,
+        "team_key": "t.1",
+        "selected_position": selected,
+        "points": points,
+    }
+
+
+def _advice_for(players, generated_at):
+    roster = {"RB": 1, "BN": 2}
+    rows = []
+    optimal = []
+    for player in players:
+        rows.append(
+            {
+                "native_id": player["native_id"],
+                "name": player["name"],
+                "position": player["position"],
+                "team": player["team"],
+                "selected_position": player["selected_position"],
+                "eligible_positions": player["eligible_positions"],
+                "projection_key": player["projection_key"],
+                "player_key": player["player_key"],
+                "points": player["points"],
+                "source_points": player["source_points"],
+                "n": player["n"],
+                "matched": True,
+            }
+        )
+        if player["selected_position"] == "RB":
+            optimal.append(
+                {
+                    "native_id": player["native_id"],
+                    "name": player["name"],
+                    "slot": "RB",
+                    "selected_position": "RB",
+                    "points": player["points"],
+                }
+            )
+    return build_lineup_snapshot(
+        season=2026,
+        week=1,
+        generated_at=generated_at,
+        team_key="t.1",
+        team_name="Brian",
+        roster_slots=roster,
+        players=rows,
+        report={
+            "current": optimal,
+            "optimal": optimal,
+            "start": [],
+            "sit": [],
+            "current_total": 18.0,
+            "optimal_total": 18.0,
+            "delta": 0.0,
+        },
+    )
 
 
 def _env(tmp_path):
@@ -176,6 +272,7 @@ def test_history_is_scoped_to_each_leagues_snapshots(tmp_path):
         position="QB",
         points=4.0,
     )
+    _write_kickoffs(cache, [1])
     env = _env(tmp_path)
 
     yahoo = runner.invoke(
@@ -195,6 +292,85 @@ def test_history_is_scoped_to_each_leagues_snapshots(tmp_path):
     assert "QB" in sleeper.output
     assert "RB" not in sleeper.output
     assert config.SLEEPER_LEAGUE_KEY in sleeper.output
+
+
+def test_history_skips_decision_metrics_when_advice_is_an_older_run(tmp_path):
+    """A lineup rerun without --force writes a ledger and keeps the old advice."""
+    cache = SnapshotCache(tmp_path / "snapshots")
+    early = "2026-10-10T11:00:00Z"
+    late = "2026-10-11T11:00:00Z"
+    players_early = [
+        _player("slow", "Slow", "RB", points=18.0, source_points={"sleeper": 18.0}, selected="RB"),
+        _player(
+            "henry",
+            "Henry",
+            "RB",
+            points=4.0,
+            source_points={"sleeper": 4.0},
+            selected="BN",
+        ),
+    ]
+    players_late = [
+        _player("slow", "Slow", "RB", points=1.0, source_points={"sleeper": 1.0}, selected="RB"),
+        _player(
+            "henry",
+            "Henry",
+            "RB",
+            points=30.0,
+            source_points={"sleeper": 30.0},
+            selected="BN",
+        ),
+    ]
+    _put_ledger(cache, config.YAHOO_LEAGUE_KEY, early, players_early)
+    _put_ledger(cache, config.YAHOO_LEAGUE_KEY, late, players_late)
+    cache.put_json(
+        actuals_snapshot_key(2026, 1, config.YAHOO_LEAGUE_KEY),
+        {
+            "schema_version": 2,
+            "source": "yahoo",
+            "synced_at": "2026-10-14T12:00:00Z",
+            "league": {
+                "league_id": "1",
+                "league_key": "470.l.928421",
+                "name": "Test",
+                "season": 2026,
+                "week": 1,
+                "num_teams": 2,
+            },
+            "matchups": [
+                {
+                    "matchup_id": "1",
+                    "week": 1,
+                    "teams": [
+                        {"team_key": "t.1", "points": 26.0},
+                        {"team_key": "t.2", "points": 0.0},
+                    ],
+                }
+            ],
+            "players": [
+                _actual_player("slow", 2.0, "RB"),
+                _actual_player("henry", 24.0, "BN"),
+            ],
+        },
+        mode=0o600,
+    )
+    cache.put_json(
+        lineup_history_key(2026, 1, early, config.YAHOO_LEAGUE_KEY),
+        _advice_for(players_early, early),
+        mode=0o600,
+    )
+    _write_kickoffs(cache, [1])
+
+    result = runner.invoke(
+        app, ["retro", "history", "2026", "--league", config.YAHOO_LEAGUE_KEY], env=_env(tmp_path)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no decision metrics" in result.output
+    assert "not paired" in result.output.replace("\n", "")
+    assert "Decisions 0/0" in result.output
+    assert "+22.0" not in result.output
+    assert "Source × position" in result.output
 
 
 def test_weekly_retro_command_still_accepts_its_options():

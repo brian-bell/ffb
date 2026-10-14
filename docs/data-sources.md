@@ -318,7 +318,11 @@ depends on FFC's non-exhaustive ADP list for byes.
   DataFrame (272 regular-season games). Like the crosswalk, the frame never
   leaves the module: `select(_FETCH_COLS).to_dicts()` hands back plain
   `list[dict]`. Columns kept: `season`, `game_type`, `week`, `home_team`,
-  `away_team`. **No auth.**
+  `away_team`, `gameday`, and `gametime`. **No auth.** Dates and clock times
+  are written as strings so the snapshot stays JSON. `parse_games` turns that
+  Eastern kickoff into `kickoff_at` (UTC, `Z`) and keeps `gameday`/`gametime`.
+  Older snapshots omit the time keys and still parse; those fields stay null
+  and ledger scoring excludes that team-week rather than guessing a cutoff.
 - **What we extract** (`parse_byes`, pure): only `game_type == "REG"` games
   count. Each team's bye is the **single missing week** in `1..max_week` across
   its games. A team missing zero or multiple weeks (incomplete schedule) is
@@ -330,9 +334,20 @@ depends on FFC's non-exhaustive ADP list for byes.
   (`config.TEAM_ALIASES` carries `LA → LAR` for this source, plus retired
   `OAK → LVR` for stale crosswalk teams on the join side).
 - **Storage** — the `team_byes` table, keyed `(season, source, team)`, and
-  `schedule_games`, keyed `(season, source, week, home_team, away_team)`. Both
-  are **source values, so they are stored** (like ADP, unlike computed points).
-  `ffb ros` uses the games for playoff-week slates; byes still feed the board.
+  `schedule_games`, keyed `(season, source, week, home_team, away_team)`, with
+  nullable `gameday` (`YYYY-MM-DD`) and `gametime` (`HH:MM` Eastern). Both
+  tables are **source values, so they are stored** (like ADP, unlike computed
+  points). A database created before those columns fails `init_schema` with
+  the move-aside-and-replay error; nothing alters the file in place. `ffb ros`
+  uses the games for playoff-week slates; byes still feed the board. Retro
+  history and the calibration backtest read kickoffs from the schedule
+  snapshot's `gameday`/`gametime` (the same columns `schedule_games` stores)
+  and drop a player when the time is null. A refresh is accepted only when
+  the payload has both `gameday` and `gametime`, at least one parseable
+  kickoff, and not fewer timed games than the cache. Otherwise it is rejected
+  and the cached file stays. `--refresh` replaces a truncated or malformed
+  schedule file; without `--refresh` that file still errors. An older snapshot
+  that omits the keys still loads.
 - **Ingest** (`ensure_schedule_ingested`) — re-parses + re-resolves from the
   cached snapshot on **every** run (atomic delete-then-insert mirror): parsing
   ~272 games is trivial, and a `TEAM_ALIASES` tuning change reaches the DB

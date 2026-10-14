@@ -413,6 +413,14 @@ def test_shadow_without_calibration_warns_and_stays_on_raw_advice():
     assert missing["warning"]
 
 
+def test_null_priors_are_a_validation_error_not_a_type_error():
+    params = _fit([], week=1)
+    params["priors"] = None
+
+    with pytest.raises(ValueError, match="priors must be an object"):
+        parse_calibration_params(params)
+
+
 def test_sealed_body_round_trips_its_priors():
     sealed = seal_calibration_params(
         {

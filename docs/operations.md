@@ -202,6 +202,39 @@ The store checks expected columns at open time and reports this recovery path
 instead of failing later in a query. Content-only parser or normalization
 changes may also require a rebuild even when columns are unchanged.
 
+`schedule_games` gained nullable `gameday` and `gametime`. A database from
+before those columns fails at open with that same move-aside message and is
+not altered in place. `--offline --rebuild` replays the cached schedule,
+which for 2026 has no kickoff times until one refresh:
+
+```sh
+mv data/ffb.duckdb data/ffb.duckdb.bak
+uv run ffb season sync 2026 --offline --rebuild
+uv run ffb season sync 2026 --source schedule --refresh
+```
+
+A schedule `--refresh` is rejected, and the old snapshot kept, when the
+payload omits `gameday` or `gametime`, has no parseable kickoff, or has fewer
+timed games than the cache. `--refresh` replaces a truncated or malformed
+schedule file. Without `--refresh`, that file still raises.
+
+## Retro history and calibration backtest
+
+`ffb retro history` and `ffb calibrate backtest` score the newest ledger run
+in each league-week, then each player's last prediction from before kickoff.
+They drop, and the report notes:
+
+- a prediction at or after kickoff when no earlier pre-kickoff row remains,
+  and any player with no known kickoff. With no kickoff times at all the note
+  is `no kickoff times available; predictions were not scored`
+- an advice week that is not paired to the scored ledger:
+  `no decision metrics: advice snapshot is not paired to the scored ledger`
+- a mixed-run week (Thursday and Sunday players taken from different runs):
+  `no decision metrics or league Brier: scored predictions do not share the advice ledger`
+
+Source accuracy and the calibration fit still use the pre-kickoff rows. The
+live lineup fit uses that same selection.
+
 ## Local tracker
 
 ```sh

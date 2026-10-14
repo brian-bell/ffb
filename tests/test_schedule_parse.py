@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, time
 from pathlib import Path
 
 import nflreadpy
@@ -129,8 +130,98 @@ def test_parse_games_empty_or_wrong_shape_returns_empty():
     assert schedule.parse_games(None, 2026) == []
 
 
+def test_parse_games_old_snapshot_without_time_keys_loads(raw):
+    rows = schedule.parse_games(raw, 2024)
+    assert rows
+    assert all(row["gameday"] is None for row in rows)
+    assert all(row["gametime"] is None for row in rows)
+    assert all(row["kickoff_at"] is None for row in rows)
+    assert schedule.team_kickoffs(rows) == {}
+
+
+def test_parse_games_converts_eastern_kickoff_to_utc_and_keeps_untimed_games():
+    # 2026-09-10 is a Thursday. 20:20 America/New_York is 00:20 UTC Friday.
+    raw = [
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": "KC",
+            "away_team": "BAL",
+            "gameday": "2026-09-10",
+            "gametime": "20:20",
+        },
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": "BUF",
+            "away_team": "NYJ",
+            "gameday": "2026-09-13",
+            "gametime": "NA",
+        },
+    ]
+
+    rows = {row["home_team"]: row for row in schedule.parse_games(raw, 2026)}
+
+    assert rows["KCC"]["kickoff_at"] == "2026-09-11T00:20:00Z"
+    assert rows["KCC"]["away_team"] == "BAL"
+    assert rows["BUF"]["kickoff_at"] is None
+
+
 def test_snapshot_key():
     assert schedule.snapshot_key(2026) == "nflverse/schedule_2026"
+
+
+def test_fetch_keeps_gameday_and_gametime_as_json_strings(monkeypatch):
+    row = {
+        "season": 2026,
+        "game_type": "REG",
+        "week": 1,
+        "home_team": "JAX",
+        "away_team": "KC",
+        "gameday": date(2026, 9, 10),
+        "gametime": time(20, 20),
+        "stadium": "dropped",
+    }
+
+    class FakeFrame:
+        columns = list(row)
+        selected: list[str] = []
+
+        def select(self, columns):
+            self.selected = list(columns)
+            return self
+
+        def to_dicts(self):
+            return [{key: row[key] for key in self.selected}]
+
+    frame = FakeFrame()
+    monkeypatch.setattr(nflreadpy, "load_schedules", lambda *, seasons: frame)
+
+    rows = schedule.fetch_schedule(2026)
+
+    assert frame.selected == [
+        "season",
+        "game_type",
+        "week",
+        "home_team",
+        "away_team",
+        "gameday",
+        "gametime",
+    ]
+    assert rows == [
+        {
+            "season": 2026,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": "JAX",
+            "away_team": "KC",
+            "gameday": "2026-09-10",
+            "gametime": "20:20",
+        }
+    ]
+    json.dumps(rows)
 
 
 def test_fetch_logs_nflreadpy_operation_season_and_returned_row_count(raw, monkeypatch, caplog):

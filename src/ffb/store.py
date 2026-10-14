@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS schedule_games (
     week INTEGER,
     home_team VARCHAR,                 -- canonical MFL-style team code
     away_team VARCHAR,
+    gameday VARCHAR,                   -- YYYY-MM-DD, null when the snapshot has no date
+    gametime VARCHAR,                  -- HH:MM Eastern, null when the snapshot has no clock
     PRIMARY KEY (season, source, week, home_team, away_team)
 );
 
@@ -252,8 +254,10 @@ class Store:
 
     def init_schema(self) -> None:
         # No cross-version migration by design: the DB is a disposable local
-        # cache rebuilt offline from snapshots (see AGENTS.md). Delete the file
-        # after a schema change rather than migrating it.
+        # cache rebuilt offline from snapshots (see AGENTS.md). ``CREATE TABLE
+        # IF NOT EXISTS`` does not add columns, so a file from before
+        # ``schedule_games.gameday`` / ``gametime`` fails ``_verify_schema``
+        # and the operator moves it aside and replays the snapshots.
         self.conn.execute(SCHEMA)
         self._verify_schema()
 
@@ -669,9 +673,11 @@ class Store:
             self.conn.execute(
                 """
                 INSERT INTO schedule_games
-                    (season, source, week, home_team, away_team)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (season, source, week, home_team, away_team) DO NOTHING
+                    (season, source, week, home_team, away_team, gameday, gametime)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (season, source, week, home_team, away_team) DO UPDATE SET
+                    gameday = excluded.gameday,
+                    gametime = excluded.gametime
                 """,
                 [
                     row.get("season"),
@@ -679,6 +685,8 @@ class Store:
                     row.get("week"),
                     row.get("home_team"),
                     row.get("away_team"),
+                    row.get("gameday"),
+                    row.get("gametime"),
                 ],
             )
 
@@ -724,7 +732,8 @@ class Store:
     def schedule_game_rows(self, season: int, source: str = "schedule") -> list[dict[str, Any]]:
         """Return stored regular-season games for a season/source as plain dicts."""
         cursor = self.conn.execute(
-            "SELECT season, source, week, home_team, away_team FROM schedule_games "
+            "SELECT season, source, week, home_team, away_team, gameday, gametime "
+            "FROM schedule_games "
             "WHERE season = ? AND source = ? ORDER BY week, home_team, away_team",
             [season, source],
         )
