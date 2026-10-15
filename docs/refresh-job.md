@@ -124,12 +124,8 @@ Other options, combined in one quoted `ARGS` string:
 ### Outcomes
 
 - **Non-zero exit.** Hard failure. The `FAIL` line names the command; report
-  it. Exit 126 is the exception below.
-- **Exit 126.** [scripts/inseason-refresh.sh](../scripts/inseason-refresh.sh)
-  can exit 126 (`Argument list too long`) from the final dashboard dump after
-  `ros`, `lineup`, and `digest` have already published. `make refresh` stops
-  on it too (only exit 3 is swallowed). That is soft, not a publish `FAIL`.
-  Confirm the cards from their `generated_at` timestamps.
+  it. (Older builds could exit 126, `Argument list too long`, from the final
+  dashboard dump; that is fixed, so a 126 now is a real failure.)
 - **Stale Yahoo bundle.** The run still finishes the season sync and every
   Sleeper step, skips the Yahoo league sync and the three Yahoo cards
   (`[yahoo-…] skipped: … bundle is STALE`), and ends with:

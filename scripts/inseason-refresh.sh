@@ -172,14 +172,20 @@ $yahoo_stale || dashboards+=("$YAHOO_KEY")
 $yahoo_only || dashboards+=("$SLEEPER_KEY")
 for key in ${dashboards[@]+"${dashboards[@]}"}; do
   view=$(api "/api/inseason?season=$S&week=$W&league=$key") || { echo "error: GET /api/inseason for $key failed" >&2; exit 1; }
-  VIEW_JSON="$view" python3 - "$key" <<'EOF'
-import json, os, sys
-view = json.loads(os.environ["VIEW_JSON"])
+  # Hand the view over in a file: one env var or argv string is capped at
+  # 128 KiB on Linux, and large dashboards overflowed it (exit 126).
+  view_file=$(mktemp)
+  printf '%s' "$view" >"$view_file"
+  python3 - "$key" "$view_file" <<'EOF'
+import json, sys
+with open(sys.argv[2]) as f:
+    view = json.load(f)
 print(f"dashboard {sys.argv[1]}: actuals weeks {sorted(view.get('actuals_available', {}))}")
 for kind, card in sorted((view.get("cards") or {}).items()):
     envelope = (card or {}).get("envelope") or {}
     print(f"  {kind:7} week {envelope.get('week')}  generated {envelope.get('generated_at')}")
 EOF
+  rm -f "$view_file"
 done
 
 if $yahoo_stale; then

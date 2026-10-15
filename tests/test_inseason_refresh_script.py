@@ -17,7 +17,12 @@ STALE_EXIT = 3
 
 
 def _refresh(
-    tmp_path: Path, leagues: list[dict], *args: str, via_make: bool = False, uv_exit: int = 0
+    tmp_path: Path,
+    leagues: list[dict],
+    *args: str,
+    via_make: bool = False,
+    uv_exit: int = 0,
+    inseason: dict | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a copy of the script (or ``make refresh``) with fake curl and uv.
 
@@ -31,6 +36,7 @@ def _refresh(
     shutil.copy(REPO / "Makefile", tmp_path / "Makefile")
     (tmp_path / "state.json").write_text(json.dumps({"season": "2026", "week": 4}))
     (tmp_path / "leagues.json").write_text(json.dumps({"leagues": leagues}))
+    (tmp_path / "inseason.json").write_text(json.dumps(inseason or {"cards": {}}))
     curl = bin_dir / "curl"
     curl.write_text(
         "#!/usr/bin/env bash\n"
@@ -38,7 +44,7 @@ def _refresh(
         'case "$last" in\n'
         f'  */state/nfl) cat "{tmp_path}/state.json" ;;\n'
         f'  */api/leagues) cat "{tmp_path}/leagues.json" ;;\n'
-        "  */api/inseason\\?*) echo '{\"cards\": {}}' ;;\n"
+        f'  */api/inseason\\?*) cat "{tmp_path}/inseason.json" ;;\n'
         "  *) exit 22 ;;\n"
         "esac\n"
     )
@@ -200,3 +206,13 @@ def test_yahoo_only_rerun_touches_nothing_but_yahoo(tmp_path):
     assert ran == YAHOO_COMMANDS
     assert f"dashboard {SLEEPER_KEY}" not in result.stdout
     assert f"dashboard {YAHOO_KEY}" in result.stdout
+
+
+def test_a_dashboard_larger_than_one_argument_still_prints(tmp_path):
+    # Linux caps a single argv/env string at 128 KiB; the view must not ride in one.
+    envelope = {"week": 4, "generated_at": "2026-10-15T07:30:00Z", "note": "x" * 300_000}
+    big = {"actuals_available": {"3": True}, "cards": {"lineup": {"envelope": envelope}}}
+    result = _refresh(tmp_path, [_fresh(YAHOO_KEY), _fresh(SLEEPER_KEY)], inseason=big)
+    assert result.returncode == 0, result.stderr
+    assert f"dashboard {YAHOO_KEY}: actuals weeks ['3']" in result.stdout
+    assert "lineup  week 4  generated 2026-10-15T07:30:00Z" in result.stdout
