@@ -78,6 +78,16 @@ class CaptureError(ValueError):
     pass
 
 
+# Yahoo appends its default to a customized category's label, as hover text
+# ("Yahoo Default") or a tooltip suffix ("Passing Yards(Yahoo Default: 25 yards
+# per point)"). The league value sits in its own cell, so drop the suffix.
+_YAHOO_DEFAULT = re.compile(r"\s*(?:\(Yahoo Default:[^()]*\)|Yahoo Default)$")
+
+
+def scoring_label(label: str) -> str:
+    return _YAHOO_DEFAULT.sub("", label.strip())
+
+
 def read_capture(path: Path, *, sha256: str, size: int) -> dict[str, Any]:
     """Reassemble an export and check it against what capture.js reported."""
     text = path.read_text(encoding="utf-8").strip()
@@ -118,6 +128,7 @@ def parse_points(value: str) -> float | int:
 def scoring_settings(rows: list[list[str]]) -> tuple[list[dict], list[dict]]:
     rules: list[dict[str, Any]] = []
     unmapped: list[dict[str, Any]] = []
+    rows = [(section, scoring_label(label), value) for section, label, value in rows]
     for section, label, value in rows:
         key = (section, label)
         if key in STAT_MAP:

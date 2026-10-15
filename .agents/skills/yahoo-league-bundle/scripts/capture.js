@@ -43,6 +43,8 @@
   // Settings: roster positions and the league's scoring column. Scoring rows
   // follow section headers whose value cell reads "League Value" (Offense,
   // Defense/Special Teams, Kickers); each rule is [section, label, value].
+  // A customized category's label carries Yahoo's default as "Yahoo Default"
+  // or "(Yahoo Default: 25 yards per point)"; build_bundle.py strips it too.
   const settings = await page(`/f1/${LEAGUE_ID}/settings`);
   const settingRows = [...settings.doc.querySelectorAll("table tr")].map((tr) =>
     [...tr.querySelectorAll("th,td")].map(cellText),
@@ -53,7 +55,7 @@
   for (const r of settingRows) {
     if (r[1] === "League Value") section = r[0];
     else if (section && r.length >= 2 && r[0] && r[1]) {
-      scoring.push([section, r[0].replace(/\s*Yahoo Default$/, ""), r[1]]);
+      scoring.push([section, r[0].replace(/\s*(?:\(Yahoo Default:[^()]*\)|Yahoo Default)$/, ""), r[1]]);
     }
   }
   const gameKeys = [

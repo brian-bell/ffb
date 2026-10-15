@@ -61,6 +61,28 @@ def test_full_capture_builds():
     assert _players(_build(_capture())) == 150
 
 
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Passing Yards(Yahoo Default: 25 yards per point)",
+        "Passing Yards (Yahoo Default: 25 yards per point)",
+        "Passing Yards Yahoo Default",
+    ],
+)
+def test_yahoo_default_suffix_is_stripped_from_scoring_labels(label):
+    capture = _capture()
+    row = next(r for r in capture["scoring"] if r[1] == "Passing Yards")
+    row[1:] = [label, "20 yards per point"]
+    rules = _build(capture)["settings"]["scoring_rules"]
+    pass_yd = next(r for r in rules if r["stat_key"] == "pass_yd")
+    assert pass_yd == {
+        "stat_key": "pass_yd",
+        "points": 0.05,
+        "provider_stat_id": "4",
+        "provider_name": "Passing Yards",
+    }
+
+
 def test_noisy_defense_lines_resolve_by_yahoo_id():
     """A WR-shaped Rams line stays LAR. Chargers stay LAC, not a guessed city."""
     capture = _capture()
