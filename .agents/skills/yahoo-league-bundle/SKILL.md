@@ -83,8 +83,9 @@ and the sourced `.env` in every call that uses them.
    slots from "Roster Positions", builds player keys as `470.p.<id>`, checks
    that every known scoring category was captured, team count, one user team,
    roster/team key parity, nonempty rosters, that each team's rendered slot
-   labels match Roster Positions exactly (so a table cut off partway fails),
-   that every player sits in a rendered slot, and unique player ids, then runs
+   labels match Roster Positions (so a table cut off partway fails; the only
+   allowed extra is one BN row per empty starting slot, see below), that
+   every player sits in a rendered slot, and unique player ids, then runs
    `ffb.league.parse_bundle`. It prints a one-line
    summary and the roster changes versus the previous bundle.
 
@@ -124,9 +125,12 @@ and the sourced `.env` in every call that uses them.
   the capture reads only `statTable*` rows. A roster row without a slot label,
   or a filled row it cannot parse, stops the capture.
 - The capture records every row's slot label under `slots`, filled or not, and
-  the builder requires that multiset to equal Roster Positions. Rows whose text
-  contains `(Empty)` count as slots but not players. No MCFFL team had an empty
-  slot in weeks 1–4 of 2026, so the empty-row markup is unverified. The
+  the builder requires that multiset to match Roster Positions. Rows whose text
+  contains `(Empty)` count as slots but not players. Yahoo limits the roster
+  by total size, so each `(Empty)` starting slot adds one extra BN row (week 7
+  of 2026: Pardoe Crawdads started no QB and rendered an empty QB row plus 8
+  BN rows for 7 BN positions, all 8 filled). The builder allows extra BN rows
+  up to the number of empty starting slots and rejects any other extra. The
   capture expects the slot label to stay in the first cell. If Yahoo instead
   drops the row or blanks that label, the team fails closed ("roster row
   without a slot label" or "missing" slots). Check the page before relaxing

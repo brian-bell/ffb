@@ -238,6 +238,7 @@ def build(capture: dict[str, Any], *, season: int, user_team: str, expect_teams:
     slots = roster_slots(capture["roster_positions"])
     capacity = sum(s["count"] for s in slots)
     expected = Counter({s["position"]: s["count"] for s in slots})
+    starting = Counter({s["position"]: s["count"] for s in slots if s["is_starting"]})
     if "slots" not in capture:
         raise CaptureError("capture has no rendered roster slots; re-run the current capture.js")
     for team_id, name, _ in capture["teams"]:
@@ -245,15 +246,21 @@ def build(capture: dict[str, Any], *, season: int, user_team: str, expect_teams:
         if not 0 < size <= capacity:
             raise CaptureError(f"{name}: captured {size} players for {capacity} roster slots")
         # Every Roster Positions slot renders as a row, filled or "(Empty)", so a
-        # short multiset means the roster table was cut off partway.
+        # short multiset means the roster table was cut off partway. Yahoo caps
+        # the roster at its total size, not per slot: each "(Empty)" starting
+        # slot adds one extra BN row so a full roster still fits (2026 week 7,
+        # no QB started, rendered 8 BN rows for 7 BN positions).
         rendered = Counter(capture["slots"].get(team_id, []))
-        if rendered != expected:
-            missing, extra = expected - rendered, rendered - expected
+        filled = Counter(row.split("|", 1)[0] for row in capture["rosters"][team_id])
+        missing, extra = expected - rendered, rendered - expected
+        empty_starting = sum((starting - filled).values())
+        if missing or set(extra) - {"BN"} or extra["BN"] > empty_starting:
             raise CaptureError(
                 f"{name}: rendered roster slots do not match Roster Positions "
-                f"(missing {dict(missing)}, extra {dict(extra)})"
+                f"(missing {dict(missing)}, extra {dict(extra)}, "
+                f"empty starting slots {empty_starting})"
             )
-        unrendered = Counter(row.split("|", 1)[0] for row in capture["rosters"][team_id]) - rendered
+        unrendered = filled - rendered
         if unrendered:
             raise CaptureError(f"{name}: players in unrendered slots {dict(unrendered)}")
     bundle = {
