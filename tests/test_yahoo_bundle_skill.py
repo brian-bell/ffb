@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -113,6 +114,28 @@ def test_empty_rendered_slots_are_not_players():
     assert _players(_build(capture)) == 150 - 8
 
 
+def _empty_qb_full_bench(capture, team="4"):
+    # 2026 week 7: Pardoe Crawdads started no QB. Yahoo renders the "(Empty)" QB
+    # row plus an eighth BN row, so all 15 players still fit on the roster.
+    capture["slots"][team] = [*RENDERED[:13], "BN", "DEF", "BN"]
+    rows = [r for r in capture["rosters"][team] if not r.startswith("QB|")]
+    capture["rosters"][team] = [*rows, f"BN|{int(team) * 100 + 99}|BUF|QB|Bench QB {team}"]
+
+
+def test_empty_starting_slot_with_full_bench_builds():
+    capture = _capture()
+    _empty_qb_full_bench(capture)
+    bundle = _build(capture)
+    roster = next(r for r in bundle["rosters"] if r["team_key"].endswith(".t.4"))
+    slots = Counter(p["selected_position"] for p in roster["players"])
+    assert len(roster["players"]) == 15
+    assert slots["QB"] == 0
+    assert slots["BN"] == 8
+    assert {"position": "BN", "count": 7, "is_starting": False} in bundle["settings"][
+        "roster_slots"
+    ]
+
+
 def _truncate(capture, rows):
     capture["slots"]["4"] = capture["slots"]["4"][:rows]
     capture["rosters"]["4"] = capture["rosters"]["4"][:rows]
@@ -120,6 +143,15 @@ def _truncate(capture, rows):
 
 def _extra_slot(capture):
     capture["slots"]["3"].append("IR")
+
+
+def _extra_bench_without_empty_start(capture):
+    capture["slots"]["6"].append("BN")
+
+
+def _two_extra_bench_for_one_empty_start(capture):
+    _empty_qb_full_bench(capture, "7")
+    capture["slots"]["7"].append("BN")
 
 
 def _unrendered_player(capture):
@@ -140,6 +172,11 @@ def _all_slots_empty(capture):
         (lambda c: _truncate(c, 9), r"Team 4: rendered roster slots .*\(missing"),
         (lambda c: _truncate(c, 13), r"Team 4: rendered roster slots .*\(missing \{'DEF': 1"),
         (_extra_slot, r"Team 3: .* extra \{'IR': 1\}"),
+        (_extra_bench_without_empty_start, r"Team 6: .* extra \{'BN': 1\}, empty starting slots 0"),
+        (
+            _two_extra_bench_for_one_empty_start,
+            r"Team 7: .* extra \{'BN': 2\}, empty starting slots 1",
+        ),
         (_unrendered_player, r"Team 5: players in unrendered slots \{'TE': 1\}"),
         (_no_slots, "re-run the current capture.js"),
         (_all_slots_empty, "Team 4: captured 0 players"),
@@ -148,6 +185,8 @@ def _all_slots_empty(capture):
         "truncated-9-of-15",
         "second-table-missing",
         "extra-slot",
+        "extra-bench-no-empty-start",
+        "extra-bench-exceeds-empty-starts",
         "unrendered-player",
         "legacy-capture",
         "empty-roster",
