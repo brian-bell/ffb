@@ -2,6 +2,7 @@
 
 import copy
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -38,8 +39,10 @@ def _crosswalk_row(player_key, yahoo_id, name, position, team):
     }
 
 
-def _pool(*players):
+def _pool(*players, synced_at=None):
     data = json.loads(POOL.read_text())
+    if synced_at is not None:
+        data["synced_at"] = synced_at
     data["league"].update(league_id="sit-1", league_key="1.l.sit", name="Sit Start Mock")
     data["players"] = [
         {
@@ -183,9 +186,14 @@ def test_waivers_from_tracker_reports_a_missing_or_invalid_pool(tmp_path, monkey
     assert "invalid free-agent pool" in invalid.output
 
 
+def _scraped(days_ago):
+    when = datetime.now(UTC).replace(microsecond=0) - timedelta(days=days_ago)
+    return when.isoformat().replace("+00:00", "Z")
+
+
 def test_waivers_publish_posts_to_the_yahoo_slot(tmp_path, monkeypatch):
     env = _yahoo_env(tmp_path)
-    pool = _write_pool(tmp_path, _pool(("40001", "Waiver Back", "RB")))
+    pool = _write_pool(tmp_path, _pool(("40001", "Waiver Back", "RB"), synced_at=_scraped(1)))
     posted = _capture(monkeypatch)
     result = runner.invoke(app, [*WAIVERS, "--fixture", pool, "--publish"], env=env)
     assert result.exit_code == 0, result.output
@@ -195,3 +203,56 @@ def test_waivers_publish_posts_to_the_yahoo_slot(tmp_path, monkeypatch):
     assert call["body"]["kind"] == "waivers"
     assert call["body"]["report"]["candidates"][0]["name"] == "Waiver Back"
     assert call["body"]["report"]["free_agents"] == 1
+
+
+def test_waivers_refuses_to_publish_a_stale_pool_and_keeps_the_snapshot(tmp_path, monkeypatch):
+    env = _yahoo_env(tmp_path)
+    fresh = _pool(("40001", "Waiver Back", "RB"), synced_at=_scraped(1))
+    assert (
+        runner.invoke(app, [*WAIVERS, "--fixture", _write_pool(tmp_path, fresh)], env=env).exit_code
+        == 0
+    )
+    stale = _write_pool(tmp_path, _pool(("40001", "Waiver Back", "RB"), synced_at=_scraped(6)))
+    posted = _capture(monkeypatch)
+    result = runner.invoke(app, [*WAIVERS, "--fixture", stale, "--publish"], env=env)
+    assert result.exit_code == 1
+    assert "older than 5 days" in result.output
+    assert posted == []
+    snapshots = SnapshotCache(Path(env["FFB_SNAPSHOT_DIR"]))
+    stored = snapshots.read_json(free_agents_snapshot_key(2024, LEAGUE))
+    assert stored["synced_at"] == fresh["synced_at"]
+
+
+def test_waivers_warns_on_a_stale_pool_without_publishing(tmp_path):
+    env = _yahoo_env(tmp_path)
+    stale = _write_pool(tmp_path, _pool(("40001", "Waiver Back", "RB"), synced_at=_scraped(6)))
+    result = runner.invoke(app, [*WAIVERS, "--fixture", stale], env=env)
+    assert result.exit_code == 0, result.output
+    assert "older than 5 days" in result.output
+    assert "Waiver Back" in result.output
+
+
+def test_waivers_rejects_a_pool_from_another_league_and_keeps_the_snapshot(tmp_path):
+    env = _yahoo_env(tmp_path)
+    good = _pool(("40001", "Waiver Back", "RB"))
+    assert (
+        runner.invoke(app, [*WAIVERS, "--fixture", _write_pool(tmp_path, good)], env=env).exit_code
+        == 0
+    )
+    result = runner.invoke(app, [*WAIVERS, "--fixture", str(POOL)], env=env)
+    assert result.exit_code == 1
+    assert "yahoo:423.l.1" in result.output
+    snapshots = SnapshotCache(Path(env["FFB_SNAPSHOT_DIR"]))
+    stored = snapshots.read_json(free_agents_snapshot_key(2024, LEAGUE))
+    assert stored["league"]["league_key"] == "1.l.sit"
+
+
+def test_waivers_from_tracker_rejects_a_pool_from_another_league(tmp_path, monkeypatch):
+    env = _yahoo_env(tmp_path)
+    _serve_pool(monkeypatch, json.loads(POOL.read_text()))
+    result = runner.invoke(app, [*WAIVERS, "--from-tracker"], env=env)
+    assert result.exit_code == 1
+    assert "yahoo:423.l.1" in result.output
+    assert not SnapshotCache(Path(env["FFB_SNAPSHOT_DIR"])).has(
+        free_agents_snapshot_key(2024, LEAGUE)
+    )

@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from ffb import identity
+from ffb import config, identity
 from ffb.retro import league_snapshot_segment
 
 
@@ -30,6 +30,17 @@ class FreeAgentsBundle:
     @property
     def players(self) -> list[dict[str, Any]]:
         return self.data["players"]
+
+
+# A pool scraped longer ago than this misses recent drops and is not published;
+# it matches the dashboard's 5-day lineup/waivers stale limit.
+POOL_MAX_AGE = timedelta(days=5)
+
+
+def pool_age(bundle: FreeAgentsBundle, *, now: datetime) -> timedelta:
+    """Time since the pool was scraped."""
+    synced_at = datetime.fromisoformat(bundle.data["synced_at"].replace("Z", "+00:00"))
+    return now - synced_at
 
 
 def free_agents_snapshot_key(season: int, league_key: str | None = None) -> str:
@@ -72,8 +83,14 @@ def resolve_free_agents(
     return pool, sorted(unmatched)
 
 
-def parse_free_agents(payload: object, *, season: int) -> FreeAgentsBundle:
-    """Validate the closed schema-v1 free-agents contract before any write."""
+def parse_free_agents(
+    payload: object, *, season: int, league_key: str | None = None
+) -> FreeAgentsBundle:
+    """Validate the closed schema-v1 free-agents contract before any write.
+
+    With ``league_key``, the bundle's namespaced league must be that league, so
+    one league's pool is never stored or ranked under another.
+    """
     data = _mapping(payload, "bundle")
     _exact_keys(data, {"schema_version", "source", "synced_at", "league", "players"}, "bundle")
     if data["schema_version"] != 1:
@@ -94,6 +111,10 @@ def parse_free_agents(payload: object, *, season: int) -> FreeAgentsBundle:
         raise ValueError(
             f"requested season {season} does not match bundle season {league['season']}"
         )
+    if league_key is not None:
+        bundle_league = config.namespaced_league_key(data["source"], league["league_key"])
+        if bundle_league != league_key:
+            raise ValueError(f"bundle league {bundle_league} does not match {league_key}")
 
     players = _list(data["players"], "players")
     if not players:

@@ -497,9 +497,10 @@ unchanged: only step 2 differs. The pool is the matched consensus rows whose
 canonical key is both in the scraped pool and on no roster in the league. Ids
 that do not resolve through the crosswalk are named in a CLI warning and
 excluded; they are never guessed. Eligibility beyond the crosswalk position
-(a QB/TE) comes from the scraped `eligible_positions`. Stale pools show up as a
-`stale` card through the usual 5-day limit, since the envelope carries no pool
-timestamp; the CLI prints the scrape time on every run.
+(a QB/TE) comes from the scraped `eligible_positions`. A pool from another
+league is rejected before it is snapshotted. The envelope carries no pool
+timestamp, so `--publish` refuses a pool scraped more than 5 days ago and a
+local run warns; the CLI prints the scrape time on every run.
 
 Freshness, first match wins:
 

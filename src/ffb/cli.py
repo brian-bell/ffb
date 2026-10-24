@@ -41,7 +41,13 @@ from ffb.claude import (
     sonnet_user_prompt,
 )
 from ffb.consensus import consensus_rows
-from ffb.free_agents import free_agents_snapshot_key, parse_free_agents, resolve_free_agents
+from ffb.free_agents import (
+    POOL_MAX_AGE,
+    free_agents_snapshot_key,
+    parse_free_agents,
+    pool_age,
+    resolve_free_agents,
+)
 from ffb.inseason import build_envelope, utc_now
 from ffb.league import FixtureLeagueSource, parse_bundle
 from ffb.league_context import LeagueSettingsUnavailable, load_league_context
@@ -1694,24 +1700,29 @@ def _without_synced_at(data: object) -> object:
     return {key: value for key, value in data.items() if key != "synced_at"}
 
 
-def _load_free_agents(season: int, league_key: str, *, from_tracker: bool, fixture: Path | None):
+def _load_free_agents(
+    season: int, league_key: str, *, from_tracker: bool, fixture: Path | None, publish: bool
+):
     """Yahoo's free-agent pool from a fixture, the Worker, or the last snapshot.
 
     Yahoo exposes no pool the CLI can fetch, so the Grok bot scrapes it and POSTs
     it to the Worker. A fixture or tracker pull is validated and then snapshotted;
-    with neither flag the last snapshot is reused, and its age is reported.
+    with neither flag the last snapshot is reused, and its age is reported. Under
+    ``--publish`` a pool too old to publish is refused before it can replace the
+    snapshot; a local run only warns.
     """
     cache = SnapshotCache(paths.snapshot_dir())
     key = free_agents_snapshot_key(season, league_key)
     if fixture is not None:
         try:
-            bundle = parse_free_agents(json.loads(fixture.read_text()), season=season)
+            bundle = parse_free_agents(
+                json.loads(fixture.read_text()), season=season, league_key=league_key
+            )
         except (OSError, ValueError) as exc:
             console.print(f"[red]Invalid free-agents fixture:[/red] {exc}")
             raise typer.Exit(code=1) from exc
-        cache.put_json(key, bundle.data, mode=0o600)
     elif from_tracker:
-        bundle = _pull_free_agents_from_tracker(cache, key, season=season, league_key=league_key)
+        bundle = _pull_free_agents_from_tracker(season=season, league_key=league_key)
     else:
         if not cache.has(key):
             console.print(
@@ -1721,10 +1732,13 @@ def _load_free_agents(season: int, league_key: str, *, from_tracker: bool, fixtu
             )
             raise typer.Exit(code=1)
         try:
-            bundle = parse_free_agents(cache.read_json(key), season=season)
+            bundle = parse_free_agents(cache.read_json(key), season=season, league_key=league_key)
         except ValueError as exc:
             console.print(f"[red]Stored free-agent pool is invalid:[/red] {exc}")
             raise typer.Exit(code=1) from exc
+    _check_pool_age(bundle, publish=publish)
+    if fixture is not None or from_tracker:
+        cache.put_json(key, bundle.data, mode=0o600)
     console.print(
         f"[dim]Free-agent pool: {len(bundle.players)} players, "
         f"scraped {bundle.data['synced_at']}.[/dim]"
@@ -1732,8 +1746,25 @@ def _load_free_agents(season: int, league_key: str, *, from_tracker: bool, fixtu
     return bundle
 
 
-def _pull_free_agents_from_tracker(cache: SnapshotCache, key: str, *, season: int, league_key: str):
-    """Fetch the Worker's stored pool, validate it, then snapshot it locally."""
+def _check_pool_age(bundle, *, publish: bool) -> None:
+    """Refuse to publish a pool older than ``POOL_MAX_AGE``; warn on a local run."""
+    if pool_age(bundle, now=datetime.now(UTC)) <= POOL_MAX_AGE:
+        return
+    stale = (
+        f"Free-agent pool scraped {bundle.data['synced_at']} is older than "
+        f"{POOL_MAX_AGE.days} days and may list players who are no longer available."
+    )
+    if publish:
+        console.print(
+            f"[red]{stale}[/red] Have the Grok bot re-scrape Yahoo and POST a new "
+            f"pool to /api/free-agents first, then rerun with --from-tracker --publish."
+        )
+        raise typer.Exit(code=1)
+    console.print(f"[yellow]{stale}[/yellow]")
+
+
+def _pull_free_agents_from_tracker(*, season: int, league_key: str):
+    """Fetch the Worker's stored pool and validate it; the caller snapshots it."""
     try:
         cfg = TrackerConfig.from_env()
     except TrackerConfigError as exc:
@@ -1752,11 +1783,10 @@ def _pull_free_agents_from_tracker(cache: SnapshotCache, key: str, *, season: in
         )
         raise typer.Exit(code=1)
     try:
-        bundle = parse_free_agents(payload, season=season)
+        bundle = parse_free_agents(payload, season=season, league_key=league_key)
     except ValueError as exc:
         console.print(f"[red]Tracker returned an invalid free-agent pool:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    cache.put_json(key, bundle.data, mode=0o600)
     return bundle
 
 
@@ -1943,7 +1973,7 @@ def waivers(
     if not is_sleeper:
         try:
             pool_bundle = _load_free_agents(
-                season, league_key, from_tracker=from_tracker, fixture=fixture
+                season, league_key, from_tracker=from_tracker, fixture=fixture, publish=publish
             )
         except typer.Exit:
             store.close()

@@ -2,11 +2,12 @@
 
 import copy
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from ffb.free_agents import parse_free_agents
+from ffb.free_agents import parse_free_agents, pool_age
 
 FIXTURE = json.loads(Path("tests/fixtures/free_agents_minimal.json").read_text())
 
@@ -57,3 +58,15 @@ def test_rejects_closed_schema_violations(change, message):
 def test_rejects_season_mismatch():
     with pytest.raises(ValueError, match="does not match bundle season"):
         parse_free_agents(FIXTURE, season=2026)
+
+
+def test_rejects_a_pool_from_another_league():
+    assert parse_free_agents(FIXTURE, season=2024, league_key="yahoo:423.l.1").league
+    with pytest.raises(ValueError, match="bundle league yahoo:423.l.1 does not match"):
+        parse_free_agents(FIXTURE, season=2024, league_key="yahoo:other-league")
+
+
+def test_pool_age_is_measured_from_the_scrape():
+    bundle = parse_free_agents(FIXTURE, season=2024)
+    now = datetime(2024, 9, 17, 14, 0, tzinfo=UTC)
+    assert pool_age(bundle, now=now) == timedelta(days=5)

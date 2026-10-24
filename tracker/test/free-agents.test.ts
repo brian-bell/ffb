@@ -41,7 +41,22 @@ describe("parseFreeAgents", () => {
     ["an unknown key", (b: Record<string, unknown>) => (b.extra = 1), "unknown or missing"],
     ["schema v2", (b: Record<string, unknown>) => (b.schema_version = 2), "schema_version"],
     ["a sleeper source", (b: Record<string, unknown>) => (b.source = "sleeper"), "fixture or yahoo"],
-    ["a space timestamp", (b: Record<string, unknown>) => (b.synced_at = "nope"), "RFC 3339"],
+    ["an unparseable timestamp", (b: Record<string, unknown>) => (b.synced_at = "nope"), "RFC 3339"],
+    [
+      "a space-separated timestamp",
+      (b: Record<string, unknown>) => (b.synced_at = "2024-09-12 14:00:00Z"),
+      "RFC 3339",
+    ],
+    [
+      "an impossible calendar date",
+      (b: Record<string, unknown>) => (b.synced_at = "2024-02-30T14:00:00Z"),
+      "RFC 3339",
+    ],
+    [
+      "an out-of-range time",
+      (b: Record<string, unknown>) => (b.synced_at = "2024-09-12T24:00:00Z"),
+      "RFC 3339",
+    ],
     ["an empty pool", (b: Record<string, unknown>) => (b.players = []), "failed scrape"],
   ])("rejects %s", (_name, change, message) => {
     const bundle = structuredClone(fixture);

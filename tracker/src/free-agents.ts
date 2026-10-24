@@ -152,8 +152,24 @@ function positiveInt(value: unknown, name: string): number {
   return value;
 }
 
+// Mirrors ``ffb.free_agents._UTC_TIMESTAMP``: a `T` separator, a real calendar
+// date and time, and a literal `Z` or `+00:00`, so a pool the Worker accepts is
+// never one the CLI rejects.
+const UTC_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+]00:00)$/;
+
 function utcTimestamp(value: unknown, name: string): void {
-  if (typeof value !== "string") throw new Error(`${name} must be an RFC 3339 UTC timestamp`);
-  if (Number.isNaN(Date.parse(value))) throw new Error(`${name} must be an RFC 3339 UTC timestamp`);
-  if (!/(Z|[+]00:00)$/.test(value)) throw new Error(`${name} must be UTC`);
+  const match = typeof value === "string" ? UTC_TIMESTAMP.exec(value) : null;
+  if (!match) throw new Error(`${name} must be an RFC 3339 UTC timestamp (Z or +00:00)`);
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day ||
+    parsed.getUTCHours() !== hour ||
+    parsed.getUTCMinutes() !== minute ||
+    parsed.getUTCSeconds() !== second
+  ) {
+    throw new Error(`${name} must be an RFC 3339 UTC timestamp`);
+  }
 }

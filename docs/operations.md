@@ -52,7 +52,8 @@ command just printed to the tracker's `/api/inseason/{kind}` route for the
 rejects `-p`. `ffb waivers` on a Sleeper league reads the league sync. On a Yahoo league it
 ranks the free-agent pool the Grok bot POSTed to `/api/free-agents`: pass
 `--from-tracker` to pull it (or `--fixture PATH`); with neither it reuses the
-last snapshot and exits 1 if there is none. A publish failure prints the Worker's error, exits 1, and leaves
+last snapshot and exits 1 if there is none. A pool from another league is
+rejected, and `--publish` refuses a pool scraped more than 5 days ago. A publish failure prints the Worker's error, exits 1, and leaves
 local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
 accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be
 combined with `--fixture` or `--refresh`.
