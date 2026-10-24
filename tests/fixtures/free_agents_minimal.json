@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "source": "fixture",
+  "synced_at": "2024-09-12T14:00:00Z",
+  "league": {
+    "league_id": "1",
+    "league_key": "423.l.1",
+    "name": "Fixture League",
+    "season": 2024,
+    "week": 2,
+    "num_teams": 10
+  },
+  "players": [
+    {
+      "native_id": "40001",
+      "native_player_key": "423.p.40001",
+      "name": "Waiver Back",
+      "nfl_team": "ATL",
+      "primary_position": "RB",
+      "eligible_positions": ["RB"]
+    }
+  ]
+}

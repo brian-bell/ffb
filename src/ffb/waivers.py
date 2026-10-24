@@ -76,6 +76,7 @@ def waiver_report(
     injuries: list[dict[str, Any]] | None = None,
     unmatched_rostered: list[str] | None = None,
     eligibility: dict[str, list[str]] | None = None,
+    free_agent_keys: set[str] | None = None,
     per_position: int = CANDIDATES_PER_POSITION,
 ) -> dict[str, Any]:
     """Rank unrostered players by ROS gain over the weakest starter they could replace.
@@ -101,6 +102,7 @@ def waiver_report(
         for row in consensus
         if row.get("matched")
         and row.get("player_key") not in rostered_keys
+        and (free_agent_keys is None or row.get("player_key") in free_agent_keys)
         and row.get("position") in startable
         and row.get("consensus") is not None
     ]

@@ -41,6 +41,7 @@ from ffb.claude import (
     sonnet_user_prompt,
 )
 from ffb.consensus import consensus_rows
+from ffb.free_agents import free_agents_snapshot_key, parse_free_agents, resolve_free_agents
 from ffb.inseason import build_envelope, utc_now
 from ffb.league import FixtureLeagueSource, parse_bundle
 from ffb.league_context import LeagueSettingsUnavailable, load_league_context
@@ -83,6 +84,7 @@ from ffb.sources.tracker import (
     TrackerConfigError,
     TrackerPublishError,
     fetch_actuals,
+    fetch_free_agents,
     fetch_league_bundle,
     publish_inseason,
     publish_league_bundle,
@@ -1707,6 +1709,72 @@ def _without_synced_at(data: object) -> object:
     return {key: value for key, value in data.items() if key != "synced_at"}
 
 
+def _load_free_agents(season: int, league_key: str, *, from_tracker: bool, fixture: Path | None):
+    """Yahoo's free-agent pool from a fixture, the Worker, or the last snapshot.
+
+    Yahoo exposes no pool the CLI can fetch, so the Grok bot scrapes it and POSTs
+    it to the Worker. A fixture or tracker pull is validated and then snapshotted;
+    with neither flag the last snapshot is reused, and its age is reported.
+    """
+    cache = SnapshotCache(paths.snapshot_dir())
+    key = free_agents_snapshot_key(season, league_key)
+    if fixture is not None:
+        try:
+            bundle = parse_free_agents(json.loads(fixture.read_text()), season=season)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Invalid free-agents fixture:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        cache.put_json(key, bundle.data, mode=0o600)
+    elif from_tracker:
+        bundle = _pull_free_agents_from_tracker(cache, key, season=season, league_key=league_key)
+    else:
+        if not cache.has(key):
+            console.print(
+                f"[red]No free-agent pool for {league_key}.[/red] Have the Grok bot POST a "
+                f"FreeAgentsBundle to /api/free-agents, then pass --from-tracker, or pass "
+                f"--fixture PATH."
+            )
+            raise typer.Exit(code=1)
+        try:
+            bundle = parse_free_agents(cache.read_json(key), season=season)
+        except ValueError as exc:
+            console.print(f"[red]Stored free-agent pool is invalid:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+    console.print(
+        f"[dim]Free-agent pool: {len(bundle.players)} players, "
+        f"scraped {bundle.data['synced_at']}.[/dim]"
+    )
+    return bundle
+
+
+def _pull_free_agents_from_tracker(cache: SnapshotCache, key: str, *, season: int, league_key: str):
+    """Fetch the Worker's stored pool, validate it, then snapshot it locally."""
+    try:
+        cfg = TrackerConfig.from_env()
+    except TrackerConfigError as exc:
+        console.print(f"[red]Cannot pull the free-agent pool:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    try:
+        with _tracker_client() as client:
+            payload = fetch_free_agents(client, cfg, season, league_key)
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
+        raise typer.Exit(code=1) from exc
+    if payload is None:
+        console.print(
+            f"[red]Tracker has no free-agent pool for {league_key}.[/red] "
+            f"POST a FreeAgentsBundle to /api/free-agents or pass --fixture PATH."
+        )
+        raise typer.Exit(code=1)
+    try:
+        bundle = parse_free_agents(payload, season=season)
+    except ValueError as exc:
+        console.print(f"[red]Tracker returned an invalid free-agent pool:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    cache.put_json(key, bundle.data, mode=0o600)
+    return bundle
+
+
 def _pull_actuals_from_tracker(
     cache: SnapshotCache, *, season: int, week: int, league_key: str | None = None
 ):
@@ -1861,18 +1929,40 @@ def waivers(
         help="POST the full report to the tracker command center.",
     ),
     league: str | None = typer.Option(None, "--league", help=LEAGUE_OPTION_HELP),
+    from_tracker: bool = typer.Option(
+        False,
+        "--from-tracker",
+        help="Yahoo only: pull the free-agent pool the Grok bot POSTed to the Worker.",
+    ),
+    fixture: Path | None = typer.Option(  # noqa: B008
+        None, "--fixture", help="Yahoo only: FreeAgentsBundle JSON. Stored under snapshots/."
+    ),
 ) -> None:
     """Rank unrostered players by ROS gain over the user's weakest starters."""
     store = _open_store()
     league_key = _select_league(store, season, league)
     assert league_key is not None
-    if not league_key.startswith("sleeper:"):
+    is_sleeper = league_key.startswith("sleeper:")
+    if is_sleeper and (from_tracker or fixture is not None):
         store.close()
         console.print(
-            f"[yellow]Waiver targets cover Sleeper leagues only; {league_key} free agents "
-            f"need Yahoo live authorization (ffb-1ct.2).[/yellow]"
+            "[red]--from-tracker and --fixture apply to Yahoo leagues; "
+            "Sleeper free agents come from the league sync.[/red]"
         )
         raise typer.Exit(code=1)
+    if from_tracker and fixture is not None:
+        store.close()
+        console.print("[red]Pass --from-tracker or --fixture, not both.[/red]")
+        raise typer.Exit(code=1)
+    pool_bundle = None
+    if not is_sleeper:
+        try:
+            pool_bundle = _load_free_agents(
+                season, league_key, from_tracker=from_tracker, fixture=fixture
+            )
+        except typer.Exit:
+            store.close()
+            raise
     context = store.league_context(season, league_key)
     if context is None:
         store.close()
@@ -1907,9 +1997,20 @@ def waivers(
     )
     status = _service(store).status(season)
     injuries = store.injury_rows(season)
-    eligibility = sleeper_league.cached_free_agent_eligibility(
-        store, SnapshotCache(paths.snapshot_dir())
-    )
+    free_agent_keys: set[str] | None = None
+    if pool_bundle is None:
+        eligibility = sleeper_league.cached_free_agent_eligibility(
+            store, SnapshotCache(paths.snapshot_dir())
+        )
+    else:
+        eligibility, unmatched_free_agents = resolve_free_agents(store, pool_bundle)
+        free_agent_keys = set(eligibility)
+        if unmatched_free_agents:
+            console.print(
+                f"[yellow]{len(unmatched_free_agents)} free agent(s) did not match the "
+                f"crosswalk and cannot be ranked: {', '.join(unmatched_free_agents)}. "
+                f"Run: ffb season sync {season}[/yellow]"
+            )
     store.close()
     _warn_source_states(status, include_adp=False, wanted={"injuries"})
     rostered_keys = {key for row in all_roster if (key := projection_key(row)) is not None}
@@ -1932,6 +2033,7 @@ def waivers(
         injuries=injuries,
         unmatched_rostered=unmatched,
         eligibility=eligibility,
+        free_agent_keys=free_agent_keys,
     )
     _render_waivers(report, season=season, week=current_week, limit=limit)
     _report_scoring_provenance(league_ctx)

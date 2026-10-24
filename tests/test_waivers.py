@@ -175,3 +175,18 @@ def test_an_unprojected_rostered_player_leaves_the_slot_baseline_unknown_not_zer
         consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS, injuries=injuries
     )
     assert _by_name(report)["49ers"]["gain"] == 110.0
+
+
+def test_an_explicit_free_agent_pool_replaces_the_league_wide_complement():
+    roster, consensus, rostered = _league()
+    # Only Free Back is confirmed available; Free Receiver may be on a waiver clock.
+    report = waiver_report(
+        consensus,
+        roster=roster,
+        rostered_keys=rostered,
+        roster_slots=SLOTS,
+        free_agent_keys={"fa-rb", "other-rb", "loose"},
+    )
+    assert list(_by_name(report)) == ["Free Back"]
+    # A rostered key never enters the pool, even if the scrape lists it.
+    assert report["free_agents"] == 1

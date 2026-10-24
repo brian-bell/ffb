@@ -24,7 +24,8 @@ uv run ffb board show 2026
 uv run ffb board export 2026
 uv run ffb lineup 2026
 uv run ffb lineup 2026 --league sleeper   # Sleeper sit/start; no DuckDB/KV write
-uv run ffb waivers 2026 --league sleeper  # free agents vs weakest starters (Sleeper only)
+uv run ffb waivers 2026 --league sleeper  # free agents vs weakest starters
+uv run ffb waivers 2026 --from-tracker    # Yahoo: rank the pool Grok POSTed to /api/free-agents
 uv run ffb retro 2026 --week 1 --fixture PATH
 uv run ffb lineup 2026 --publish          # POST to the tracker /command page
 uv run ffb league sync 2026 --from-tracker
@@ -69,6 +70,7 @@ src/ffb/          Python package and CLI
   lineup.py       weekly sit/start report
   ros.py          rest-of-season report
   waivers.py      waiver targets vs the weakest ROS starters
+  free_agents.py  closed FreeAgentsBundle v1 (Yahoo pool scraped by Grok)
   actuals.py      closed weekly scoreboard/actuals contract
   retro.py        sit/start snapshot vs actuals
   inseason.py     closed --publish envelope for the tracker command center

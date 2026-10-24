@@ -182,6 +182,30 @@ snapshot, no network). When none of those exist, the CLI pulls
 | `POST /api/actuals` | Validate and store one week's scoreboard + player actuals for the bundle's league |
 | `GET /api/actuals?season=&week=&league=` | Read that league's stored actuals. Absent `league` is Yahoo MCFFL |
 
+## Free-agent pool ingest
+
+Yahoo exposes no free-agent API to the CLI, so the Grok bot reads the pool from
+the live Yahoo UI and `POST`s a closed `FreeAgentsBundle` v1 to
+`/api/free-agents` (same bearer gate). The bundle is identity only: `source`
+(`yahoo` or `fixture`), `synced_at`, the actuals-shaped `league` object, and
+`players` (`native_id`, `native_player_key`, `name`, nullable `nfl_team`,
+`primary_position`, `eligible_positions`). Extra keys, an empty pool (a failed
+scrape), and duplicate ids are refused (400 `invalid_free_agents`). The Worker
+keeps the latest pool per season and league in KV as
+`freeagents:v1:{season}:{league}`; league resolution matches actuals (a
+non-default `yahoo` bundle must name its slot with `?league=`). A pool older
+than the stored one is refused (409 `stale_free_agents`); an equal `synced_at`
+is an idempotent replay. `GET /api/free-agents?season=&league=` reads it.
+
+`ffb waivers S --league yahoo --from-tracker` pulls, validates, and snapshots the
+pool under `snapshots/free_agents/`, resolves ids through the Yahoo crosswalk
+column, and ranks only those players. The Worker never ranks anything.
+
+| Method and route | Purpose |
+| --- | --- |
+| `POST /api/free-agents` | Validate and store the current free-agent pool for the bundle's league |
+| `GET /api/free-agents?season=&league=` | Read that league's stored pool. Absent `league` is Yahoo MCFFL |
+
 ## In-season command center
 
 `GET /command` is a read-only desktop dashboard for the five in-season CLI

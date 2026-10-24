@@ -45,8 +45,8 @@ report it; do not attempt Yahoo or the CLI.
 
 ## What you scrape from Yahoo
 
-Two documents, each week. Scrape only the pages you need and do not change any
-lineup, waiver, or setting on Yahoo.
+Three documents. Scrape only the pages you need and do not change any lineup,
+waiver claim, or setting on Yahoo; reading the free-agent list is not a claim.
 
 ### 1. LeagueBundle v1 (every run)
 
@@ -229,6 +229,54 @@ Rules:
   corrections land Tuesday, so a Wednesday mid-morning scrape is the earliest
   safe time.
 
+### 3. FreeAgentsBundle v1 (every run)
+
+The pool of players Brian could add right now, read from the league's Players
+page with Status set to Available (free agents and players still on waivers).
+Take the top 40 per position by Yahoo's own ordering for `QB`, `RB`, `WR`, `TE`,
+and `DEF`; the league has no kicker slot. Identity only, no points. Exact keys
+and nothing else:
+
+```json
+{
+  "schema_version": 1,
+  "source": "yahoo",
+  "synced_at": "2026-09-17T14:05:00Z",
+  "league": {
+    "league_id": "928421",
+    "league_key": "470.l.928421",
+    "name": "MCFFL",
+    "season": 2026,
+    "week": 2,
+    "num_teams": 10
+  },
+  "players": [
+    {
+      "native_id": "40001",
+      "native_player_key": "470.p.40001",
+      "name": "Example Back",
+      "nfl_team": "ATL",
+      "primary_position": "RB",
+      "eligible_positions": ["RB"]
+    }
+  ]
+}
+```
+
+Rules:
+
+- `league` is the same object as in the LeagueBundle, with `week` the current
+  week. `synced_at` follows the same `T` and `Z` / `+00:00` rule.
+- `players` must not be empty: an empty pool means the scrape failed, and the
+  Worker refuses it. Stop and report instead of posting nothing useful.
+- `native_id` is unique and is Yahoo's numeric player id; `native_player_key`
+  is `470.p.<native_id>`. `nfl_team` is the Yahoo abbreviation or `null`.
+  `eligible_positions` is a list of strings. Team defenses are players too,
+  with `primary_position` `DEF`.
+- Never include a player who appears on any roster in the LeagueBundle you
+  just built. If the pool and the rosters overlap, re-scrape once; if they
+  still overlap, drop the overlapping players and say so in the report.
+
 ## Posting to the Worker
 
 Every route needs `Authorization: Bearer <FFB_TRACKER_API_KEY>` and
@@ -238,13 +286,14 @@ Every route needs `Authorization: Bearer <FFB_TRACKER_API_KEY>` and
 | --- | --- | --- |
 | `POST /api/league/bundle` | LeagueBundle | 200 with `{ ok, season, current_week, teams, players, source, synced_at }` |
 | `POST /api/actuals` | WeeklyActualsBundle | 200 with `{ ok, season, week, players, matchups, key }` |
+| `POST /api/free-agents` | FreeAgentsBundle | 200 with `{ ok, season, week, players, synced_at, key }` |
 
 Handle responses as follows:
 
 | Status | Error | What to do |
 | --- | --- | --- |
-| 400 `invalid_bundle` / `invalid_actuals` | Shape failure; the message names the field | Fix the document from the page you scraped and retry once. If it still fails, stop and report the message verbatim. |
-| 409 `stale_bundle` | A newer bundle is already stored | Not an error. Continue with the CLI. |
+| 400 `invalid_bundle` / `invalid_actuals` / `invalid_free_agents` | Shape failure; the message names the field | Fix the document from the page you scraped and retry once. If it still fails, stop and report the message verbatim. |
+| 409 `stale_bundle` / `stale_free_agents` | A newer bundle is already stored | Not an error. Continue with the CLI. |
 | 409 `season_mismatch` | Season differs from the published board | Stop and report; the board and league are out of sync. |
 | 413 `payload_too_large` | Body over 10 MiB | Stop and report; a real bundle is well under 1 MiB. |
 | 401 | Bad key | Stop and report `unauthorized`. Do not retry. |
@@ -266,7 +315,8 @@ stat corrections.
 
 1. Post the week `W-1` WeeklyActualsBundle to `POST /api/actuals`.
 2. Post the week `W` LeagueBundle to `POST /api/league/bundle`.
-3. Run, in order:
+3. Post the FreeAgentsBundle to `POST /api/free-agents`.
+4. Run, in order:
 
 ```sh
 uv run ffb retro S --week W-1 --publish
@@ -275,6 +325,7 @@ uv run ffb league sync S --from-tracker
 uv run ffb ros S --publish
 uv run ffb lineup S --week W --publish
 uv run ffb digest S --publish
+uv run ffb waivers S --from-tracker --publish
 ```
 
 Retro pulls the actuals you just posted from the Worker and grades the locked
@@ -282,7 +333,11 @@ week `W-1` snapshot. If it exits 1 saying the Worker has no actuals for that
 week, your actuals post did not land; re-check step 1. If it exits 1 saying
 there is no sit/start snapshot for week `W-1`, skip retro for this run and
 say so in the report; do not run `lineup --force` for a past week on your own.
-Continue with `season sync` regardless of retro's outcome.
+Continue with `season sync` regardless of retro's outcome. Waivers runs last
+because it needs the league sync (rosters) and season sync (projections). It
+prints which free agents did not match the crosswalk; list them in the report.
+If it exits 1 saying the Worker has no free-agent pool, your step 3 post did not
+land.
 
 `POST /api/actuals` stores under the bundle's own league. A Yahoo bundle with
 `league_key` `470.l.928421` still lands in the MCFFL slot when you omit
@@ -325,13 +380,15 @@ games. Friday and Saturday injury designations are already in; Sunday
 inactives are an accepted gap.
 
 1. Post the week `W` LeagueBundle to `POST /api/league/bundle`.
-2. Run, in order:
+2. Post the FreeAgentsBundle to `POST /api/free-agents`.
+3. Run, in order:
 
 ```sh
 uv run ffb season sync S --week W --source projections --source injuries --source news --refresh
 uv run ffb league sync S --from-tracker
 uv run ffb lineup S --week W --force --publish
 uv run ffb digest S --publish
+uv run ffb waivers S --from-tracker --publish
 ```
 
 `--force` replaces Wednesday's sit/start snapshot so the retro grades the last
@@ -354,7 +411,7 @@ advice that was actionable before kickoff. This is the only time you pass
 
 Read `GET /api/inseason?season=S&week=W` (same bearer header) and report one
 line per card with its state and reason as the dashboard will show them. A
-green run has lineup, digest, and ros `fresh`; retro is `fresh` on Wednesday
+green run has lineup, digest, ros, and waivers `fresh`; retro is `fresh` on Wednesday
 once actuals landed and `waiting` when they have not. Use this table to say
 what would fix a non-green card; do not run the fix unless the runbook above
 already includes it.
@@ -369,15 +426,16 @@ already includes it.
 | Retro: waiting for actuals | confirm the `/api/actuals` post for week `W-1`, then `ffb retro S --week W-1 --publish` |
 | Retro: not published | `ffb retro S --week W-1 --publish` |
 | Rest of season: stale | `ffb season sync S --refresh` then `ffb ros S --publish` |
+| Waivers: not published or stale | re-scrape and POST `/api/free-agents`, then `ffb waivers S --from-tracker --publish` |
 
 ## Final report format
 
 ```text
 Run: Wednesday week roll, 2026-09-17 10:02 ET, season 2026, current week 2
-Yahoo scrape: league bundle 10 teams / 150 players (synced_at 2026-09-17T14:00:12Z); actuals week 1, 5 matchups / 150 players
-Worker: POST /api/actuals 200; POST /api/league/bundle 200
-CLI: retro ok · season sync ok (news: 66 rows) · league sync ok · ros ok · lineup ok (delta +1.9, 1 missing projection) · digest ok (LLM skipped)
-Dashboard week 2: lineup degraded (1 player has no projection) · news degraded (LLM skipped) · retro fresh · ros fresh
+Yahoo scrape: league bundle 10 teams / 150 players (synced_at 2026-09-17T14:00:12Z); actuals week 1, 5 matchups / 150 players; free agents 200 players
+Worker: POST /api/actuals 200; POST /api/league/bundle 200; POST /api/free-agents 200
+CLI: retro ok · season sync ok (news: 66 rows) · league sync ok · ros ok · lineup ok (delta +1.9, 1 missing projection) · digest ok (LLM skipped) · waivers ok (2 free agents unmatched: A. Player, B. Player)
+Dashboard week 2: lineup degraded (1 player has no projection) · news degraded (LLM skipped) · retro fresh · ros fresh · waivers fresh
 Follow-ups: none
 ```
 

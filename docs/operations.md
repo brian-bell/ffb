@@ -49,9 +49,10 @@ FFB_TRACKER_URL=https://<worker> FFB_TRACKER_API_KEY=<key> uv run ffb lineup 202
 command just printed to the tracker's `/api/inseason/{kind}` route for the
 `/command` dashboard. `ffb lineup --league sleeper` is local-only and rejects
 `--publish`; it never writes DuckDB `league_*` or Worker KV. `ros --publish` always sends the all-position report and
-rejects `-p`. `ffb waivers` runs only for a Sleeper league: Yahoo free agents
-need live authorization (`ffb-1ct.2`), so a Yahoo league exits 1 and its card
-shows `waiting`. A publish failure prints the Worker's error, exits 1, and leaves
+rejects `-p`. `ffb waivers` on a Sleeper league reads the league sync. On a Yahoo league it
+ranks the free-agent pool the Grok bot POSTed to `/api/free-agents`: pass
+`--from-tracker` to pull it (or `--fixture PATH`); with neither it reuses the
+last snapshot and exits 1 if there is none. A publish failure prints the Worker's error, exits 1, and leaves
 local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
 accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be
 combined with `--fixture` or `--refresh`.
@@ -150,6 +151,9 @@ ffb retro S --week W-1 --league sleeper --from-matchups --publish
 
 `make refresh` also publishes `ffb waivers S --league sleeper --publish` after
 the Sleeper cards on every run, so the waiver card tracks the latest rosters.
+It does not publish Yahoo waivers: Grok posts the Yahoo free-agent pool and
+runs `ffb waivers S --from-tracker --publish` itself, after the Yahoo league
+sync, on both scheduled runs.
 
 **Sunday 07:00 ET, pre-kickoff refresh.** Early enough to act before the
 9:30 AM ET international games; Friday and Saturday injury designations are
@@ -185,6 +189,7 @@ Card-by-card recovery when a badge is not green:
 | Retro: no sit/start snapshot (CLI error) | not recoverable for that week; `ffb lineup S --week W-1 --force --publish` writes post-hoc advice, which the retro then grades |
 | Rest of season: stale | `ffb season sync S --refresh` → `ffb ros S --publish` |
 | Waivers: rosters changed or stale | `ffb league sync S --league sleeper` → `ffb waivers S --league sleeper --publish` |
+| Waivers (Yahoo): not published or stale | Grok re-scrapes and POSTs `/api/free-agents`, then `ffb waivers S --from-tracker --publish` |
 | Waivers: N rostered players are unmatched | `ffb season sync S --refresh` → republish waivers |
 
 ## Rebuilding DuckDB

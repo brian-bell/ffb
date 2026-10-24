@@ -6,6 +6,7 @@ import { handleActualsApi } from "./actuals-api";
 import { requireBearer } from "./auth";
 import { getBoardText } from "./board";
 import { handleDraftApi } from "./draft-api";
+import { handleFreeAgentsApi } from "./free-agents-api";
 import { handleInseasonApi } from "./inseason-api";
 import { handleLeagueApi } from "./league-api";
 import { handleLeaguesApi } from "./leagues-api";
@@ -64,6 +65,13 @@ export default {
       const denied = requireBearer(request, env);
       if (denied) return denied;
       return handleActualsApi(request, env, url);
+    }
+
+    // Yahoo's unrostered pool, scraped by the Grok bot. KV only, closed v1 contract.
+    if (pathname === "/api/free-agents") {
+      const denied = requireBearer(request, env);
+      if (denied) return denied;
+      return handleFreeAgentsApi(request, env, url);
     }
 
     // In-season report envelopes (command center). KV only, closed v1 contract.

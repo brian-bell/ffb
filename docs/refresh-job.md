@@ -100,7 +100,7 @@ What it does, in order:
 5. Syncs both leagues. The Sleeper sync adds `--push` when its bundle is stale
    so `/api/leagues` catches up.
 6. Publishes `ros`, `lineup --force`, and `digest` for both leagues, then
-   `waivers` for Sleeper only (Yahoo does not expose free agents). With
+   `waivers` for Sleeper only (Yahoo's pool comes from the Grok scrape, not this script). With
    `--week-roll` it also runs the Sleeper `W-1` backfill and retro, plus the
    Yahoo retro when the Worker already holds `W-1` Yahoo actuals (otherwise it
    prints `skipped`).
@@ -294,6 +294,8 @@ pipe output through `tail` to keep it short. Each successful publish prints
      uv run ffb digest S --league $L --publish
    done
    uv run ffb waivers S --league sleeper --publish      # Sleeper only
+   # Yahoo waivers: after POSTing the free-agent pool (docs/grok-bot-prompt.md)
+   uv run ffb waivers S --from-tracker --publish
    ```
 
 4. **Dashboard check.** For both full keys,

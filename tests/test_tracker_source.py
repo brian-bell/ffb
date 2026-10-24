@@ -11,6 +11,7 @@ from ffb.sources.tracker import (
     TrackerConfigError,
     TrackerPublishError,
     fetch_actuals,
+    fetch_free_agents,
     fetch_league_bundle,
     publish_inseason,
     publish_league_bundle,
@@ -209,3 +210,19 @@ def test_publish_league_bundle_raises_other_rejections_without_the_key(status, b
     assert exc.value.status == status
     assert exc.value.error == error
     assert "sekrit" not in str(exc.value)
+
+
+def test_fetch_free_agents_names_the_league_and_maps_404_to_none():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if len(seen) == 1:
+            return httpx.Response(200, json={"schema_version": 1})
+        return httpx.Response(404, json={"error": "not_found"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        assert fetch_free_agents(c, _cfg(), 2026, "yahoo:470.l.928421") == {"schema_version": 1}
+        assert fetch_free_agents(c, _cfg(), 2026) is None
+    assert seen[0] == "https://tracker.test/api/free-agents?season=2026&league=yahoo%3A470.l.928421"
+    assert seen[1] == "https://tracker.test/api/free-agents?season=2026"
