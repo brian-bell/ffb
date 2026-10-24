@@ -12,7 +12,7 @@ export interface InseasonCard {
 export interface InseasonView {
   season: number;
   week: number;
-  /** The league this view answers for; decides provider-only cards such as waivers. */
+  /** The league this view answers for; picks the provider-specific run command shown on a card. */
   league_key?: string;
   server_now: string;
   league: { synced_at: string; current_week: number } | null;
@@ -117,11 +117,6 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
 
   if (kind === "waivers") {
     if (!envelope || envelope.kind !== "waivers") {
-      // Only Sleeper exposes the full free-agent pool (Yahoo has
-      // no API access), so another league's card waits on it.
-      if (view.league_key !== undefined && !view.league_key.startsWith("sleeper:")) {
-        return { state: "waiting", reason: "Yahoo free agents need live authorization" };
-      }
       return { state: "missing", reason: `Not published for week ${week}` };
     }
     if (!past && view.league && later(view.league.synced_at, envelope.context.league_synced_at)) {

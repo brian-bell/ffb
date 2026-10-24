@@ -292,14 +292,13 @@ test("stale, degraded, waiting, and missing states render with their reasons", a
   await expect(page.locator(".card.retro code")).toHaveText("ffb retro 2024 --week 2 --publish");
 });
 
-test("waivers wait on Yahoo live authorization and ask a Sleeper league to publish", async ({ page }) => {
+test("a missing waivers card asks each league for its own publish command", async ({ page }) => {
   const yahoo = baseView();
   yahoo.league_key = YAHOO;
   yahoo.cards.waivers.envelope = null;
   await open(page, yahoo);
-  expect(await state(page, "waivers")).toBe("waiting");
-  await expect(page.locator(".card.waivers [data-reason]")).toHaveText("Yahoo free agents need live authorization");
-  await expect(page.locator(".card.waivers code")).toHaveCount(0);
+  expect(await state(page, "waivers")).toBe("missing");
+  await expect(page.locator(".card.waivers code")).toHaveText("ffb waivers 2024 --from-tracker --publish");
 
   const sleeper = baseView();
   sleeper.league_key = SLEEPER;

@@ -1,12 +1,13 @@
 """Thin HTTP client for the tracker Worker.
 
 ``GET /api/actuals?season=&week=&league=`` returns the ``WeeklyActualsBundle``
-posted for that league (absent ``league`` is Yahoo MCFFL); ``GET /api/league/bundle`` returns
-the last accepted ``LeagueBundle`` and ``POST`` replaces it; ``POST /api/inseason/{kind}``
-stores one in-season report envelope. Validation lives beside each contract
-(``ffb.actuals``, ``ffb.league``, ``ffb.inseason``); this module only moves
-bytes. The bearer key is read from the environment and must never reach logs,
-errors, or snapshots.
+posted for that league (absent ``league`` is Yahoo MCFFL);
+``GET /api/free-agents?season=&league=`` returns the posted ``FreeAgentsBundle``;
+``GET /api/league/bundle`` returns the last accepted ``LeagueBundle`` and ``POST``
+replaces it; ``POST /api/inseason/{kind}`` stores one in-season report envelope.
+Validation lives beside each contract (``ffb.actuals``, ``ffb.free_agents``,
+``ffb.league``, ``ffb.inseason``); this module only moves bytes. The bearer key is
+read from the environment and must never reach logs, errors, or snapshots.
 """
 
 from __future__ import annotations
@@ -82,6 +83,31 @@ def _publish_error(response: httpx.Response, fallback: str) -> TrackerPublishErr
         str(body.get("error") or "http_error"),
         str(body.get("message") or response.reason_phrase or fallback),
     )
+
+
+def fetch_free_agents(
+    client: httpx.Client,
+    cfg: TrackerConfig,
+    season: int,
+    league_key: str | None = None,
+) -> Any | None:
+    """Return the raw stored free-agent pool, or ``None`` when the Worker has none."""
+    url = f"{cfg.base_url}/api/free-agents"
+    params: dict[str, Any] = {"season": season}
+    if league_key:
+        params["league"] = league_key
+    log.info(
+        "api request provider=tracker method=GET url=%s season=%s league=%s",
+        url,
+        season,
+        league_key,
+    )
+    response = client.get(url, params=params, headers=_headers(cfg), timeout=30.0)
+    log.info("api response provider=tracker status=%s", response.status_code)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
 
 
 def fetch_actuals(

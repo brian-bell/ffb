@@ -237,10 +237,10 @@ describe("cardFreshness", () => {
       expected: { state: "missing", reason: "Not published for week 2" },
     },
     {
-      name: "waivers wait on Yahoo live authorization",
+      name: "waivers missing for a Yahoo league",
       kind: "waivers",
       mutate: (view) => { view.cards.waivers.envelope = null; view.league_key = "yahoo:470.l.928421"; },
-      expected: { state: "waiting", reason: "Yahoo free agents need live authorization" },
+      expected: { state: "missing", reason: "Not published for week 2" },
     },
     {
       name: "waivers rosters changed after build",

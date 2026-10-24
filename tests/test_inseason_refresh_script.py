@@ -180,7 +180,7 @@ def test_a_fresh_yahoo_bundle_publishes_yahoo_cards(tmp_path):
     assert result.returncode == 0, result.stderr
     ran = _ran(tmp_path)
     assert set(YAHOO_COMMANDS) <= set(ran)
-    # Yahoo free agents need live authorization, so waivers stay Sleeper-only.
+    # make refresh only publishes Sleeper waivers; Yahoo needs the Grok-posted pool.
     assert [command for command in ran if command.startswith("waivers")] == [
         "waivers 2026 --league sleeper --publish"
     ]

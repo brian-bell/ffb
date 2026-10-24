@@ -446,7 +446,7 @@ Each slice is a vertical tracer bullet that ships a working card.
 | `ffb-0gi` 14. Snapshot + weekly retro | Appears delivered by PR #48 but still open. Close or confirm; "Tuesday brief opens with a retro" is satisfied by the retro card. |
 | `ffb-8yi` 12. Scheduled runs + email | Owns the cron. The runbook above is its command list; email stays out of scope here. |
 | `ffb-1ct.2` Yahoo OAuth | Closed; no Yahoo API access, so Yahoo league sync stays the browser-captured bundle. |
-| `ffb-qmw` 11. Waiver report | Delivered as the fifth card for Sleeper leagues ([Waivers card](#waivers-card)); Yahoo is not covered (no API access), trending boost on Sleeper trending ingest. |
+| `ffb-qmw` 11. Waiver report | Delivered as the fifth card for Sleeper leagues ([Waivers card](#waivers-card)); Yahoo ranks the Grok-scraped pool ([Yahoo free agents](#yahoo-free-agents)), trending boost on Sleeper trending ingest. |
 | `ffb-oeb` Desktop app experience | Same responsive principles; the command center is not a draft workflow, so track it separately rather than under this epic. |
 
 ## Waivers card
@@ -478,8 +478,8 @@ Report shape: `candidates` (`rank`, `name`, `position`, `team`, `ros`,
 excluded, so they may show up as free agents), and `trending_available`
 (`false` until Sleeper trending adds are ingested).
 
-Yahoo is out of scope (no API access): the CLI exits 1
-for a non-Sleeper league and `make refresh` publishes waivers only for Sleeper.
+`make refresh` publishes waivers only for Sleeper; Yahoo waivers are published
+by the Grok run ([Yahoo free agents](#yahoo-free-agents)).
 The Worker reads waivers at exactly week `W`, and the dashboard view carries
 `league_key` so freshness can tell the two apart.
 
@@ -487,11 +487,25 @@ The Worker reads waivers at exactly week `W`, and the dashboard view carries
 | --- | --- | --- | --- |
 | Waivers | best gain, target count | top 5 targets with who they replace | full target table, starters weakest first, unmatched rostered players, trending note |
 
+### Yahoo free agents
+
+Yahoo has no CLI-reachable free-agent source. The Grok bot scrapes the pool and
+POSTs a `FreeAgentsBundle` ([docs/tracker.md](../tracker.md#free-agent-pool-ingest));
+`ffb waivers S --from-tracker [--publish]` (or `--fixture PATH`, or the last
+snapshot with no flag) then ranks it. The report and envelope shapes are
+unchanged: only step 2 differs. The pool is the matched consensus rows whose
+canonical key is both in the scraped pool and on no roster in the league. Ids
+that do not resolve through the crosswalk are named in a CLI warning and
+excluded; they are never guessed. Eligibility beyond the crosswalk position
+(a QB/TE) comes from the scraped `eligible_positions`. A pool from another
+league is rejected before it is snapshotted. The envelope carries no pool
+timestamp, so `--publish` refuses a pool scraped more than 5 days ago and a
+local run warns; the CLI prints the scrape time on every run.
+
 Freshness, first match wins:
 
 | Rule | State and reason |
 | --- | --- |
-| no envelope, non-Sleeper league | `waiting` — "Yahoo free agents need live authorization" |
 | no envelope | `missing` — "Not published for week W" |
 | `league.synced_at` > `context.league_synced_at` | `stale` — "Rosters changed after these targets were built" |
 | age > 5 days | `stale` — "Built more than 5 days ago" |

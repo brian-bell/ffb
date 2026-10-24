@@ -97,13 +97,15 @@ const pts = (value: number | null | undefined): string => (value == null ? "—"
 const signed = (value: number): string => `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
 const count = (n: number, singular: string, plural = `${singular}s`): string => `${n} ${n === 1 ? singular : plural}`;
 
-function runCommand(kind: InseasonKind, season: number, week: number): string {
+function runCommand(kind: InseasonKind, season: number, week: number, leagueKey?: string): string {
   switch (kind) {
     case "lineup": return `ffb lineup ${season} --week ${week} --publish`;
     case "digest": return `ffb digest ${season} --week ${week} --publish`;
     case "retro": return `ffb retro ${season} --week ${week - 1} --publish`;
     case "ros": return `ffb ros ${season} --publish`;
-    case "waivers": return `ffb waivers ${season} --league sleeper --publish`;
+    case "waivers": return leagueKey?.startsWith("sleeper:") === false
+      ? `ffb waivers ${season} --from-tracker --publish`
+      : `ffb waivers ${season} --league sleeper --publish`;
   }
 }
 
@@ -146,7 +148,7 @@ function cardShell(kind: InseasonKind, freshness: Freshness, envelope: InseasonE
 
 function emptyBody(kind: InseasonKind, freshness: Freshness, current: InseasonView): HTMLElement {
   const message = freshness.state === "waiting" ? "Upstream data does not exist yet." : "Nothing published for this week.";
-  return el("div", { class: "empty" }, el("div", {}, message, freshness.state === "missing" ? el("code", { text: runCommand(kind, current.season, current.week) }) : null));
+  return el("div", { class: "empty" }, el("div", {}, message, freshness.state === "missing" ? el("code", { text: runCommand(kind, current.season, current.week, current.league_key) }) : null));
 }
 
 function pct(value: number | null | undefined): string | null {

@@ -1,10 +1,13 @@
-"""``ffb waivers``: Sleeper free agents vs the weakest starters, rendered and published."""
+"""``ffb waivers``: Sleeper free agents vs the weakest starters, rendered and published.
+
+Yahoo pools are covered in ``test_waivers_yahoo_cli``.
+"""
 
 from ffb.cli import app
 from ffb.store import Store
 
 from .cli_plain import PlainCliRunner
-from .test_publish_cli import ENVELOPE_KEYS, _capture, _synced_lineup_env, _tracker
+from .test_publish_cli import ENVELOPE_KEYS, _capture, _tracker
 from .test_sleeper_lineup_cli import SYNC, _seed_store, _weekly_row
 
 runner = PlainCliRunner()
@@ -51,12 +54,12 @@ def test_waivers_lists_free_agents_that_beat_a_weakest_starter(tmp_path):
     assert "Derrick Henry" not in result.output.split("Starters, weakest first")[0]
 
 
-def test_waivers_refuses_a_yahoo_league_until_live_authorization(tmp_path):
-    env = _synced_lineup_env(tmp_path)
-    result = runner.invoke(app, ["waivers", "2024"], env=env)
-    assert result.exit_code == 1
-    assert "Sleeper leagues only" in result.output
-    assert "without Yahoo API access" in result.output
+def test_waivers_refuses_pool_flags_on_a_sleeper_league(tmp_path):
+    env = _waiver_env(tmp_path)
+    for flag in (["--from-tracker"], ["--fixture", "pool.json"]):
+        result = runner.invoke(app, [*WAIVERS, *flag], env=env)
+        assert result.exit_code == 1
+        assert "apply to Yahoo leagues" in result.output
 
 
 def test_waivers_publish_posts_the_full_report_to_the_sleeper_slot(tmp_path, monkeypatch):
