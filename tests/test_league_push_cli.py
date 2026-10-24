@@ -140,7 +140,7 @@ def test_push_applies_only_to_a_live_current_week_sync(live_sleeper, extra):
 @pytest.mark.parametrize(
     "args",
     [
-        ["league", "sync", "2026", "--push"],
+        ["league", "sync", "2026", "--league", "yahoo", "--push"],
         ["league", "sync", "2026", "--from-tracker", "--push"],
         [
             "league",

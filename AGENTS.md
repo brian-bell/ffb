@@ -66,7 +66,7 @@ src/ffb/          Python package and CLI
   scoring.py      pure configurable scoring
   consensus.py    cross-source league-scored average
   board.py        ADP/byes/VORP/tiers → board serializers
-  league.py       LeagueBundle v1 validation; sources/yahoo.py is the live peer
+  league.py       LeagueBundle v1 validation
   lineup.py       weekly sit/start report
   ros.py          rest-of-season report
   waivers.py      waiver targets vs the weakest ROS starters
@@ -138,12 +138,10 @@ Command:    lineup/digest/retro/ros/waivers --publish → POST /api/inseason →
 - Schema changes do not migrate existing DuckDB files. The database is a
   disposable cache: move it aside and replay snapshots with `season sync
   SEASON --offline --rebuild`.
-- `league sync` without `--fixture` uses the live Yahoo adapter
-  (`sources/yahoo.py` + `yahoo_auth.py`), configured via `FFB_YAHOO_*` env
-  vars; it is inert until the one-time browser authorization (ffb-1ct.2)
-  stores a token. Fixture mode remains, and the confirmed 10-team Yahoo
-  config is the fallback. Tokens and secrets must never reach logs, DuckDB,
-  fixtures, or snapshots.
+- League state arrives as a LeagueBundle (fixture, tracker, or the
+  browser-captured Yahoo bundle); the confirmed 10-team Yahoo config is the
+  fallback. Tokens and secrets must never reach logs, DuckDB, fixtures, or
+  snapshots.
 - ESPN and FFC endpoints are unofficial. Keep parsers defensive and fixtures
   representative; live drift is checked only through an explicit refresh.
 

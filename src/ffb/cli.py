@@ -77,7 +77,7 @@ from ffb.retro import (
 )
 from ffb.season_data import SeasonDataService
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
-from ffb.sources import espn, schedule, sleeper, sleeper_league, yahoo
+from ffb.sources import espn, schedule, sleeper, sleeper_league
 from ffb.sources.sleeper_league import SleeperLeagueError
 from ffb.sources.tracker import (
     TrackerConfig,
@@ -90,7 +90,6 @@ from ffb.sources.tracker import (
     publish_league_bundle,
 )
 from ffb.store import SchemaMismatchError, Store
-from ffb.yahoo_auth import YahooAuthError
 
 app = typer.Typer(help="Fantasy football pipeline (walking skeleton).", no_args_is_help=True)
 league_app = typer.Typer(help="Sync and inspect stored league state.", no_args_is_help=True)
@@ -153,19 +152,17 @@ def league_sync(  # noqa: B008
     fixture: Path | None = typer.Option(  # noqa: B008
         None, "--fixture", help="Offline LeagueBundle JSON fixture."
     ),
-    refresh: bool = typer.Option(
-        False, "--refresh", help="Refetch live Yahoo data, replacing snapshots."
-    ),
     from_tracker: bool = typer.Option(
         False,
         "--from-tracker",
         help="Pull the Worker's last accepted LeagueBundle (GET /api/league/bundle).",
     ),
     league: str = typer.Option(
-        "yahoo",
+        "sleeper",
         "--league",
-        help="Which live provider to sync: yahoo (default) or sleeper. "
-        "Ignored for --fixture and --from-tracker, whose bundle names its own source.",
+        help="Which live provider to sync: sleeper (default, the only live provider). "
+        "Yahoo state comes from --fixture or --from-tracker, whose bundle names "
+        "its own source.",
     ),
     offline: bool = typer.Option(
         False, "--offline", help="Sleeper only: replay snapshots; never hit the network."
@@ -183,8 +180,8 @@ def league_sync(  # noqa: B008
     ),
 ) -> None:
     """Validate and atomically import live, tracker, or fixture-backed league state."""
-    if from_tracker and (fixture is not None or refresh):
-        raise typer.BadParameter("--from-tracker cannot be combined with --fixture or --refresh")
+    if from_tracker and fixture is not None:
+        raise typer.BadParameter("--from-tracker cannot be combined with --fixture")
     provider = league.strip().lower()
     if provider not in {"yahoo", "sleeper"}:
         raise typer.BadParameter("--league must be yahoo or sleeper")
@@ -212,6 +209,12 @@ def league_sync(  # noqa: B008
         except TrackerConfigError as exc:
             console.print(f"[red]Bundle push unavailable:[/red] {exc}")
             raise typer.Exit(code=2) from exc
+    if provider == "yahoo" and fixture is None and not from_tracker:
+        console.print(
+            "[yellow]No live Yahoo sync; nothing synced. Use --from-tracker "
+            "(browser-captured bundle), --fixture, or --league sleeper.[/yellow]"
+        )
+        return
     if fixture is not None:
         source: object = FixtureLeagueSource(fixture)
     elif from_tracker:
@@ -226,28 +229,14 @@ def league_sync(  # noqa: B008
         except SleeperLeagueError as exc:
             console.print(f"[red]Sleeper league sync unavailable:[/red] {exc}")
             raise typer.Exit(code=2) from exc
-    else:
-        try:
-            source = yahoo.league_source_from_env(SnapshotCache(paths.snapshot_dir()))
-        except YahooAuthError as exc:
-            console.print(f"[red]Live Yahoo sync unavailable:[/red] {exc}")
-            raise typer.Exit(code=2) from exc
-    label = (
-        "fixture/mock"
-        if fixture is not None
-        else "tracker"
-        if from_tracker
-        else "live Sleeper"
-        if sleeper_live
-        else "live Yahoo"
-    )
+    label = "fixture/mock" if fixture is not None else "tracker" if from_tracker else "live Sleeper"
     try:
         # SleeperLeagueSource replays snapshots rather than caching them, so it
-        # takes --offline where the Yahoo/fixture sources take --refresh.
+        # takes --offline where the fixture and tracker sources take --refresh.
         bundle = (
             source.fetch(season, offline=offline, week=week)
             if sleeper_live
-            else source.fetch(season, refresh=refresh)
+            else source.fetch(season, refresh=False)
         )
     except SleeperLeagueError as exc:
         console.print(f"[red]Sleeper league unavailable:[/red] {exc}")
@@ -259,16 +248,12 @@ def league_sync(  # noqa: B008
         noun = "fixture" if fixture is not None else "state"
         console.print(f"[red]League {noun} rejected:[/red] {exc}")
         raise typer.Exit(code=1) from exc
-    except YahooAuthError as exc:
-        console.print(f"[red]Yahoo authentication failed:[/red] {exc}")
-        raise typer.Exit(code=2) from exc
     except httpx.HTTPError as exc:
         if from_tracker:
             # Never echo the exception body: the request carried the bearer key.
             console.print(f"[red]Tracker fetch failed:[/red] {type(exc).__name__}")
         else:
-            who = "Sleeper" if sleeper_live else "Yahoo"
-            console.print(f"[red]{who} fetch failed:[/red] {exc}")
+            console.print(f"[red]Sleeper fetch failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     store = _open_store()
     try:
@@ -1310,7 +1295,7 @@ def calibrate_waivers(
     if not league_key.startswith("sleeper:"):
         console.print(
             f"[yellow]Free-agent grading covers Sleeper leagues only; {league_key} free agents "
-            f"need Yahoo live authorization (ffb-1ct.2).[/yellow]"
+            f"are not available without Yahoo API access.[/yellow]"
         )
         raise typer.Exit(code=1)
     cache = SnapshotCache(paths.snapshot_dir())

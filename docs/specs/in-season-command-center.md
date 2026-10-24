@@ -69,7 +69,7 @@ These were settled during design review on 2026-09-13.
 - The phone layout (decision 2).
 - New Python computation or new report fields beyond the publish envelope.
 - Scheduling, email delivery, or GitHub Actions (tracked by `ffb-8yi`).
-- Yahoo live authorization (tracked by `ffb-1ct.2`).
+- Yahoo API access (`ffb-1ct`, closed as unobtainable).
 
 ## Publish envelope
 
@@ -318,7 +318,7 @@ with `rel="noopener noreferrer"` only when the URL is `https:`.
 | `ffb digest SEASON [--week N] --publish` | POST `digest` after the LLM step |
 | `ffb retro SEASON --week N [--fixture PATH] --publish` | POST `retro` after rendering |
 | `ffb ros SEASON [--playoff-weeks …] --publish` | POST full `ros`; rejects `-p` (a behavior change: `-p` and `--publish` together exit 2) |
-| `ffb league sync SEASON --from-tracker` | Pull `GET /api/league/bundle`, validate it as a `LeagueBundle`, and import it exactly as `--fixture` does. Mutually exclusive with `--fixture` and `--refresh`. |
+| `ffb league sync SEASON --from-tracker` | Pull `GET /api/league/bundle`, validate it as a `LeagueBundle`, and import it exactly as `--fixture` does. Mutually exclusive with `--fixture`. |
 
 `--from-tracker` mirrors how `ffb retro` already pulls actuals from the Worker.
 It makes the Worker the single source of league state for the cron, so the
@@ -393,9 +393,8 @@ Updates: Lineup, News.
 - No Thursday or Monday slate runs. Adding them would replace the snapshot
   again after most of the week's games are played.
 - No daily news run. Digest freshness is 5 days, matched to this cadence.
-- Yahoo live authorization (`ffb-1ct.2`) does not change this runbook; when it
-  lands, `ffb league sync S --refresh` becomes an alternative to Grok's bundle
-  post plus `--from-tracker`, not an extra step.
+- There is no Yahoo API access (`ffb-1ct` closed); the browser-captured bundle
+  plus `--from-tracker` is the only Yahoo path.
 
 Card-by-card recovery when a badge is not green:
 
@@ -446,7 +445,7 @@ Each slice is a vertical tracer bullet that ships a working card.
 | `ffb-yil` 13. LLM news digest | Appears delivered by PR #47 but still open. Close or confirm before slicing. |
 | `ffb-0gi` 14. Snapshot + weekly retro | Appears delivered by PR #48 but still open. Close or confirm; "Tuesday brief opens with a retro" is satisfied by the retro card. |
 | `ffb-8yi` 12. Scheduled runs + email | Owns the cron. The runbook above is its command list; email stays out of scope here. |
-| `ffb-1ct.2` Yahoo OAuth | Blocks unattended league sync in the runbook. |
+| `ffb-1ct.2` Yahoo OAuth | Closed; no Yahoo API access, so Yahoo league sync stays the browser-captured bundle. |
 | `ffb-qmw` 11. Waiver report | Delivered as the fifth card for Sleeper leagues ([Waivers card](#waivers-card)); Yahoo ranks the Grok-scraped pool ([Yahoo free agents](#yahoo-free-agents)), trending boost on Sleeper trending ingest. |
 | `ffb-oeb` Desktop app experience | Same responsive principles; the command center is not a draft workflow, so track it separately rather than under this epic. |
 

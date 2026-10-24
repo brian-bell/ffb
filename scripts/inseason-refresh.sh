@@ -164,7 +164,7 @@ for league in "${leagues_run[@]}"; do
   $step "$league-digest" digest "$S" --league "$league" --publish
 done
 # Waiver targets need the full free-agent pool, which only Sleeper exposes
-# until Yahoo live authorization (ffb-1ct.2) lands.
+# (Yahoo has no API access).
 $yahoo_only || run sleeper-waivers waivers "$S" --league sleeper --publish
 
 dashboards=()
