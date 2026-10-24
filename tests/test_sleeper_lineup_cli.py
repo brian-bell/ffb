@@ -322,7 +322,9 @@ def test_sleeper_league_sync_requires_env(tmp_path):
 
 def test_league_sync_rejects_offline_without_sleeper(tmp_path):
     env = _seed_store(tmp_path)
-    result = runner.invoke(app, ["league", "sync", "2026", "--offline"], env=env)
+    result = runner.invoke(
+        app, ["league", "sync", "2026", "--league", "yahoo", "--offline"], env=env
+    )
     assert result.exit_code != 0
     assert "offline" in result.output.lower()
 

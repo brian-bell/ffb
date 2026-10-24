@@ -340,7 +340,7 @@ advice that was actionable before kickoff. This is the only time you pass
 
 ### Rules for every run
 
-- Never run `ffb league sync` with `--refresh` or without `--from-tracker`,
+- Never run `ffb league sync` without `--from-tracker`,
   except the Sleeper commands above. The Worker is the only source of Yahoo
   league state for you.
 - Never pass `-p` / `--position` to `ffb ros --publish`; it is rejected.

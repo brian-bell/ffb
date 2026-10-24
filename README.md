@@ -6,8 +6,8 @@ response; stores normalized rows in DuckDB; and produces league-scored rankings
 and a draft board. A separate Cloudflare Worker in `tracker/` consumes the
 exported `board.json` for live and mock drafts.
 
-League state comes from a validated fixture or the live Yahoo adapter, which
-stays inert until its one-time OAuth authorization stores a token. See
+League state comes from a validated fixture, the tracker's browser-captured
+Yahoo bundle, or the live Sleeper adapter. There is no Yahoo API access. See
 [DESIGN.md](DESIGN.md) for product scope.
 
 ## Requirements and setup
@@ -77,12 +77,11 @@ Markdown, CSV, and the self-contained `board.json` v1 contract to `exports/`.
 ## League settings
 
 League scoring, roster shape, teams, and current-week rosters can be loaded
-from a validated fixture, or from live Yahoo once `FFB_YAHOO_*` is configured
-and authorized:
+from a validated fixture or the tracker's last accepted bundle:
 
 ```sh
 uv run ffb league sync 2026 --fixture tests/fixtures/yahoo_league_minimal.json
-uv run ffb league sync 2026            # live Yahoo; --refresh refetches
+uv run ffb league sync 2026 --from-tracker
 uv run ffb league show 2026 --rosters
 ```
 

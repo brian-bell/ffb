@@ -50,7 +50,7 @@ command just printed to the tracker's `/api/inseason/{kind}` route for the
 `/command` dashboard. `ffb lineup --league sleeper` is local-only and rejects
 `--publish`; it never writes DuckDB `league_*` or Worker KV. `ros --publish` always sends the all-position report and
 rejects `-p`. `ffb waivers` runs only for a Sleeper league: Yahoo free agents
-need live authorization (`ffb-1ct.2`), so a Yahoo league exits 1 and its card
+are unavailable without Yahoo API access, so a Yahoo league exits 1 and its card
 shows `waiting`. A publish failure prints the Worker's error, exits 1, and leaves
 local snapshots untouched. `league sync --from-tracker` pulls the Worker's last
 accepted LeagueBundle and imports it exactly as `--fixture` does; it cannot be

@@ -200,11 +200,10 @@ by `cli._select_league` and threaded into `store.league_context` /
 provider-specific command bodies; a second provider is a second stored league,
 not a second code path.
 
-`sources/yahoo.py` implements the live `YahooLeagueSource` peer of
-`FixtureLeagueSource` (httpx fetch, snapshot-cached raw pulls, pure mappers),
-with the OAuth2 refresh-token lifecycle in `yahoo_auth.py`. The one-time
-browser authorization (ffb-1ct.2) has not run yet, so live sync is inert until
-a token exists; fixture import still exercises the provider boundary and
+There is no live Yahoo adapter: Yahoo API access was not obtainable (ffb-1ct
+closed). Yahoo league state arrives as a browser-captured LeagueBundle posted
+to the tracker and pulled with `ffb league sync --from-tracker`, or as a
+fixture through `FixtureLeagueSource`; both exercise the provider boundary and
 storage model without network access.
 
 `sources/sleeper_league.py` is a thin Sleeper peer for Brian's second league

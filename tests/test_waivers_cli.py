@@ -56,7 +56,7 @@ def test_waivers_refuses_a_yahoo_league_until_live_authorization(tmp_path):
     result = runner.invoke(app, ["waivers", "2024"], env=env)
     assert result.exit_code == 1
     assert "Sleeper leagues only" in result.output
-    assert "ffb-1ct.2" in result.output
+    assert "without Yahoo API access" in result.output
 
 
 def test_waivers_publish_posts_the_full_report_to_the_sleeper_slot(tmp_path, monkeypatch):

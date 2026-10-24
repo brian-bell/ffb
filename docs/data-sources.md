@@ -555,27 +555,6 @@ team-assigned player.
 Documented for context; see `DESIGN.md` and the slice roadmap. These live sources
 are not ingested today.
 
-- **Yahoo Fantasy API** (Task 2b, built pre-auth) — the live adapter for the
-  league's own state, implemented in `sources/yahoo.py` + `yahoo_auth.py` with
-  httpx (yfpy was evaluated and rejected; see ffb-1ct's design notes). Fixture
-  mode remains via `ffb league sync [SEASON] --fixture`; omitting `--fixture`
-  uses `YahooLeagueSource`: league metadata, settings, teams, and every
-  current-week roster are fetched with a bearer token, snapshotted under
-  `snapshots/yahoo/`, and mapped by pure parsers (defensive about the
-  `fantasy_content` wrapper, count-keyed collections, and positional
-  dict/list arrays) into the same `LeagueBundle` v2 the fixture path
-  validates. `config.YAHOO_STAT_MAP` translates Yahoo stat ids into our stat
-  keys; unmappable categories are surfaced as `unmapped_scoring_rules`, never
-  dropped. OAuth2 config comes from `FFB_YAHOO_CLIENT_ID` /
-  `FFB_YAHOO_CLIENT_SECRET` / `FFB_YAHOO_LEAGUE_KEY` (plus optional
-  `FFB_YAHOO_REDIRECT_URI`, `FFB_YAHOO_TOKEN_PATH`); the refresh grant and
-  owner-only (0600) token file are handled in `yahoo_auth.py`, and no token or
-  secret ever reaches logs, DuckDB, fixtures, or snapshots. **Read-only** (the
-  pipeline recommends, never sets lineups); the crosswalk's `yahoo_id` resolves
-  roster identities. Blocked on the one-time browser authorization (ffb-1ct.2):
-  raw shapes are modeled from documentation and get a correction pass against
-  real responses, which will also add free agents, matchups, transactions,
-  draft results, and actual weekly points.
 - **nflverse stats / injuries / depth charts** via `nflreadpy` (in-season) —
   usage (snaps, targets), injury designations, practice participation, depth
   charts. Weekly player stats for the 2024–2025 calibration backfill are
@@ -585,7 +564,7 @@ are not ingested today.
 
 ### Sleeper league (second-league lineup spike)
 
-`src/ffb/sources/sleeper_league.py`. Thin peer of `YahooLeagueSource` for
+`src/ffb/sources/sleeper_league.py`. Thin live source for
 Brian's Sleeper league; `fetch` returns a validated `LeagueBundle`, the same
 contract Yahoo emits. **Not** a multi-platform framework. Yahoo remains the
 occupant of DuckDB `league_*` and Worker `league:bundle:current`.
