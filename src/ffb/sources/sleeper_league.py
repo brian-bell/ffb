@@ -1,6 +1,6 @@
 """Sleeper league adapter: unauthed fetch + pure raw -> sit/start mapping.
 
-Thin peer of ``YahooLeagueSource`` for Brian's second league
+Thin live source for Brian's second league
 (``sleeper:1395854363380965376``). This spike maps league/rosters/users/state
 in memory for ``ffb lineup --league sleeper`` and must not write DuckDB
 ``league_*`` or POST Worker KV. Yahoo remains the occupant of those stores.
@@ -840,7 +840,7 @@ def map_state(
 
 
 class SleeperLeagueSource:
-    """Live peer of ``YahooLeagueSource`` that never writes ``league_*``."""
+    """Live source that never writes ``league_*``."""
 
     def __init__(
         self,

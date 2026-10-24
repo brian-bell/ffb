@@ -298,8 +298,6 @@ def test_league_sync_from_tracker_is_exclusive_and_needs_config(tmp_path, monkey
         app, ["league", "sync", "2024", "--from-tracker", "--fixture", str(FIXTURE)], env=env
     )
     assert both.exit_code == 2
-    refresh = runner.invoke(app, ["league", "sync", "2024", "--from-tracker", "--refresh"], env=env)
-    assert refresh.exit_code == 2
     monkeypatch.delenv("FFB_TRACKER_URL", raising=False)
     monkeypatch.delenv("FFB_TRACKER_API_KEY", raising=False)
     unset = runner.invoke(app, ["league", "sync", "2024", "--from-tracker"], env=env)

@@ -117,8 +117,8 @@ export function cardFreshness(kind: InseasonKind, view: InseasonView, now: numbe
 
   if (kind === "waivers") {
     if (!envelope || envelope.kind !== "waivers") {
-      // Only Sleeper exposes the full free-agent pool until Yahoo live
-      // authorization (ffb-1ct.2) lands, so another league's card waits on it.
+      // Only Sleeper exposes the full free-agent pool (Yahoo has
+      // no API access), so another league's card waits on it.
       if (view.league_key !== undefined && !view.league_key.startsWith("sleeper:")) {
         return { state: "waiting", reason: "Yahoo free agents need live authorization" };
       }
