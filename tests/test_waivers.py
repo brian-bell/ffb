@@ -130,6 +130,40 @@ def test_carries_injury_status_and_flags_unmatched_rostered_players():
     assert report["trending_available"] is False
 
 
+def test_an_out_starter_keeps_the_rest_of_season_baseline():
+    """A one-week Out tag does not open the slot for the rest of the season."""
+    roster, consensus, rostered = _league()
+    injuries = [
+        {"player_key": "qb1", "status": "OUT", "raw_roster_status": "Active", "matched": True}
+    ]
+    report = waiver_report(
+        consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS, injuries=injuries
+    )
+    # Free Passer (250) still loses to Mine QB (300). The slot is not empty.
+    assert "Free Passer" not in _by_name(report)
+    starters = {row["slot"]: row for row in report["starters"]}
+    assert starters["QB"]["name"] == "Mine QB"
+    assert starters["QB"]["ros"] == 300.0
+
+
+def test_out_on_the_ir_list_still_vacates_the_starter_slot():
+    roster, consensus, rostered = _league()
+    injuries = [
+        {
+            "player_key": "wr1",
+            "status": "OUT",
+            "raw_injury_status": "Out",
+            "raw_roster_status": "Injured Reserve",
+            "matched": True,
+        }
+    ]
+    report = waiver_report(
+        consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS, injuries=injuries
+    )
+    assert _by_name(report)["Free Receiver"]["gain"] == 25.0
+    assert _by_name(report)["Free Receiver"]["replaces"] == "Mine WR Bench"
+
+
 def test_an_injured_starter_leaves_the_slot_to_the_next_best_rostered_player():
     roster, consensus, rostered = _league()
     injuries = [{"player_key": "wr1", "status": "IR", "matched": True}]
@@ -175,6 +209,72 @@ def test_an_unprojected_rostered_player_leaves_the_slot_baseline_unknown_not_zer
         consensus, roster=roster, rostered_keys=rostered, roster_slots=SLOTS, injuries=injuries
     )
     assert _by_name(report)["49ers"]["gain"] == 110.0
+
+
+def test_season_long_absences_are_not_ranked_on_yahoo_or_sleeper_pools():
+    """IR/PUP/NFI get no ROS credit. Out keeps the season total.
+
+    Yahoo passes an explicit free-agent key set; Sleeper leaves it unset and
+    ranks every unrostered player. Both call ``waiver_report``.
+    """
+    roster, consensus, rostered = _league()
+    consensus += [
+        _ros("fa-ir", "Jaxson Dart", "QB", 400.0, team="NYG"),
+        _ros("fa-pup", "Pup Runner", "RB", 250.0),
+        _ros("fa-nfi", "Nfi Receiver", "WR", 250.0),
+        _ros("fa-list", "Listed Reserve", "QB", 390.0),
+        _ros("fa-out", "Week Out", "QB", 320.0),
+        _ros("fa-doubt", "Game Doubt", "QB", 315.0),
+        _ros("fa-healthy", "Healthy Arm", "QB", 318.0),
+        _ros("def:NYG", "Giants", "DEF", 200.0, team="NYG"),
+    ]
+    injuries = [
+        {"player_key": "fa-ir", "status": "IR", "matched": True},
+        {"player_key": "fa-pup", "status": "PUP", "matched": True},
+        {"player_key": "fa-nfi", "status": "NFI", "raw_injury_status": "NFI", "matched": True},
+        {
+            "player_key": "fa-list",
+            "status": "OUT",
+            "raw_injury_status": "Out",
+            "raw_roster_status": "Injured Reserve",
+            "matched": True,
+        },
+        {"player_key": "fa-out", "status": "OUT", "raw_roster_status": "Active", "matched": True},
+        {"player_key": "fa-doubt", "status": "DOUBTFUL", "matched": True},
+        {"player_key": "def:NYG", "status": "IR", "matched": True},
+    ]
+    absent = {"Jaxson Dart", "Pup Runner", "Nfi Receiver", "Listed Reserve", "Giants"}
+    yahoo_keys = {
+        "fa-ir",
+        "fa-pup",
+        "fa-nfi",
+        "fa-list",
+        "fa-out",
+        "fa-doubt",
+        "fa-healthy",
+        "def:NYG",
+        "fa-rb",
+    }
+    for free_agent_keys in (yahoo_keys, None):
+        report = waiver_report(
+            consensus,
+            roster=roster,
+            rostered_keys=rostered,
+            roster_slots=SLOTS,
+            injuries=injuries,
+            free_agent_keys=free_agent_keys,
+        )
+        rows = _by_name(report)
+        assert absent.isdisjoint(rows)
+        # 318 vs the 300 QB. Full season consensus, not a one-week haircut.
+        assert rows["Healthy Arm"]["gain"] == 18.0
+        assert rows["Healthy Arm"]["ros"] == 318.0
+        assert rows["Week Out"]["gain"] == 20.0
+        assert rows["Week Out"]["ros"] == 320.0
+        assert rows["Week Out"]["injury"] == "OUT"
+        assert rows["Game Doubt"]["gain"] == 15.0
+        assert rows["Game Doubt"]["ros"] == 315.0
+        assert "Free Back" in rows
 
 
 def test_an_explicit_free_agent_pool_replaces_the_league_wide_complement():

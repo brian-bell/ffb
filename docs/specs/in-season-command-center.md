@@ -457,11 +457,20 @@ they could replace:
 
 1. The user's roster is scored on season-scope consensus with the league's own
    weights, and a greedy ROS-optimal lineup fills the starting slots (the same
-   slot rules as sit/start). Out/IR/Doubtful starters sit, and a slot nobody
-   can fill counts as empty.
+   slot rules as sit/start). IR, PUP, and NFI starters sit. Out and Doubtful
+   starters keep their season consensus in the baseline, because that tag is
+   one week and the baseline is a season total. A slot nobody can fill counts
+   as empty.
 2. The free-agent pool is every matched consensus row at a startable position
    whose canonical key is on no team in the league. Unmatched consensus rows
-   never enter.
+   never enter. A player on IR, PUP, or NFI is left out too: the stored Sleeper
+   injury row (`status`, plus raw injury and roster status) has no return week
+   or date, so the report does not credit the season consensus for weeks that
+   player will miss. Roster-list IR/PUP/NFI counts even when a direct Out token
+   overrode it in the canonical status. Out and Doubtful stay in the pool at
+   the full season total. That total is one number, not a stack of weekly
+   projections, so a one-week designation is not subtracted and is not allowed
+   to wipe the rest of the season.
 3. Each free agent's gain is its ROS points minus the weakest starter among the
    slots it can fill (an empty slot counts as 0). A player Sleeper lists at two
    positions (a QB/TE) can fill the slots of both, read from the cached
