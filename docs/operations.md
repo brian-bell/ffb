@@ -95,7 +95,8 @@ bot. Grok scrapes Yahoo and posts to the two existing Worker routes, then runs
 the CLI from the repository root with `FFB_TRACKER_URL` and
 `FFB_TRACKER_API_KEY` set. `S` is the season and `W` the current week. Grok
 never runs `season sync` against Yahoo; the free sources are fetched by the
-CLI. Scheduling itself lives outside this repository (`ffb-8yi`).
+CLI. Scheduling itself lives outside this repository; the Grok bot's cadence is the
+accepted practice, with no email delivery or `reports/` archive.
 
 `make refresh` runs the CLI half of every run below for both leagues after the
 Yahoo scrapes are posted. It loads `.env` when present, reads the week from
