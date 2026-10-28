@@ -1,5 +1,8 @@
 """Backfilled priors: scoring, kickoff safety, calibration, and free-agent grading."""
 
+import json
+from pathlib import Path
+
 from ffb.backtest import walk_forward_backtest
 from ffb.calibration import _decision_rows, fit_calibration
 from ffb.cli import app
@@ -9,8 +12,10 @@ from ffb.prior_data import load_prior_facts, sync_priors
 from ffb.priors import build_prior_facts, grade_free_agents
 from ffb.scoring import ppr_points
 from ffb.snapshot import SnapshotCache, SnapshotPolicy
+from ffb.sources import sleeper_league
 from ffb.sources.player_stats import parse_actuals, points_allowed_band
 from ffb.sources.sleeper import projection_as_of
+from ffb.store import Store
 
 from .cli_plain import PlainCliRunner
 
@@ -607,7 +612,9 @@ def test_refresh_keeps_a_snapshot_the_parser_cannot_use(tmp_path, monkeypatch):
     assert not cache.has("espn/projections_2024_week1")
 
 
-def test_priors_cli_replays_snapshots_and_waivers_stay_on_sleeper(tmp_path, monkeypatch):
+def _prior_cli_env(tmp_path, monkeypatch) -> dict[str, str]:
+    """Offline 2024 prior snapshots for one WR; the DuckDB path is unused."""
+
     def _boom(*_args, **_kwargs):
         raise AssertionError("network")
 
@@ -677,11 +684,22 @@ def test_priors_cli_replays_snapshots_and_waivers_stay_on_sleeper(tmp_path, monk
         "FFB_DB_PATH": str(tmp_path / "ffb.duckdb"),
         "FFB_SNAPSHOT_DIR": str(tmp_path / "snapshots"),
     }
+    return env
 
-    built = runner.invoke(app, ["calibrate", "priors", "--season", "2024", "--offline"], env=env)
+
+def _prior_counts(env: dict[str, str]):
+    return runner.invoke(app, ["calibrate", "priors", "--season", "2024", "--offline"], env=env)
+
+
+def test_priors_cli_replays_snapshots_and_waivers_stay_on_sleeper(tmp_path, monkeypatch):
+    env = _prior_cli_env(tmp_path, monkeypatch)
+
+    built = _prior_counts(env)
     assert built.exit_code == 0, built.output
+    assert "No stored database; counting with the configured Yahoo scoring." in built.output
     assert f"2024 week 1 {YAHOO}:" in built.output
     assert SLEEPER not in built.output
+    assert not (tmp_path / "ffb.duckdb").exists()
 
     both = runner.invoke(app, ["calibrate", "priors", "--offline", "--refresh"], env=env)
     assert both.exit_code != 0
@@ -695,3 +713,59 @@ def test_priors_cli_replays_snapshots_and_waivers_stay_on_sleeper(tmp_path, monk
     missing = runner.invoke(app, ["calibrate", "waivers", "2024", "--week", "1"], env=env)
     assert missing.exit_code == 1
     assert "ffb league sync 2024 --league sleeper" in missing.output
+
+
+def test_priors_cli_leaves_a_stale_database_untouched(tmp_path, monkeypatch):
+    env = _prior_cli_env(tmp_path, monkeypatch)
+    db = tmp_path / "ffb.duckdb"
+    stale = Store(db)
+    stale.init_schema()
+    stale.conn.execute("ALTER TABLE projections DROP COLUMN draftable")
+    stale.conn.execute("DROP TABLE headlines")
+    stale.close()
+    before = db.read_bytes()
+
+    replayed = _prior_counts(env)
+
+    assert replayed.exit_code == 0, replayed.output
+    assert "Stored database is out of date; counting with the configured Yahoo" in replayed.output
+    assert f"2024 week 1 {YAHOO}:" in replayed.output
+    assert db.read_bytes() == before
+    assert not db.with_name("ffb.duckdb.wal").exists()
+
+
+def test_priors_cli_reads_stored_league_scoring_without_writing(tmp_path, monkeypatch):
+    env = _prior_cli_env(tmp_path, monkeypatch)
+    db = tmp_path / "ffb.duckdb"
+    store = Store(db)
+    store.init_schema()
+    store.replace_league_state(_sleeper_bundle())
+    store.close()
+    before = db.read_bytes()
+
+    counted = _prior_counts(env)
+
+    assert counted.exit_code == 0, counted.output
+    assert f"2024 week 1 {YAHOO}:" in counted.output
+    assert f"2024 week 1 {SLEEPER}:" in counted.output
+    assert "configured Yahoo scoring" not in counted.output
+    assert db.read_bytes() == before
+    assert not db.with_name("ffb.duckdb.wal").exists()
+
+
+def _sleeper_bundle():
+    fixtures = Path(__file__).parent / "fixtures" / "sleeper"
+
+    def load(name):
+        return json.loads((fixtures / name).read_text())
+
+    return sleeper_league.map_state(
+        league=load("league.json"),
+        rosters=load("rosters.json"),
+        users=load("users.json"),
+        state=load("state_nfl.json"),
+        user_id="1395866680286003200",
+        season=2026,
+        synced_at="2026-09-17T12:00:00Z",
+        players_by_id=load("players.json"),
+    )
