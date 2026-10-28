@@ -20,5 +20,8 @@ docs/plans/
 
 .lavish/
 
+# Beads gate lock (local process lock)
+.beads.gate.lock
+
 # Local secrets (tracker, Anthropic, Cloudflare keys)
 .env
