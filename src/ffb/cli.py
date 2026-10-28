@@ -916,14 +916,16 @@ def _load_prior_inputs(
     return facts, kickoffs, notes
 
 
-def _prior_scoring_by_league() -> dict[str, config.ScoringConfig]:
+def _prior_scoring_by_league(store: Store | None = None) -> dict[str, config.ScoringConfig]:
     """Current scoring for each league. Sleeper is omitted until it is synced.
 
     Priors are scored with the league's present rules, including when the
     stat season is 2024 or 2025. Yahoo falls back to the configured weights.
-    Sleeper never borrows those weights.
+    Sleeper never borrows those weights. A passed ``store`` stays open.
     """
-    store = _open_store()
+    owned = store is None
+    if store is None:
+        store = _open_store()
     try:
         scoring: dict[str, config.ScoringConfig] = {}
         for year in (config.DEFAULT_SEASON, 2025, 2024):
@@ -946,6 +948,36 @@ def _prior_scoring_by_league() -> dict[str, config.ScoringConfig]:
                 scoring[config.SLEEPER_LEAGUE_KEY] = context.scoring
             break
         return scoring
+    finally:
+        if owned:
+            store.close()
+
+
+def _existing_prior_scoring() -> dict[str, config.ScoringConfig]:
+    """Stored league scoring without creating or rejecting the database.
+
+    ``calibrate priors`` writes snapshots only, so the file is opened
+    read-only: a missing file stays missing and a stale one is left as is.
+    Both fall back to the configured Yahoo weights.
+    """
+    fallback = {config.YAHOO_LEAGUE_KEY: config.LEAGUE_SCORING}
+    path = paths.db_path()
+    if not path.exists():
+        console.print(
+            "[yellow]No stored database; counting with the configured Yahoo scoring.[/yellow]"
+        )
+        return fallback
+    store = Store(path, read_only=True)
+    try:
+        store.verify_schema()
+    except SchemaMismatchError:
+        console.print(
+            "[yellow]Stored database is out of date; counting with the "
+            "configured Yahoo scoring.[/yellow]"
+        )
+        return fallback
+    else:
+        return _prior_scoring_by_league(store)
     finally:
         store.close()
 
@@ -1274,7 +1306,7 @@ def calibrate_priors(
     notes = sync_priors(cache, chosen, policy=policy)
     for note in notes:
         console.print(f"[red]{note}[/red]")
-    scoring = _prior_scoring_by_league()
+    scoring = _existing_prior_scoring()
     facts, load_notes = load_prior_facts(cache, seasons=chosen, scoring_by_league=scoring)
     for note in load_notes:
         console.print(f"[yellow]{note}[/yellow]")

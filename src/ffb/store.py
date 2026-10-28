@@ -247,27 +247,30 @@ def _expected_columns() -> dict[str, frozenset[str]]:
 
 
 class Store:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, *, read_only: bool = False):
+        """Open the file. ``read_only`` requires an existing file and never writes it."""
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = duckdb.connect(str(self.path))
+        if not read_only:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = duckdb.connect(str(self.path), read_only=read_only)
 
     def init_schema(self) -> None:
         # No cross-version migration by design: the DB is a disposable local
         # cache rebuilt offline from snapshots (see AGENTS.md). ``CREATE TABLE
         # IF NOT EXISTS`` does not add columns, so a file from before
-        # ``schedule_games.gameday`` / ``gametime`` fails ``_verify_schema``
+        # ``schedule_games.gameday`` / ``gametime`` fails ``verify_schema``
         # and the operator moves it aside and replays the snapshots.
         self.conn.execute(SCHEMA)
-        self._verify_schema()
+        self.verify_schema()
 
-    def _verify_schema(self) -> None:
+    def verify_schema(self) -> None:
         """Fail with a directed error when an existing file lacks a column.
 
         Without this, every read and write of the widened table raises a raw
         ``duckdb`` binder error — including the ones ``season sync --rebuild``
         needs to repair the file — so the operator gets the rebuild recipe here
-        instead.
+        instead. A read-only store calls this without ``SCHEMA``, so checking a
+        stale file never adds the tables it lacks.
         """
         actual = _table_columns(self.conn)
         missing = {

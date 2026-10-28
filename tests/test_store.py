@@ -59,6 +59,26 @@ def test_init_schema_reports_a_database_predating_a_column(tmp_path):
     assert "--offline --rebuild" in message
 
 
+def test_read_only_store_reports_a_stale_file_without_changing_it(tmp_path):
+    path = tmp_path / "db.duckdb"
+    old = Store(path)
+    old.init_schema()
+    old.conn.execute("ALTER TABLE projections DROP COLUMN draftable")
+    old.conn.execute("DROP TABLE headlines")
+    old.close()
+    before = path.read_bytes()
+
+    store = Store(path, read_only=True)
+    with pytest.raises(SchemaMismatchError) as excinfo:
+        store.verify_schema()
+    store.close()
+
+    message = str(excinfo.value)
+    assert "headlines is missing" in message
+    assert "projections is missing draftable" in message
+    assert path.read_bytes() == before
+
+
 def test_upsert_and_read_back(seeded_store):
     rows = seeded_store.projection_rows(season=2024)
     native_ids = {r["native_id"] for r in rows}
