@@ -5,6 +5,13 @@ the league-wide rostered set. The CLI loads DuckDB; this module never does.
 Each unrostered player is compared to the weakest ROS-optimal starter in any
 slot they could fill, and only players who beat that starter are listed.
 Sleeper trending adds are not ingested yet, so there is no trending boost.
+
+IR, PUP, and NFI free agents are omitted, and the same tags bench a rostered
+player for the whole baseline. The injury rows this report already receives
+have a status and raw roster status, not a return week, so those players
+would otherwise be credited for every remaining week. Out and Doubtful keep
+the season-total consensus on both sides of the comparison: that number is
+not a week stack, and a one-week tag must not erase the rest of it.
 """
 
 from __future__ import annotations
@@ -22,6 +29,57 @@ from ffb.lineup import (
 from ffb.vorp import FLEX_SLOTS, eligible_positions
 
 CANDIDATES_PER_POSITION = 10
+
+# Canonical statuses from ``sleeper_players.canonical_status``. A direct
+# Out/Doubtful token wins over the roster list there, so the raw roster status
+# is checked too: a player stored as Out who is actually on IR still misses
+# the rest of the season.
+_SEASON_LONG_STATUSES = frozenset({"IR", "PUP", "NFI"})
+_SEASON_LONG_ROSTER = frozenset(
+    {
+        "Injured Reserve",
+        "Physically Unable to Perform",
+        "Non Football Injury",
+    }
+)
+
+
+def _season_long_absence(injury: dict[str, Any] | None) -> bool:
+    """True when stored status says the player will not play out the season.
+
+    Injury rows carry no return week or date. Without one, IR/PUP/NFI receive
+    no rest-of-season credit and never become waiver targets. Out, Doubtful,
+    and Questionable are this-week designations and are not absences.
+    """
+    if not isinstance(injury, dict):
+        return False
+    status = injury.get("status")
+    if isinstance(status, str) and status.strip().upper() in _SEASON_LONG_STATUSES:
+        return True
+    raw_injury = injury.get("raw_injury_status")
+    if isinstance(raw_injury, str) and raw_injury.strip().upper() in _SEASON_LONG_STATUSES:
+        return True
+    roster = injury.get("raw_roster_status")
+    return isinstance(roster, str) and roster.strip() in _SEASON_LONG_ROSTER
+
+
+def _ros_baseline_injuries(injuries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Injuries that should bench someone for the rest of the season.
+
+    Out and Doubtful are this-week tags. Dropping them here keeps that player's
+    season consensus in the starter baseline. A list placement (IR/PUP/NFI)
+    still benches them, including when the canonical badge is Out.
+    """
+    kept: list[dict[str, Any]] = []
+    for row in injuries:
+        if _season_long_absence(row):
+            kept.append(row)
+            continue
+        status = row.get("status")
+        if isinstance(status, str) and status.strip().upper() in {"OUT", "DOUBTFUL"}:
+            continue
+        kept.append(row)
+    return kept
 
 
 def _baselines(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> list[dict]:
@@ -62,6 +120,14 @@ def _baselines(players: list[dict[str, Any]], roster_slots: dict[str, int]) -> l
     return rows
 
 
+def _injury_label(injury: dict[str, Any] | None) -> str | None:
+    """Canonical status badge for a candidate, or ``None`` when unset."""
+    if not isinstance(injury, dict):
+        return None
+    status = injury.get("status")
+    return status if status else None
+
+
 def _unknown(starter: dict[str, Any]) -> bool:
     """A slot held by a rostered player without a ROS projection."""
     return starter["name"] is not None and starter["ros"] is None
@@ -87,15 +153,19 @@ def waiver_report(
     cannot be excluded from the pool, so the report says so instead of guessing.
     ``eligibility`` maps a canonical key to provider slot eligibility beyond its
     position (a QB/TE), so such a player is measured at every slot it can fill.
+    IR, PUP, and NFI free agents are not in the pool, so their season consensus
+    is not a rest-of-season gain.
     """
     injury_rows = injuries or []
-    players = attach_injuries(attach_weekly_points(roster, consensus), injury_rows)
+    players = attach_injuries(
+        attach_weekly_points(roster, consensus), _ros_baseline_injuries(injury_rows)
+    )
     starters = _baselines(players, roster_slots)
     startable = eligible_positions(roster_slots)
     injury_by_key = {
-        row["player_key"]: row["status"]
+        row["player_key"]: row
         for row in injury_rows
-        if row.get("matched") and row.get("status")
+        if row.get("matched") and row.get("player_key")
     }
     pool = [
         row
@@ -105,6 +175,7 @@ def waiver_report(
         and (free_agent_keys is None or row.get("player_key") in free_agent_keys)
         and row.get("position") in startable
         and row.get("consensus") is not None
+        and not _season_long_absence(injury_by_key.get(row["player_key"]))
     ]
     candidates: list[dict[str, Any]] = []
     for row in pool:
@@ -127,7 +198,7 @@ def waiver_report(
                 "team": row.get("team"),
                 "ros": row["consensus"],
                 "n": row.get("n", 0),
-                "injury": injury_by_key.get(row["player_key"]),
+                "injury": _injury_label(injury_by_key.get(row["player_key"])),
                 "replaces": weakest["name"],
                 "replaces_slot": weakest["slot"],
                 "replaces_ros": weakest["ros"],
