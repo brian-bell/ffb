@@ -53,6 +53,7 @@ from ffb.league import FixtureLeagueSource, parse_bundle
 from ffb.league_context import LeagueSettingsUnavailable, load_league_context
 from ffb.lineup import (
     attach_injuries,
+    attach_kickoffs,
     attach_weekly_points,
     compare_lineup,
     injury_badge,
@@ -641,6 +642,10 @@ def lineup(
     user = user_teams[0]
     store.refresh_league_roster_identities(season, chosen_week, league_key)
     league_roster_rows = store.league_roster_rows(season, week=chosen_week, league_key=league_key)
+    if league_key.startswith("sleeper:"):
+        league_roster_rows = _sleeper_lineup_rows(
+            store, league_roster_rows, league_key, chosen_week
+        )
     roster_rows = [row for row in league_roster_rows if row["team_key"] == user["team_key"]]
     scope = config.projection_scope(chosen_week)
     active_sources = [
@@ -713,8 +718,11 @@ def lineup(
     players = apply_advice_points(
         [row for row in annotated if row["team_key"] == user["team_key"]], chosen_model
     )
+    players = attach_kickoffs(players, _schedule_kickoffs(cache, season), chosen_week)
     report = decorate_advice_report(
-        compare_lineup(players, league_ctx.roster_slots), players, chosen_model
+        compare_lineup(players, league_ctx.roster_slots, as_of=generated_at),
+        players,
+        chosen_model,
     )
     if exists and not force:
         console.print(
@@ -1636,6 +1644,40 @@ def _roster_advice(advices: list[dict], runs: list[dict]) -> dict | None:
     if stamp is None:
         return None
     return paired_advice(advices, stamp)
+
+
+def _sleeper_lineup_rows(store: Store, rows: list[dict], league_key: str, week: int) -> list[dict]:
+    """Limit Sleeper lineup rows to the week-N matchup roster.
+
+    The stored roster is current ownership, including an add that takes effect
+    later. The cached ``/matchups/{week}`` ``players`` list is who is rostered
+    for that week. A missing snapshot keeps the stored rows and says so.
+    """
+    league_id = league_key.split(":", 1)[1]
+    cache = SnapshotCache(paths.snapshot_dir())
+    key = sleeper_league.matchups_snapshot_key(league_id, week)
+    if not cache.has(key):
+        console.print(
+            f"[yellow]No Sleeper matchup snapshot for week {week}; lineup is using the "
+            f"current roster, which can include a later-week add. "
+            f"Run: ffb league sync --league sleeper[/yellow]"
+        )
+        return rows
+    league_snap = sleeper_league.snapshot_key(league_id, "league")
+    roster_positions: list[str] = []
+    if cache.has(league_snap):
+        raw = cache.read_json(league_snap)
+        if isinstance(raw, dict) and isinstance(raw.get("roster_positions"), list):
+            roster_positions = [slot for slot in raw["roster_positions"] if isinstance(slot, str)]
+    return sleeper_league.roster_rows_for_week(
+        rows,
+        cache.read_json(key),
+        league_id=league_id,
+        week=week,
+        roster_positions=roster_positions,
+        players_by_id=sleeper_league._cached_players(cache),
+        store=store,
+    )
 
 
 def _schedule_kickoffs(cache: SnapshotCache, season: int) -> dict[tuple[int, str], str]:

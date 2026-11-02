@@ -582,7 +582,14 @@ occupant of DuckDB `league_*` and Worker `league:bundle:current`.
   GET https://api.sleeper.app/v1/state/nfl
   ```
   `GET /league/{id}/matchups/{week}` is the historical-starter and weekly-points
-  source. `actuals_from_matchups` maps that payload to a `WeeklyActualsBundle`
+  source, and the roster lineup advice may use for that week. A current-week
+  `league sync` caches `/matchups/{nfl_week}` as well as `/rosters`. `/rosters`
+  is current ownership and can include an add whose move has not taken effect;
+  `matchups.players` is who is rostered for the matchup. `ffb lineup` keeps
+  only that list (and still stores `/rosters` for waivers and ROS). The
+  transaction `leg` is the week the move was filed, not the week it becomes
+  usable, so lineup does not filter on it. `actuals_from_matchups` maps the
+  matchup payload to a `WeeklyActualsBundle`
   (`source: "sleeper"`). `ffb retro --league sleeper --week N --from-matchups`
   reads the cached snapshot and does not fetch; it refuses a week that the
   cached `state_nfl` says is still in play. A re-sync that rewrites the same

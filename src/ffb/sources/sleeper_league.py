@@ -549,6 +549,179 @@ def resolve_sleeper_roster_rows(store: Any, players: list[dict[str, Any]]) -> li
     return rows
 
 
+def matchup_player_ids(matchup: Any) -> list[str]:
+    """Player ids rostered for this matchup week, in payload order.
+
+    ``/matchups/{week}.players`` is who Sleeper has already resolved onto that
+    week's roster. ``/rosters`` is current ownership and also includes an add
+    whose transaction has not taken effect yet. The transaction ``leg`` is the
+    week the move was filed, not the week it becomes usable, so it is the wrong
+    filter: a Saturday add during week 8 is leg 8 even when the player is absent
+    from that week's matchup.
+    """
+    if not isinstance(matchup, dict):
+        raise ValueError("Sleeper matchup must be an object")
+    players = matchup.get("players") or []
+    if not isinstance(players, list):
+        raise ValueError("matchup.players must be a list")
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in players:
+        if _vacant_starter(raw):
+            continue
+        pid = _str(raw, "player_id")
+        if pid not in seen:
+            seen.add(pid)
+            ids.append(pid)
+    return ids
+
+
+def roster_rows_for_week(
+    rows: list[dict[str, Any]],
+    matchups: Any,
+    *,
+    league_id: str,
+    week: int,
+    roster_positions: list[str],
+    players_by_id: Mapping[str, Any] | None = None,
+    store: Any = None,
+) -> list[dict[str, Any]]:
+    """Roster rows lineup advice may use for one Sleeper week.
+
+    Membership is the matchup ``players`` list. An id only on the stored
+    ``/rosters`` rows is a later-week add and is dropped. An id on the matchup
+    but missing from those rows is a drop or trade that has not taken effect;
+    it is resolved and kept. Stored ``selected_position`` is left as synced.
+    A player who exists only on the matchup takes their starter slot from that
+    payload, or BN. An IR/IL label on a stored row is preserved because
+    matchups have no reserve list.
+    """
+    if not isinstance(matchups, list):
+        raise ValueError("Sleeper matchups must be a list")
+    by_roster: dict[str, dict[str, Any]] = {}
+    for i, matchup in enumerate(matchups):
+        if not isinstance(matchup, dict) or "roster_id" not in matchup:
+            raise ValueError(f"Sleeper matchup [{i}] must be an object with roster_id")
+        by_roster[_str(matchup["roster_id"], f"matchups[{i}].roster_id")] = matchup
+
+    prefix = f"{sleeper_league_key(league_id)}.t."
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    passthrough: list[dict[str, Any]] = []
+    for row in rows:
+        team_key = str(row.get("team_key") or "")
+        if not team_key.startswith(prefix):
+            passthrough.append(row)
+            continue
+        roster_id = team_key[len(prefix) :]
+        if roster_id not in grouped:
+            grouped[roster_id] = []
+            order.append(roster_id)
+        grouped[roster_id].append(row)
+    for roster_id in by_roster:
+        if roster_id not in grouped:
+            grouped[roster_id] = []
+            order.append(roster_id)
+
+    rebuilt: list[dict[str, Any]] = []
+    for roster_id in order:
+        matchup = by_roster.get(roster_id)
+        team_rows = grouped[roster_id]
+        if matchup is None:
+            rebuilt.extend(team_rows)
+            continue
+        rebuilt.extend(
+            _rows_on_matchup(
+                team_rows,
+                matchup,
+                team_key=f"{prefix}{roster_id}",
+                week=week,
+                roster_positions=roster_positions,
+                players_by_id=players_by_id,
+                store=store,
+            )
+        )
+    return passthrough + rebuilt
+
+
+def _rows_on_matchup(
+    team_rows: list[dict[str, Any]],
+    matchup: dict[str, Any],
+    *,
+    team_key: str,
+    week: int,
+    roster_positions: list[str],
+    players_by_id: Mapping[str, Any] | None,
+    store: Any,
+) -> list[dict[str, Any]]:
+    eligible = matchup_player_ids(matchup)
+    eligible_set = set(eligible)
+    starter_slots = _matchup_starter_slots(matchup, roster_positions)
+    kept = [row for row in team_rows if str(row.get("native_id")) in eligible_set]
+    seen = {str(row.get("native_id")) for row in kept}
+    missing: list[dict[str, Any]] = []
+    lookup = players_by_id or {}
+    for pid in eligible:
+        if pid in seen:
+            continue
+        missing.append(
+            _parse_player(
+                pid,
+                lookup.get(pid),
+                selected_position=starter_slots.get(pid, "BN"),
+            )
+        )
+    if not missing:
+        return kept
+    if store is None:
+        raise ValueError("store is required to resolve matchup players missing from the roster")
+    resolved = resolve_sleeper_roster_rows(store, missing)
+    for player in resolved:
+        kept.append(_stored_roster_row(player, team_key=team_key, week=week))
+    return kept
+
+
+def _matchup_starter_slots(matchup: dict[str, Any], roster_positions: list[str]) -> dict[str, str]:
+    """Map a non-vacant matchup starter id to its roster slot.
+
+    Without ``roster_positions`` the zip is unknowable; callers then treat a
+    matchup-only player as BN rather than guessing a slot.
+    """
+    starters = matchup.get("starters") or []
+    if not isinstance(starters, list):
+        raise ValueError("matchup.starters must be a list")
+    if not roster_positions:
+        return {}
+    slots = starting_slots(roster_positions)
+    if len(starters) != len(slots):
+        raise ValueError(
+            f"matchup starters length {len(starters)} does not match "
+            f"{len(slots)} starting roster_positions"
+        )
+    mapped: dict[str, str] = {}
+    for pid, slot in zip(starters, slots, strict=True):
+        if _vacant_starter(pid):
+            continue
+        mapped[_str(pid, "starter")] = slot
+    return mapped
+
+
+def _stored_roster_row(player: dict[str, Any], *, team_key: str, week: int) -> dict[str, Any]:
+    """Shape a resolved Sleeper player like a ``league_rosters`` row."""
+    position = player.get("primary_position") or player.get("position")
+    team = player.get("nfl_team") if player.get("nfl_team") is not None else player.get("team")
+    return {
+        **player,
+        "team_key": team_key,
+        "week": week,
+        "full_name": player.get("full_name") or player.get("name") or "",
+        "primary_position": position,
+        "nfl_team": team,
+        "position": position,
+        "team": team,
+    }
+
+
 def actuals_from_matchups(
     *,
     league: Any,
@@ -873,6 +1046,12 @@ class SleeperLeagueSource:
         ``week`` backfills a past week from ``/matchups``, which carries the
         starters as they stood then. /rosters cannot answer that question at
         all, so without it a week that was never synced live is unrecoverable.
+
+        A current-week sync also caches ``/matchups/{nfl_week}`` but still
+        stores ``/rosters``. That snapshot is who is rostered for the week in
+        progress; lineup advice reads it so a later-week add on ``/rosters``
+        is not recommended. The current week's matchup changes as rosters do,
+        so it is refetched rather than treated as a permanent cache.
         """
         from ffb.snapshot import SnapshotPolicy
 
@@ -902,12 +1081,16 @@ class SleeperLeagueSource:
                 lambda: fetch_users(client, self.league_id),
             )
             state = pull(state_snapshot_key(), lambda: fetch_state(client))
-            matchups = None
-            if week is not None:
-                matchups = pull(
-                    matchups_snapshot_key(self.league_id, week),
-                    lambda: fetch_matchups(client, self.league_id, week),
-                )
+            # The advice week is the requested backfill, or the live NFL leg.
+            # Always snapshot that week's matchups. Only a backfill replaces
+            # the stored roster with them; a current-week sync keeps /rosters
+            # for waivers and ROS, and lineup filters with the snapshot.
+            matchup_week = week if week is not None else parse_nfl_state(state)["week"]
+            matchup_payload = pull(
+                matchups_snapshot_key(self.league_id, matchup_week),
+                lambda wk=matchup_week: fetch_matchups(client, self.league_id, wk),
+            )
+            matchups = None if week is None else matchup_payload
         lookup = players_by_id if players_by_id is not None else _cached_players(self.cache)
         mapped = map_state(
             league=league,

@@ -6,6 +6,7 @@ from ffb.lineup import (
     CLOSE_CALL_POINTS,
     align_lineup_slots,
     attach_injuries,
+    attach_kickoffs,
     attach_weekly_points,
     compare_lineup,
     injury_badge,
@@ -640,3 +641,85 @@ def test_questionable_starter_still_counts_in_current_total():
     assert report["current_total"] == 14.0
     assert report["optimal_total"] == 14.0
     assert report["delta"] == 0.0
+
+
+def _kickoff_player(name, slot, points, kickoff, team):
+    return {
+        "name": name,
+        "position": "K",
+        "eligible_positions": ["K"],
+        "selected_position": slot,
+        "points": points,
+        "n": 1,
+        "team": team,
+        "player_key": name,
+        "projection_key": name,
+        "native_id": name,
+        "matched": True,
+        "kickoff_at": kickoff,
+    }
+
+
+# Sunday 07:00 ET, before the 13:00 slate. Thursday 20:15 ET has already kicked off.
+_SUNDAY_MORNING = "2026-11-01T11:00:00Z"
+_THURSDAY_NIGHT = "2026-10-30T00:15:00Z"
+_SUNDAY_AFTERNOON = "2026-11-01T17:00:00Z"
+
+
+def test_kicked_off_starter_is_not_swapped_for_a_better_bench_player():
+    """Smack's Thursday game has started; Bass cannot replace him at K."""
+    players = [
+        _kickoff_player("Trey Smack", "K", 2.0, _THURSDAY_NIGHT, "GB"),
+        _kickoff_player("Tyler Bass", "BN", 10.0, _SUNDAY_AFTERNOON, "BUF"),
+    ]
+    report = compare_lineup(players, {"K": 1, "BN": 1}, as_of=_SUNDAY_MORNING)
+
+    assert [row["name"] for row in report["optimal"]] == ["Trey Smack"]
+    assert report["start"] == []
+    assert report["sit"] == []
+    assert report["close_calls"] == []
+
+
+def test_kicked_off_bench_player_is_not_moved_in():
+    players = [
+        _kickoff_player("Trey Smack", "K", 2.0, _SUNDAY_AFTERNOON, "GB"),
+        _kickoff_player("Tyler Bass", "BN", 10.0, _THURSDAY_NIGHT, "BUF"),
+    ]
+    report = compare_lineup(players, {"K": 1, "BN": 1}, as_of=_SUNDAY_MORNING)
+
+    assert [row["name"] for row in report["optimal"]] == ["Trey Smack"]
+    assert report["start"] == []
+    assert report["sit"] == []
+
+
+def test_unlocked_kicker_swap_is_still_recommended():
+    players = [
+        _kickoff_player("Trey Smack", "K", 2.0, _SUNDAY_AFTERNOON, "GB"),
+        _kickoff_player("Tyler Bass", "BN", 10.0, _SUNDAY_AFTERNOON, "BUF"),
+    ]
+    report = compare_lineup(players, {"K": 1, "BN": 1}, as_of=_SUNDAY_MORNING)
+
+    assert [row["name"] for row in report["start"]] == ["Tyler Bass"]
+    assert [row["name"] for row in report["sit"]] == ["Trey Smack"]
+    assert report["delta"] == 8.0
+
+
+def test_kickoff_lock_is_off_unless_as_of_is_set():
+    """Retro and hindsight re-run compare_lineup with no clock, so they still swap."""
+    players = [
+        _kickoff_player("Trey Smack", "K", 2.0, _THURSDAY_NIGHT, "GB"),
+        _kickoff_player("Tyler Bass", "BN", 10.0, _THURSDAY_NIGHT, "BUF"),
+    ]
+    report = compare_lineup(players, {"K": 1, "BN": 1})
+
+    assert [row["name"] for row in report["start"]] == ["Tyler Bass"]
+
+
+def test_attach_kickoffs_uses_the_schedule_team_week():
+    players = attach_kickoffs(
+        [{"name": "Trey Smack", "team": "GB"}, {"name": "Bye", "team": "BUF"}],
+        {(8, "GBP"): _THURSDAY_NIGHT},
+        8,
+    )
+    assert players[0]["kickoff_at"] == _THURSDAY_NIGHT
+    assert players[1]["kickoff_at"] is None

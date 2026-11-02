@@ -189,6 +189,45 @@ def _synced(tmp_path):
     return env
 
 
+def test_sleeper_lineup_does_not_recommend_an_add_missing_from_the_week_matchup(tmp_path):
+    """A player on /rosters but not on this week's matchup is not a start."""
+    env = _seed_store(tmp_path)
+    cache = SnapshotCache(tmp_path / "snapshots")
+    roster_key = f"sleeper/league_{LEAGUE_ID}_rosters"
+    rosters = cache.read_json(roster_key)
+    rosters[0]["players"] = [*rosters[0]["players"], "bass"]
+    cache.put_json(roster_key, rosters)
+    store = Store(env["FFB_DB_PATH"])
+    store.init_schema()
+    store.upsert_crosswalk(
+        [
+            {
+                "player_key": "k-bass",
+                "sleeper_id": "bass",
+                "espn_id": None,
+                "yahoo_id": None,
+                "gsis_id": None,
+                "full_name": "Tyler Bass",
+                "position": "K",
+                "team": "BUF",
+            }
+        ]
+    )
+    store.upsert_projections(
+        [_weekly_row("k-bass", "Tyler Bass", "K", "BUF", "bass", {"xpm": 10.0})]
+    )
+    store.close()
+
+    synced = runner.invoke(app, SYNC, env=env)
+    assert synced.exit_code == 0, synced.output
+    result = runner.invoke(app, LINEUP, env=env)
+    assert result.exit_code == 0, result.output
+    assert "Tyler Bass" not in result.output
+    output = " ".join(result.output.split())
+    assert "Start" in output and "Derrick Henry" in output
+    assert "Slow Back" in output
+
+
 def test_sleeper_lineup_prints_sit_start_with_full_ppr(tmp_path):
     env = _synced(tmp_path)
     result = runner.invoke(app, LINEUP, env=env)

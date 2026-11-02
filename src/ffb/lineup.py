@@ -5,13 +5,17 @@ state, ``scope=week{{N}}`` consensus, and stored Sleeper injuries; this module
 never touches DuckDB. Unmatched defenses join projections as
 ``def:<canonical-team>``. Unmatched skill players are never guessed by name.
 Out/Doubtful/IR-list designations are shown and excluded from the optimum.
+When ``as_of`` is set, a player whose ``kickoff_at`` is already then stays in
+their current slot: a locked starter is not benched, and a locked bench player
+is not moved in.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
-from ffb.identity import resolve_roster_defense
+from ffb.identity import canonical_team, resolve_roster_defense
 from ffb.vorp import BENCH_SLOT, FLEX_SLOTS
 
 NON_STARTING_SLOTS = frozenset({BENCH_SLOT, "IR", "IL"})
@@ -270,19 +274,54 @@ def _assign_optimal(
     roster_slots: dict[str, int],
     *,
     use_display_points: bool = True,
+    as_of: datetime | None = None,
 ) -> list[dict]:
     open_counts = dict(starting_slot_counts(roster_slots))
     assigned: list[tuple[str, dict[str, Any]]] = []
+    locked: set[str] = set()
+    for player in players:
+        if not _game_locked(player, as_of):
+            continue
+        locked.add(_identity(player))
+        slot = player.get("selected_position")
+        if not is_starter(slot):
+            continue
+        if slot in open_counts and open_counts[slot] > 0:
+            open_counts[slot] -= 1
+        assigned.append((slot, player))
     for player in sorted(
         players,
         key=lambda row: _points_sort_key(row, use_display_points=use_display_points),
     ):
+        if _identity(player) in locked:
+            continue
         if player.get("points") is None or is_unavailable(player):
             continue
         slot = _claim_slot(player, open_counts)
         if slot is not None:
             assigned.append((slot, player))
     return _rows_in_slot_order(assigned, roster_slots)
+
+
+def attach_kickoffs(
+    players: list[dict[str, Any]],
+    kickoffs: dict[tuple[int, str], str],
+    week: int,
+) -> list[dict[str, Any]]:
+    """Copy players and set ``kickoff_at`` from the ``(week, team)`` schedule map.
+
+    A team with no kickoff (bye, or a schedule row without a clock time) gets
+    ``kickoff_at`` null and is not treated as locked.
+    """
+    attached: list[dict[str, Any]] = []
+    for player in players:
+        raw_team = player.get("team")
+        team = canonical_team(raw_team) if isinstance(raw_team, str) else None
+        stamp = kickoffs.get((week, team)) if team is not None else None
+        if not isinstance(stamp, str) or not stamp:
+            stamp = None
+        attached.append({**player, "kickoff_at": stamp})
+    return attached
 
 
 def optimal_starters(
@@ -372,11 +411,20 @@ def compare_lineup(
     roster_slots: dict[str, int],
     *,
     close_call: float = CLOSE_CALL_POINTS,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
-    """Compare stored starters to a greedy weekly-point assignment."""
+    """Compare stored starters to a greedy weekly-point assignment.
+
+    ``as_of`` is the advice timestamp. A player with ``kickoff_at`` at or
+    before that instant is locked: their current slot cannot be swapped.
+    Omit ``as_of`` (retro, hindsight, waivers) and kickoffs are ignored.
+    """
+    moment = _require_utc(as_of)
     current = _expand_current(players, roster_slots)
     optimal, undecidable = _retain_unfilled_current(
-        current, _assign_optimal(players, roster_slots), roster_slots
+        current,
+        _assign_optimal(players, roster_slots, as_of=moment),
+        roster_slots,
     )
     current_ids = {_identity(row) for row in current}
     optimal_ids = {_identity(row) for row in optimal}
@@ -389,7 +437,7 @@ def compare_lineup(
         for player in players
         if player.get("points") is None
     ]
-    close_calls = _close_calls(players, optimal, close_call)
+    close_calls = _close_calls(players, optimal, close_call, as_of=moment)
     return {
         "current": current,
         "optimal": optimal,
@@ -410,17 +458,23 @@ def _close_calls(
     players: list[dict[str, Any]],
     optimal: list[dict[str, Any]],
     close_call: float,
+    *,
+    as_of: datetime | None = None,
 ) -> list[dict[str, Any]]:
     optimal_ids = {_identity(row) for row in optimal}
+    locked = {_identity(player) for player in players if _game_locked(player, as_of)}
     flagged: list[dict[str, Any]] = []
     for player in players:
         if (
             _identity(player) in optimal_ids
+            or _identity(player) in locked
             or player.get("points") is None
             or is_unavailable(player)
         ):
             continue
         for starter in optimal:
+            if _identity(starter) in locked:
+                continue
             if starter["points"] is None or not can_fill(player, starter["slot"]):
                 continue
             gap = round(_display_points(starter["points"]) - _display_points(player["points"]), 1)
@@ -437,3 +491,37 @@ def _close_calls(
                 break
     flagged.sort(key=lambda row: (row["delta"], row["name"]))
     return flagged
+
+
+def _game_locked(player: dict[str, Any], as_of: datetime | None) -> bool:
+    """True when this player's game has already kicked off at ``as_of``."""
+    if as_of is None:
+        return False
+    kickoff = _parse_utc(player.get("kickoff_at"))
+    if kickoff is None:
+        return False
+    return kickoff <= as_of
+
+
+def _require_utc(stamp: str | None) -> datetime | None:
+    if stamp is None:
+        return None
+    moment = _parse_utc(stamp)
+    if moment is None:
+        raise ValueError(f"as_of must be a UTC timestamp, got {stamp!r}")
+    return moment
+
+
+def _parse_utc(stamp: object) -> datetime | None:
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    text = stamp.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)

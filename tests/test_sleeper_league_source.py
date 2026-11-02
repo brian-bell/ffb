@@ -76,7 +76,11 @@ def test_fetch_snapshots_raw_pulls_and_maps_user_team(tmp_path):
     assert f"league_{LEAGUE_ID}_users.json" in names
     assert "state_nfl.json" in names
     assert any(request.url.path.endswith("/state/nfl") for request in requests)
-    assert not any("/matchups/" in request.url.path for request in requests)
+    assert any(request.url.path.endswith("/matchups/2") for request in requests)
+    matchup_snapshot = (
+        tmp_path / "snapshots" / "sleeper" / f"league_{LEAGUE_ID}_matchups_week2.json"
+    )
+    assert matchup_snapshot.is_file()
 
 
 def test_second_fetch_refetches_rather_than_replaying_stale_rosters(tmp_path):
@@ -191,7 +195,17 @@ def test_backfill_snapshots_the_week_and_replays_it_offline(tmp_path):
     assert "3198" in _user_starters(replayed)
 
 
-def test_current_week_fetch_never_requests_matchups(tmp_path):
+def test_current_week_fetch_caches_matchups_but_stores_rosters(tmp_path):
+    """Lineup reads the matchup snapshot; waivers still see current /rosters."""
     requests = []
-    _source(tmp_path, recorder=requests).fetch(2026)
-    assert not any("/matchups/" in r.url.path for r in requests)
+    routes = _routes()
+    rosters = json.loads(json.dumps(routes[f"/v1/league/{LEAGUE_ID}/rosters"]))
+    rosters[0]["players"] = [*rosters[0]["players"], "future-add"]
+    routes[f"/v1/league/{LEAGUE_ID}/rosters"] = rosters
+    bundle = _source(tmp_path, recorder=requests, routes=routes).fetch(2026)
+
+    assert any(r.url.path.endswith("/matchups/2") for r in requests)
+    user = next(team for team in bundle.teams if team["is_user_team"])
+    roster = next(row for row in bundle.rosters if row["team_key"] == user["team_key"])
+    assert "future-add" in {player["native_id"] for player in roster["players"]}
+    assert "slow" in _user_starters(bundle)

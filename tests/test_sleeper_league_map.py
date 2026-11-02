@@ -632,3 +632,64 @@ def test_free_agent_eligibility_keeps_only_multi_position_players_that_resolve()
     # Single-position players never reach the crosswalk; an unresolved one is skipped.
     assert sorted(store.asked) == ["4381", "9002"]
     assert eligibility == {"13136": ["QB", "TE", "W/R/T"]}
+
+
+def _roster_row(native_id, name, slot, team_key):
+    return {
+        "team_key": team_key,
+        "native_id": native_id,
+        "native_player_key": f"sleeper:{native_id}",
+        "full_name": name,
+        "nfl_team": "GB",
+        "primary_position": "K",
+        "eligible_positions": ["K"],
+        "selected_position": slot,
+        "player_key": native_id,
+        "matched": True,
+    }
+
+
+def test_week_roster_drops_a_later_add_and_keeps_a_player_still_on_the_matchup():
+    """Bass is on /rosters only. Smack's drop has not taken effect, so he still starts."""
+    league_id = _load("league.json")["league_id"]
+    team_key = f"sleeper:{league_id}.t.6"
+    stored = [
+        _roster_row("bass", "Tyler Bass", "K", team_key),
+        _roster_row("hurt", "Hurt Kicker", "IR", team_key),
+    ]
+    matchups = [
+        {
+            "roster_id": 6,
+            "players": ["smack", "hurt"],
+            "starters": ["smack"],
+        }
+    ]
+    store = _CrosswalkStore(
+        {
+            "smack": {
+                "player_key": "k-smack",
+                "position": "K",
+                "team": "GB",
+                "full_name": "Trey Smack",
+            }
+        }
+    )
+    rows = sl.roster_rows_for_week(
+        stored,
+        matchups,
+        league_id=league_id,
+        week=8,
+        roster_positions=["K", "BN"],
+        players_by_id={
+            "smack": {"first_name": "Trey", "last_name": "Smack", "position": "K", "team": "GB"}
+        },
+        store=store,
+    )
+    by_id = {row["native_id"]: row for row in rows}
+
+    assert "bass" not in by_id
+    assert by_id["hurt"]["selected_position"] == "IR"
+    assert by_id["smack"]["selected_position"] == "K"
+    assert by_id["smack"]["full_name"] == "Trey Smack"
+    assert by_id["smack"]["player_key"] == "k-smack"
+    assert by_id["smack"]["team_key"] == team_key
