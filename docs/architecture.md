@@ -68,7 +68,13 @@ reads `scope=week{N}` consensus plus stored `selected_position` for
 `is_user_team`, then left-joins matched Sleeper injury status only when `N` is
 the stored current week. Out, doubtful, IR, PUP, and NFI players are shown but
 never assigned as optimal starters, and their current-lineup contribution is
-zeroed in totals. Questionable remains eligible and is labeled. Missing, failed,
+zeroed in totals. Questionable remains eligible and is labeled. A Sleeper
+lineup for week N keeps only players on that week's matchup `players` list,
+so an add, drop, or trade that has not taken effect yet is not recommended.
+A swap into or out of a player whose schedule kickoff is already at or before
+the run is not recommended either; Yahoo uses that same kickoff rule. Yahoo
+rosters are the scraped week-N bundle and are not filtered through Sleeper
+matchups. Missing, failed,
 or stale injury source state is warned before the report. `ffb ros` is another
 season-slice read: it joins consensus to schedule-derived byes and
 regular-season games, ranks playoff-week opponent DEF consensus, and (when a
