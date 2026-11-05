@@ -42,7 +42,7 @@ from hashlib import sha256
 from typing import Any
 
 from ffb.config import FANTASY_POSITIONS
-from ffb.lineup import can_fill, is_unavailable
+from ffb.lineup import can_fill, is_unavailable, kicked_off
 from ffb.outcomes import PRIOR_GENERATED_AT
 from ffb.retro import league_snapshot_segment
 
@@ -257,25 +257,35 @@ def probability_close_calls(
     optimal: list[dict[str, Any]],
     *,
     threshold: float = CLOSE_CALL_PROBABILITY,
+    as_of: str | None = None,
 ) -> list[dict[str, Any]]:
     """Bench players the optimal lineup is under ``threshold`` to outscore.
 
     The 1.5-point rule stays in ``compare_lineup``. This list is the
     probability rule beside it: one row per eligible bench player, using the
     starter they are least certain to lose to. A missing sd skips that pair.
+    With ``as_of``, a pair involving a player whose game has kicked off is
+    skipped, matching the lock ``compare_lineup`` applies.
     """
     optimal_ids = {str(row.get("native_id") or "") for row in optimal}
     by_id = {str(player.get("native_id") or ""): player for player in players}
     flagged = []
     for player in players:
         identity = str(player.get("native_id") or "")
-        if identity in optimal_ids or player.get("points") is None or is_unavailable(player):
+        if (
+            identity in optimal_ids
+            or player.get("points") is None
+            or is_unavailable(player)
+            or kicked_off(player, as_of)
+        ):
             continue
         best = None
         for starter in optimal:
             if starter.get("points") is None or not can_fill(player, starter.get("slot")):
                 continue
             source = by_id.get(str(starter.get("native_id") or ""), starter)
+            if kicked_off(source, as_of):
+                continue
             probability = win_probability(
                 starter.get("points"),
                 source.get("sd"),
@@ -384,13 +394,19 @@ def start_probabilities(
 
 
 def decorate_advice_report(
-    report: dict[str, Any], players: list[dict[str, Any]], model: str
+    report: dict[str, Any],
+    players: list[dict[str, Any]],
+    model: str,
+    *,
+    as_of: str | None = None,
 ) -> dict[str, Any]:
     """Attach ``model``, ``sd`` / ``p_start``, and the close-call rule for ``model``.
 
     Raw keeps the 1.5-point list from ``compare_lineup``. Calibrated replaces it
     with win-probability close calls. Null sd / p_start are omitted so a raw
-    publish stays additive versus already-stored v1 cards.
+    publish stays additive versus already-stored v1 cards. Pass the same
+    ``as_of`` given to ``compare_lineup`` so calibrated close calls honor
+    kickoff locks too.
     """
     probs = start_probabilities(players, report["optimal"])
     for player in players:
@@ -419,7 +435,7 @@ def decorate_advice_report(
         for pair in report["aligned"]
     ]
     if model == "calibrated":
-        decorated["close_calls"] = probability_close_calls(players, report["optimal"])
+        decorated["close_calls"] = probability_close_calls(players, report["optimal"], as_of=as_of)
     return decorated
 
 

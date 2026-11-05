@@ -170,3 +170,48 @@ def test_decorate_replaces_close_calls_only_when_calibrated():
     assert all(row["p_win"] < 0.6 for row in cal["close_calls"])
     assert cal["optimal"][0]["p_start"] == pytest.approx(0.5282, abs=1e-3)
     assert cal["optimal"][0]["sd"] == 10.0
+
+
+_SUNDAY_MORNING = "2026-11-01T11:00:00Z"
+_THURSDAY_NIGHT = "2026-10-30T00:15:00Z"
+_SUNDAY_AFTERNOON = "2026-11-01T17:00:00Z"
+
+
+def _calibrated_kickers(starter_kickoff, bench_kickoff):
+    players = [
+        {
+            **_player("smack", "Trey Smack", 2.0, "RB", calibrated_mean=2.0, calibrated_sd=3.0),
+            "kickoff_at": starter_kickoff,
+        },
+        {
+            **_player("bass", "Tyler Bass", 10.0, "BN", calibrated_mean=10.0, calibrated_sd=3.0),
+            "kickoff_at": bench_kickoff,
+        },
+    ]
+    return apply_advice_points(players, "calibrated")
+
+
+@pytest.mark.parametrize(
+    ("starter_kickoff", "bench_kickoff"),
+    [(_THURSDAY_NIGHT, _SUNDAY_AFTERNOON), (_SUNDAY_AFTERNOON, _THURSDAY_NIGHT)],
+)
+def test_calibrated_close_calls_skip_kicked_off_players(starter_kickoff, bench_kickoff):
+    """A locked starter or bench player is no alternative under either close-call rule."""
+    players = _calibrated_kickers(starter_kickoff, bench_kickoff)
+    report = compare_lineup(players, SLOTS, as_of=_SUNDAY_MORNING)
+    assert report["close_calls"] == []
+
+    cal = decorate_advice_report(report, players, "calibrated", as_of=_SUNDAY_MORNING)
+
+    assert [row["name"] for row in cal["optimal"]] == ["Trey Smack"]
+    assert cal["close_calls"] == []
+
+
+def test_calibrated_close_calls_still_flag_unlocked_pairs():
+    players = _calibrated_kickers(_SUNDAY_AFTERNOON, _SUNDAY_AFTERNOON)
+    for player in players:
+        player["points"] = 9.0 if player["native_id"] == "bass" else 10.0
+    report = compare_lineup(players, SLOTS, as_of=_SUNDAY_MORNING)
+    cal = decorate_advice_report(report, players, "calibrated", as_of=_SUNDAY_MORNING)
+
+    assert [row["name"] for row in cal["close_calls"]] == ["Tyler Bass"]

@@ -493,6 +493,14 @@ def _close_calls(
     return flagged
 
 
+def kicked_off(player: dict[str, Any], as_of: str | None) -> bool:
+    """True when ``player``'s game has kicked off at the UTC ``as_of`` stamp.
+
+    The same lock ``compare_lineup`` applies. ``as_of`` None never locks.
+    """
+    return _game_locked(player, _require_utc(as_of))
+
+
 def _game_locked(player: dict[str, Any], as_of: datetime | None) -> bool:
     """True when this player's game has already kicked off at ``as_of``."""
     if as_of is None:

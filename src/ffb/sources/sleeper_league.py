@@ -576,6 +576,27 @@ def matchup_player_ids(matchup: Any) -> list[str]:
     return ids
 
 
+def validate_week_matchups(
+    matchups: Any, *, roster_positions: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Check a ``/matchups/{week}`` payload the way lineup will read it.
+
+    Returns the entries by roster id. Raises ``ValueError`` on any shape
+    ``roster_rows_for_week`` would refuse, so a sync can reject the payload
+    before it replaces the cached snapshot. An empty list is valid.
+    """
+    if not isinstance(matchups, list):
+        raise ValueError("Sleeper matchups must be a list")
+    by_roster: dict[str, dict[str, Any]] = {}
+    for i, matchup in enumerate(matchups):
+        if not isinstance(matchup, dict) or "roster_id" not in matchup:
+            raise ValueError(f"Sleeper matchup [{i}] must be an object with roster_id")
+        by_roster[_str(matchup["roster_id"], f"matchups[{i}].roster_id")] = matchup
+        matchup_player_ids(matchup)
+        _matchup_starter_slots(matchup, roster_positions)
+    return by_roster
+
+
 def roster_rows_for_week(
     rows: list[dict[str, Any]],
     matchups: Any,
@@ -596,13 +617,7 @@ def roster_rows_for_week(
     payload, or BN. An IR/IL label on a stored row is preserved because
     matchups have no reserve list.
     """
-    if not isinstance(matchups, list):
-        raise ValueError("Sleeper matchups must be a list")
-    by_roster: dict[str, dict[str, Any]] = {}
-    for i, matchup in enumerate(matchups):
-        if not isinstance(matchup, dict) or "roster_id" not in matchup:
-            raise ValueError(f"Sleeper matchup [{i}] must be an object with roster_id")
-        by_roster[_str(matchup["roster_id"], f"matchups[{i}].roster_id")] = matchup
+    by_roster = validate_week_matchups(matchups, roster_positions=roster_positions)
 
     prefix = f"{sleeper_league_key(league_id)}.t."
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -1104,6 +1119,16 @@ class SleeperLeagueSource:
             week=week,
             matchups=matchups,
         )
+        if week is None:
+            # A current-week sync does not map these matchups, but lineup reads
+            # the snapshot on every run. Refuse a bad payload before it lands.
+            positions = league.get("roster_positions") if isinstance(league, dict) else None
+            if not isinstance(positions, list):
+                positions = []
+            validate_week_matchups(
+                matchup_payload,
+                roster_positions=[slot for slot in positions if isinstance(slot, str)],
+            )
         for key, data in staged.items():
             self.cache.put_json(key, data)
         return mapped
