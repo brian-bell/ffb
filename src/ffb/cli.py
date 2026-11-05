@@ -719,10 +719,14 @@ def lineup(
         [row for row in annotated if row["team_key"] == user["team_key"]], chosen_model
     )
     players = attach_kickoffs(players, _schedule_kickoffs(cache, season), chosen_week)
+    # Kickoff locks model a live decision. A past week is reconstructed advice,
+    # and against today's clock every game in it has already kicked off.
+    lock_as_of = None if post_hoc else generated_at
     report = decorate_advice_report(
-        compare_lineup(players, league_ctx.roster_slots, as_of=generated_at),
+        compare_lineup(players, league_ctx.roster_slots, as_of=lock_as_of),
         players,
         chosen_model,
+        as_of=lock_as_of,
     )
     if exists and not force:
         console.print(

@@ -209,3 +209,37 @@ def test_current_week_fetch_caches_matchups_but_stores_rosters(tmp_path):
     roster = next(row for row in bundle.rosters if row["team_key"] == user["team_key"])
     assert "future-add" in {player["native_id"] for player in roster["players"]}
     assert "slow" in _user_starters(bundle)
+
+
+@pytest.mark.parametrize(
+    "bad_matchups",
+    [
+        {"not": "a list"},
+        [{"players": ["3198"]}],
+        [{"roster_id": 1, "players": "3198"}],
+        [{"roster_id": 1, "players": ["3198"], "starters": "3198"}],
+    ],
+)
+def test_current_week_sync_refuses_malformed_matchups_and_keeps_the_snapshot(
+    tmp_path, bad_matchups
+):
+    """Lineup reads this snapshot on every run, so a bad one must never land."""
+    source = _source(tmp_path)
+    source.fetch(2026)
+    key = sl.matchups_snapshot_key(LEAGUE_ID, 2)
+    good = source.cache.read_json(key)
+
+    routes = _routes()
+    routes[f"/v1/league/{LEAGUE_ID}/matchups/2"] = bad_matchups
+    with pytest.raises(ValueError, match="atchup"):
+        _source(tmp_path, routes=routes).fetch(2026)
+
+    assert source.cache.read_json(key) == good
+
+
+def test_current_week_sync_accepts_an_empty_matchup_list(tmp_path):
+    """Sleeper serves [] for a week with no matchups yet; lineup passes rows through."""
+    routes = _routes()
+    routes[f"/v1/league/{LEAGUE_ID}/matchups/2"] = []
+    _source(tmp_path, routes=routes).fetch(2026)
+    assert _source(tmp_path).cache.read_json(sl.matchups_snapshot_key(LEAGUE_ID, 2)) == []

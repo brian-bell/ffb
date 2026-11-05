@@ -546,3 +546,63 @@ def test_lineup_logs_no_predictions_for_a_past_week(tmp_path):
     assert forced.exit_code == 0, forced.output
 
     assert _snapshot_files(tmp_path, "predlog/yahoo_1.l.sit/2024_week1") == []
+
+
+def _write_kicked_off_week1_schedule(tmp_path):
+    """Week 1 2024 games for every rostered team, all long since kicked off."""
+    from ffb.snapshot import SnapshotCache
+    from ffb.sources import schedule
+
+    games = [
+        {
+            "season": 2024,
+            "game_type": "REG",
+            "week": 1,
+            "home_team": home,
+            "away_team": away,
+            "gameday": "2024-09-08",
+            "gametime": "13:00",
+        }
+        for home, away in (("BAL", "KC"), ("CIN", "CHI"), ("SF", "NYJ"))
+    ]
+    SnapshotCache(tmp_path / "snapshots").put_json(schedule.snapshot_key(2024), games)
+
+
+def _week1_snapshot(tmp_path):
+    return json.loads((tmp_path / "snapshots/lineup/yahoo_1.l.sit/2024_week1.json").read_text())
+
+
+def test_live_week_advice_keeps_kicked_off_starters(tmp_path):
+    env = _seed_lineup_store(tmp_path)
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env)
+    assert synced.exit_code == 0, synced.output
+    _write_kicked_off_week1_schedule(tmp_path)
+
+    result = runner.invoke(app, ["lineup", "2024"], env=env)
+    assert result.exit_code == 0, result.output
+
+    assert _week1_snapshot(tmp_path)["report"]["start"] == []
+
+
+def test_past_week_backfill_ignores_live_kickoff_locks(tmp_path):
+    """Reconstructing a finished week grades the projections, not today's clock."""
+    env = _seed_lineup_store(tmp_path)
+    assert (
+        runner.invoke(app, ["league", "sync", "2024", "--fixture", str(FIXTURE)], env=env).exit_code
+        == 0
+    )
+    week2 = json.loads(FIXTURE.read_text())
+    week2["league"]["current_week"] = 2
+    for roster in week2["rosters"]:
+        roster["week"] = 2
+    week2_path = tmp_path / "week2.json"
+    week2_path.write_text(json.dumps(week2))
+    synced = runner.invoke(app, ["league", "sync", "2024", "--fixture", str(week2_path)], env=env)
+    assert synced.exit_code == 0, synced.output
+    _write_kicked_off_week1_schedule(tmp_path)
+
+    forced = runner.invoke(app, ["lineup", "2024", "--week", "1", "--force"], env=env)
+    assert forced.exit_code == 0, forced.output
+
+    started = [row["name"] for row in _week1_snapshot(tmp_path)["report"]["start"]]
+    assert "Derrick Henry" in started
